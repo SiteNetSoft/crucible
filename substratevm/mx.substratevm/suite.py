@@ -1212,6 +1212,30 @@ suite = {
             "testProject": True,
         },
 
+        "com.oracle.svm.crucible.test": {
+            "subDir": "src",
+            "sourceDirs": ["src"],
+            "dependencies": [
+                "mx:JUNIT_TOOL",
+                "SVM",
+                "compiler:GRAAL_TEST",
+            ],
+            "requiresConcealed" : {
+                "jdk.internal.vm.ci": [
+                    "jdk.vm.ci.meta",
+                ]
+            },
+            "checkstyle": "com.oracle.svm.test",
+            "workingSets": "SVM,Test",
+            "annotationProcessors": [
+                "compiler:GRAAL_PROCESSOR",
+                "SVM_PROCESSOR",
+            ],
+            "javaCompliance": "24+",
+            "jacoco": "exclude",
+            "testProject": True,
+        },
+
         "com.oracle.svm.libjvm": {
             "subDir": "src",
             "sourceDirs": [
@@ -2855,6 +2879,20 @@ suite = {
             "com.oracle.svm.hosted.test",
           ],
           "unittestConfig" : "svm-invariants-tests",
+          "distDependencies": [
+            "mx:JUNIT_TOOL",
+            "SVM",
+            "compiler:GRAAL_TEST",
+          ],
+          "testDistribution" : True,
+        },
+
+        "SVM_CRUCIBLE_TESTS" : {
+          "subDir": "src",
+          "relpath" : True,
+          "dependencies" : [
+            "com.oracle.svm.crucible.test",
+          ],
           "distDependencies": [
             "mx:JUNIT_TOOL",
             "SVM",
