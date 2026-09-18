@@ -76,44 +76,6 @@ table is empty. Fixing defect 1 alone would stop the crash but still yield empty
 
 ## Notes
 
-The failure was first hit on the development workstation, where the build left no diagnostics. It
-was reproduced in a resource-capped container (4 CPUs, 10 GiB) on the test host, which is where the
-evidence above was collected. Build environment: mx 7.85.1, labsjdk
-`ce-25.0.4.1+1-jvmci-25.3-b22`, Rocky Linux 10 container, gcc 14.3.1.
-
-## Verification after the fixes
-
-Instrumented image builds (33 MiB, up from 12.94 MiB now that the counter table is real), runs
-clean, and writes the expected profile:
-
-    sum=45000000 hot=9000000 cold=1000000        # exit 0
-    crucible-profile.json                        # 501,195 bytes
-    schemaVersion 1, producer CrucibleVM, categories [methodCounts, conditionalProfiles]
-    582 methods, LHelloPGO;.main([Ljava/lang/String;)V calls=1
-    skewed branch: LHelloPGO;.step(ILHelloPGO$Shape;)I bci 4 -> [9000000, 1000000]
-
-A non-instrumented build of the same sample writes no profile, and all ten Crucible unit tests
-(`ProfileKeyTest`, `CrucibleProfileWriterTest`, `CounterSlotAllocatorTest`) pass.
-
-## Third instance of the same defect: empty `producer.imageBuildId`
-
-The first round of fixes left `producer.imageBuildId` emitted as the empty string. The driver does
-supply the value (`NativeImage.java` always passes `-H:ImageBuildID=` -- a bundle id, or a UUID
-derived from the build arguments), so the option is set; the empty value came from the *same*
-constant-folding defect as above, on a third field that the first fix missed. `imageBuildId` is
-read through the constant `singleton()`, so it folded to the value the field held while compiling,
-which is the initial `""`.
-
-Annotating it `@UnknownObjectField(availability = AfterCompilation.class)` alongside `counters` and
-`keys` fixes it; the profile now carries e.g.
-`"imageBuildId": "173db938-3220-25b6-f005-a8498a5d6669"`.
-
-`crucible/samples/verify-profile.py` asserts the field is non-empty, so this specific regression
-cannot return unnoticed.
-
-## Lesson
-
-Any field of an image-heap singleton that hosted code assigns after compilation must be
-`@UnknownObjectField`, or a read through the folded singleton silently yields the compile-time
-value. The failure mode ranges from a crash (the counter table) to an undetectable wrong value
-(the build id).
+The instrumented build succeeds, so the defect only shows at run time; a green build proves
+nothing here. Toolchain for the reproduction: mx 7.85.1 and labsjdk
+`ce-25.0.4.1+1-jvmci-25.3-b22`, matching `docs/design/environment.md`.
