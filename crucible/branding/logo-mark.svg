@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="CrucibleVM">
+  <title>CrucibleVM</title>
+  <defs>
+    <linearGradient id="cvm-molten" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#FFD24A"/>
+      <stop offset="0.5" stop-color="#FF8A1F"/>
+      <stop offset="1" stop-color="#E0402A"/>
+    </linearGradient>
+  </defs>
+  <!-- Measured branch counts rising out of the melt, drawn behind the rim. -->
+  <g fill="url(#cvm-molten)">
+    <rect x="19" y="18" width="7" height="14" rx="1.5"/>
+    <rect x="28.5" y="11" width="7" height="21" rx="1.5"/>
+    <rect x="38" y="5" width="7" height="27" rx="1.5"/>
+  </g>
+  <rect x="12" y="25" width="40" height="6.5" rx="1.5" fill="#44557A"/>
+  <path d="M15.5 31.5 H48.5 L42 50 H22 Z" fill="#44557A"/>
+  <rect x="20" y="50" width="24" height="4" rx="1.2" fill="#44557A"/>
+</svg>
