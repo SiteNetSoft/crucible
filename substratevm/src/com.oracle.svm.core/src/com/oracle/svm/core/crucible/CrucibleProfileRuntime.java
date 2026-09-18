@@ -29,6 +29,7 @@ import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.graalvm.word.LocationIdentity;
 
+import com.oracle.svm.core.hub.DynamicHubIntrinsics;
 import com.oracle.svm.core.snippets.SnippetRuntime;
 import com.oracle.svm.core.snippets.SnippetRuntime.SubstrateForeignCallDescriptor;
 import com.oracle.svm.core.snippets.SubstrateForeignCallTarget;
@@ -58,6 +59,14 @@ public final class CrucibleProfileRuntime {
 
     public static final SubstrateForeignCallDescriptor INCREMENT = SnippetRuntime.findForeignCall(CrucibleProfileRuntime.class, "increment", CallSideEffect.NO_SIDE_EFFECT, COUNTERS_LOCATION);
 
+    public static final SubstrateForeignCallDescriptor RECORD_TYPE = SnippetRuntime.findForeignCall(CrucibleProfileRuntime.class, "recordType", CallSideEffect.NO_SIDE_EFFECT, COUNTERS_LOCATION);
+
+    /** Receiver types remembered per call site before the row overflows. */
+    public static final int TYPE_ROW_WIDTH = 4;
+
+    /** Marks an unused entry; 0 is a valid type id. */
+    public static final int NO_TYPE = -1;
+
     /*
      * All three fields are only populated by install() in the feature's afterCompilation hook,
      * which runs after compilation. Without @UnknownObjectField the analysis folds a read through
@@ -68,6 +77,16 @@ public final class CrucibleProfileRuntime {
     @UnknownObjectField(availability = AfterCompilation.class) private long[] counters = new long[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String[] keys = new String[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String imageBuildId = "";
+
+    /* Receiver-type sampling: TYPE_ROW_WIDTH (typeId, count) pairs per site, flattened. */
+    @UnknownObjectField(availability = AfterCompilation.class) private int[] typeIds = new int[0];
+    @UnknownObjectField(availability = AfterCompilation.class) private long[] typeCounts = new long[0];
+    /** Times a site saw a receiver type that no longer fit in its row. */
+    @UnknownObjectField(availability = AfterCompilation.class) private long[] typeOverflow = new long[0];
+    @UnknownObjectField(availability = AfterCompilation.class) private String[] typeKeys = new String[0];
+    /** Type ids the image can observe, ascending, parallel to {@link #typeNames}. */
+    @UnknownObjectField(availability = AfterCompilation.class) private int[] typeIdTable = new int[0];
+    @UnknownObjectField(availability = AfterCompilation.class) private String[] typeNames = new String[0];
 
     @Platforms(Platform.HOSTED_ONLY.class)
     public CrucibleProfileRuntime() {
@@ -90,6 +109,56 @@ public final class CrucibleProfileRuntime {
         this.imageBuildId = newImageBuildId;
     }
 
+    /**
+     * Installs the receiver-type sampling tables. {@code newTypeIds} must be filled with
+     * {@link #NO_TYPE}, and {@code newIdTable} must be ascending so that lookups can bisect it.
+     */
+    @Platforms(Platform.HOSTED_ONLY.class)
+    public void installTypeTables(int[] newTypeIds, long[] newTypeCounts, long[] newOverflow, String[] newTypeKeys, int[] newIdTable, String[] newTypeNames) {
+        assert newTypeIds.length == newTypeKeys.length * TYPE_ROW_WIDTH;
+        assert newIdTable.length == newTypeNames.length;
+        this.typeIds = newTypeIds;
+        this.typeCounts = newTypeCounts;
+        this.typeOverflow = newOverflow;
+        this.typeKeys = newTypeKeys;
+        this.typeIdTable = newIdTable;
+        this.typeNames = newTypeNames;
+    }
+
+    public int[] typeIds() {
+        return typeIds;
+    }
+
+    public long[] typeCounts() {
+        return typeCounts;
+    }
+
+    public long[] typeOverflow() {
+        return typeOverflow;
+    }
+
+    public String[] typeKeys() {
+        return typeKeys;
+    }
+
+    /** Name of {@code typeId}, or {@code null} if the image does not know it. */
+    public String typeName(int typeId) {
+        int lo = 0;
+        int hi = typeIdTable.length - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            int id = typeIdTable[mid];
+            if (id < typeId) {
+                lo = mid + 1;
+            } else if (id > typeId) {
+                hi = mid - 1;
+            } else {
+                return typeNames[mid];
+            }
+        }
+        return null;
+    }
+
     public long[] counters() {
         return counters;
     }
@@ -109,6 +178,43 @@ public final class CrucibleProfileRuntime {
         long[] c = singleton().counters;
         if (slot >= 0 && slot < c.length) {
             c[slot]++;
+        }
+    }
+
+    /**
+     * Records the receiver's type at one call site. Scans the site's row for the type, claims a
+     * free entry if the type is new, and counts an overflow when the row is full. Racy by design:
+     * a lost update costs precision, not correctness.
+     */
+    @Uninterruptible(reason = "Called from compiled code without a frame state; must not safepoint.")
+    @SubstrateForeignCallTarget(fullyUninterruptible = true, stubCallingConvention = false)
+    private static void recordType(int site, Object receiver) {
+        if (receiver == null) {
+            return;
+        }
+        CrucibleProfileRuntime runtime = singleton();
+        int[] ids = runtime.typeIds;
+        long[] counts = runtime.typeCounts;
+        int base = site * TYPE_ROW_WIDTH;
+        if (site < 0 || base + TYPE_ROW_WIDTH > ids.length) {
+            return;
+        }
+        int typeId = DynamicHubIntrinsics.readHub(receiver).getTypeID();
+        for (int i = 0; i < TYPE_ROW_WIDTH; i++) {
+            int seen = ids[base + i];
+            if (seen == typeId) {
+                counts[base + i]++;
+                return;
+            }
+            if (seen == NO_TYPE) {
+                ids[base + i] = typeId;
+                counts[base + i]++;
+                return;
+            }
+        }
+        long[] overflow = runtime.typeOverflow;
+        if (site < overflow.length) {
+            overflow[site]++;
         }
     }
 }

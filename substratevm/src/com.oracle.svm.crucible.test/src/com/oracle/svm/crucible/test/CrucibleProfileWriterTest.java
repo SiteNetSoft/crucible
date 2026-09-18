@@ -42,11 +42,11 @@ public class CrucibleProfileWriterTest {
     @Test
     public void emitsHeaderAndCategories() throws IOException {
         String json = write(new String[0], new long[0]);
-        Assert.assertTrue(json, json.contains("\"schemaVersion\": 1"));
+        Assert.assertTrue(json, json.contains("\"schemaVersion\": 2"));
         Assert.assertTrue(json, json.contains("\"tool\": \"CrucibleVM\""));
         Assert.assertTrue(json, json.contains("\"graalBase\": \"vm-25.3.4.1\""));
         Assert.assertTrue(json, json.contains("\"imageBuildId\": \"build-1\""));
-        Assert.assertTrue(json, json.contains("\"categories\": [\"methodCounts\", \"conditionalProfiles\"]"));
+        Assert.assertTrue(json, json.contains("\"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"]"));
         Assert.assertTrue(json, json.contains("\"methods\": []"));
     }
 
@@ -62,9 +62,9 @@ public class CrucibleProfileWriterTest {
         String json = write(keys, counts);
         String expected = String.join("\n",
                         "{",
-                        "  \"schemaVersion\": 1,",
+                        "  \"schemaVersion\": 2,",
                         "  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"vm-25.3.4.1\", \"imageBuildId\": \"build-1\" },",
-                        "  \"categories\": [\"methodCounts\", \"conditionalProfiles\"],",
+                        "  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],",
                         "  \"methods\": [",
                         "    {",
                         "      \"id\": \"LFoo;.bar(I)V\",",

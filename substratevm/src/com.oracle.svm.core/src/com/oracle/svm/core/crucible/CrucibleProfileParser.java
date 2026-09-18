@@ -93,7 +93,23 @@ public final class CrucibleProfileParser {
                 }
                 conditionals.add(new CrucibleProfile.Conditional(List.copyOf(ctx), (int) asLong(co.get("bci"), "conditionals[].bci"), List.copyOf(successors)));
             }
-            methods.add(new CrucibleProfile.Method(asString(mo.get("id"), "methods[].id"), asLong(mo.getOrDefault("calls", Long.valueOf(0)), "methods[].calls"), List.copyOf(conditionals)));
+            List<CrucibleProfile.VirtualInvoke> invokes = new ArrayList<>();
+            for (Object v : asArray(mo.getOrDefault("virtualInvokes", List.of()), "virtualInvokes")) {
+                Map<String, Object> vo = asObject(v, "virtualInvokes[]");
+                List<String> ctx = new ArrayList<>();
+                for (Object e : asArray(vo.getOrDefault("ctx", List.of()), "virtualInvokes[].ctx")) {
+                    ctx.add(asString(e, "virtualInvokes[].ctx[]"));
+                }
+                List<CrucibleProfile.ObservedType> types = new ArrayList<>();
+                for (Object t : asArray(vo.getOrDefault("types", List.of()), "virtualInvokes[].types")) {
+                    Map<String, Object> to = asObject(t, "virtualInvokes[].types[]");
+                    types.add(new CrucibleProfile.ObservedType(asString(to.get("name"), "types[].name"), asLong(to.get("count"), "types[].count")));
+                }
+                invokes.add(new CrucibleProfile.VirtualInvoke(List.copyOf(ctx), (int) asLong(vo.get("bci"), "virtualInvokes[].bci"),
+                                asLong(vo.getOrDefault("overflow", Long.valueOf(0)), "virtualInvokes[].overflow"), List.copyOf(types)));
+            }
+            methods.add(new CrucibleProfile.Method(asString(mo.get("id"), "methods[].id"), asLong(mo.getOrDefault("calls", Long.valueOf(0)), "methods[].calls"),
+                            List.copyOf(conditionals), List.copyOf(invokes)));
         }
         return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods));
     }

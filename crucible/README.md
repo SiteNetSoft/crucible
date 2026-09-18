@@ -22,7 +22,7 @@ tracked non-Java assets live under `crucible/`. Upstream files are never modifie
     (cd crucible/samples/out && ./hellopgo)          # writes crucible-profile.json
     python3 crucible/samples/verify-profile.py crucible/samples/out/crucible-profile.json
 
-`verify-profile.py` exits 0 only if the profile is schema v1, carries a non-empty
+`verify-profile.py` exits 0 only if the profile is schema v2, carries a non-empty
 `producer.imageBuildId`, records exactly one call to `main`, and contains the 9M/1M conditional
 that the sample is built to produce.
 
@@ -32,6 +32,11 @@ crash.
 
 Instrumentation is never applied to `CrucibleProfileRuntime` itself or to any `@Uninterruptible`
 method; see `docs/issues/2026-09-18-instrumented-image-stack-overflow.md` for why.
+
+An instrumented image records three things: how often each method body ran, how often each
+successor of each branch was taken, and which receiver types occurred at each indirect call. A
+call site remembers four distinct receiver types; beyond that it counts overflows, which the
+profile reports per site so a site with a wider type set is visible rather than silently truncated.
 
 ## Profiled build (pass 2)
 
@@ -53,7 +58,11 @@ Because CE never reports profile hit rates, the build prints its own summary:
     Crucible: applied 2460 of 11862 conditional profile lookups (20.7%), 1351 via the context-insensitive fallback.
 
 Diagnostics: `-H:+CrucibleProfileDiagnostics` prints sample contexts that matched nothing, and
-`-H:CrucibleProfileTrace=<substring>` reports every lookup whose context contains the substring.
+`-H:CrucibleProfileTrace=<substring>` reports every lookup whose context contains the substring,
+marked `HIT`, `MISS` or `TYPE`.
+
+Receiver-type profiles feed upstream's `JavaTypeProfile`, from which it derives a method profile,
+so a call site that is monomorphic or strongly biased at run time can be devirtualised in pass 2.
 
 ## End-to-end check
 

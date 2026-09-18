@@ -40,4 +40,12 @@ applied=$(sed -E 's/^Crucible: applied ([0-9]+) of.*/\1/' <<<"$summary")
 grep -q "HIT  LHelloPGO;.step(ILHelloPGO\$Shape;)I:4" "$out/e2e-pass2.log" \
     || fail "the sample's skewed branch did not get its profile applied"
 
-echo "e2e OK: $applied conditional profiles applied, including the sample's skewed branch"
+# And the polymorphic Shape.area() call must receive a receiver-type profile.
+types=$(sed -E 's/.*receiver-type lookups.*//;t;d' <<<"$summary")
+applied_types=$(sed -E 's/.*fallback; ([0-9]+) of [0-9]+ receiver-type.*/\1/' <<<"$summary")
+[ "${applied_types:-0}" -gt 0 ] || fail "no receiver-type profile was applied"
+grep -q "TYPE LHelloPGO;.step(ILHelloPGO\$Shape;)I:" "$out/e2e-pass2.log" \
+    || fail "the sample's polymorphic call did not get a receiver-type profile"
+
+echo "e2e OK: $applied conditional profiles and $applied_types receiver-type profiles applied,"
+echo "        including the sample's skewed branch and its polymorphic Shape.area() call"

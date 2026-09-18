@@ -27,12 +27,12 @@ package com.oracle.svm.core.crucible;
 import java.util.List;
 
 /**
- * In-memory form of a {@code schemaVersion} 1 profile, as produced by {@link CrucibleProfileWriter}
+ * In-memory form of a {@code schemaVersion} 2 profile, as produced by {@link CrucibleProfileWriter}
  * and consumed by the pass 2 profile lookup.
  */
 public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods) {
 
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     public record Producer(String tool, String graalBase, String imageBuildId) {
     }
@@ -51,6 +51,19 @@ public record CrucibleProfile(int schemaVersion, Producer producer, List<String>
     public record Conditional(List<String> ctx, int bci, List<Successor> successors) {
     }
 
-    public record Method(String id, long calls, List<Conditional> conditionals) {
+    /** One observed receiver type at a call site. */
+    public record ObservedType(String name, long count) {
+    }
+
+    /**
+     * Receiver types seen at one indirect call site.
+     *
+     * @param overflow times the site saw a type that no longer fit in its row, so the type list is
+     *            incomplete by that many observations.
+     */
+    public record VirtualInvoke(List<String> ctx, int bci, long overflow, List<ObservedType> types) {
+    }
+
+    public record Method(String id, long calls, List<Conditional> conditionals, List<VirtualInvoke> virtualInvokes) {
     }
 }

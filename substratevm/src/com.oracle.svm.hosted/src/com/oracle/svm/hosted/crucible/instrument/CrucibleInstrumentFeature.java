@@ -24,8 +24,13 @@
  */
 package com.oracle.svm.hosted.crucible.instrument;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.graalvm.nativeimage.ImageSingletons;
 
+import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 
 import com.oracle.svm.core.SubstrateOptions;
@@ -35,6 +40,8 @@ import com.oracle.svm.core.crucible.CrucibleProfileWriter;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.graal.meta.SubstrateForeignCallsProvider;
 import com.oracle.svm.hosted.FeatureImpl.BeforeAnalysisAccessImpl;
+import com.oracle.svm.hosted.meta.HostedType;
+import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.guest.staging.jdk.RuntimeSupport;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
 
@@ -46,6 +53,12 @@ import jdk.graal.compiler.phases.util.Providers;
 public final class CrucibleInstrumentFeature implements InternalFeature {
 
     private final CounterSlotAllocator allocator = new CounterSlotAllocator();
+    private final CounterSlotAllocator typeSiteAllocator = new CounterSlotAllocator();
+    /**
+     * Captured while phases are registered, which is the only hook that hands out something the
+     * hosted universe can be reached from; afterCompilation needs it to name type ids.
+     */
+    private HostedUniverse universe;
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
@@ -62,17 +75,24 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
         BeforeAnalysisAccessImpl access = (BeforeAnalysisAccessImpl) a;
         access.getBigBang().addRootMethod((AnalysisMethod) CrucibleProfileRuntime.INCREMENT.findMethod(access.getMetaAccess()), true,
                         "Counter increment foreign call, registered in " + CrucibleInstrumentFeature.class);
+        access.getBigBang().addRootMethod((AnalysisMethod) CrucibleProfileRuntime.RECORD_TYPE.findMethod(access.getMetaAccess()), true,
+                        "Receiver-type sampling foreign call, registered in " + CrucibleInstrumentFeature.class);
         RuntimeSupport.getRuntimeSupport().addTearDownHook(CrucibleProfileWriter.teardownHook());
     }
 
     @Override
     public void registerForeignCalls(SubstrateForeignCallsProvider foreignCalls) {
         foreignCalls.register(CrucibleProfileRuntime.INCREMENT);
+        foreignCalls.register(CrucibleProfileRuntime.RECORD_TYPE);
     }
 
     @Override
     public void registerGraalPhases(Providers providers, Suites suites, boolean hosted, boolean fallback) {
         if (hosted && !fallback) {
+            if (providers.getMetaAccess() instanceof UniverseMetaAccess metaAccess && metaAccess.getUniverse() instanceof HostedUniverse hUniverse) {
+                universe = hUniverse;
+            }
+            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator));
             suites.getHighTier().appendPhase(new CrucibleInstrumentationPhase(allocator));
         }
     }
@@ -80,6 +100,54 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
         String[] keys = allocator.freeze();
-        CrucibleProfileRuntime.singleton().install(new long[keys.length], keys, SubstrateOptions.ImageBuildID.getValue());
+        CrucibleProfileRuntime runtime = CrucibleProfileRuntime.singleton();
+        runtime.install(new long[keys.length], keys, SubstrateOptions.ImageBuildID.getValue());
+
+        String[] typeKeys = typeSiteAllocator.freeze();
+        int[] typeIds = new int[typeKeys.length * CrucibleProfileRuntime.TYPE_ROW_WIDTH];
+        Arrays.fill(typeIds, CrucibleProfileRuntime.NO_TYPE);
+        int[] idTable = typeIdTable();
+        runtime.installTypeTables(typeIds, new long[typeIds.length], new long[typeKeys.length], typeKeys, idTable, typeNameTable());
+        System.out.println("Crucible: instrumented " + keys.length + " counters and " + typeKeys.length +
+                        " receiver-type sites; the image can name " + idTable.length + " types.");
+        System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
+                        CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +
+                        CrucibleTypeSamplingPhase.SITES_INSTRUMENTED.get() + " sampled.");
+    }
+
+    /*
+     * A type id only means something inside the image that produced it, so the image carries the
+     * ids it can actually observe. Only instantiated types can ever be a receiver, which keeps the
+     * table to the types that can appear rather than every type the universe knows.
+     */
+    private List<HostedType> observableTypes() {
+        List<HostedType> types = new ArrayList<>();
+        if (universe != null) {
+            for (HostedType type : universe.getTypes()) {
+                if (type.isInstantiated()) {
+                    types.add(type);
+                }
+            }
+            types.sort((a, b) -> Integer.compare(a.getTypeID(), b.getTypeID()));
+        }
+        return types;
+    }
+
+    private int[] typeIdTable() {
+        List<HostedType> types = observableTypes();
+        int[] ids = new int[types.size()];
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = types.get(i).getTypeID();
+        }
+        return ids;
+    }
+
+    private String[] typeNameTable() {
+        List<HostedType> types = observableTypes();
+        String[] names = new String[types.size()];
+        for (int i = 0; i < names.length; i++) {
+            names[i] = types.get(i).getName();
+        }
+        return names;
     }
 }

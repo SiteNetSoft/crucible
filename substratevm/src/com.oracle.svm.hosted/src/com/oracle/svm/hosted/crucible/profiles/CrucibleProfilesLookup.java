@@ -39,6 +39,8 @@ import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfile;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.meta.HostedMethod;
+import com.oracle.svm.hosted.meta.HostedType;
+import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 
 import com.oracle.svm.shared.singletons.traits.BuiltinTraits.BuildtimeAccessOnly;
@@ -72,6 +74,11 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private Map<String, long[]> byPoint;
     /** Method id of the innermost frame of a context, to the total of its successor counts. */
     private Map<String, Long> conditionalTotals;
+    /** Receiver types by full inlining context, and by bare point for the fallback. */
+    private Map<String, List<CrucibleProfile.ObservedType>> invokesByContext;
+    private Map<String, List<CrucibleProfile.ObservedType>> invokesByPoint;
+    /** Type name to analysis type, built once the hosted universe exists. */
+    private Map<String, AnalysisType> typesByName = Map.of();
 
     /*
      * Upstream tracks lookup hit rates behind -H:+PGOPrintProfileQuality but only reports them in
@@ -82,6 +89,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private final AtomicLong conditionalHits = new AtomicLong();
     private final AtomicLong conditionalMisses = new AtomicLong();
     private final AtomicLong contextInsensitiveHits = new AtomicLong();
+    private final AtomicLong typeHits = new AtomicLong();
+    private final AtomicLong typeMisses = new AtomicLong();
     private final Queue<String> sampleMisses = new ConcurrentLinkedQueue<>();
     private static final int MAX_SAMPLES = 5;
     private final Queue<String> traced = new ConcurrentLinkedQueue<>();
@@ -93,6 +102,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         this.byContext = new HashMap<>();
         this.byPoint = new HashMap<>();
         this.conditionalTotals = new HashMap<>();
+        this.invokesByContext = new HashMap<>();
+        this.invokesByPoint = new HashMap<>();
 
         for (CrucibleProfile.Method method : profile.methods()) {
             callCounts.merge(method.id(), method.calls(), Long::sum);
@@ -117,7 +128,27 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 }
                 conditionalTotals.merge(innermost, total, Long::sum);
             }
+            for (CrucibleProfile.VirtualInvoke invoke : method.virtualInvokes()) {
+                List<String> ctx = invoke.ctx();
+                if (ctx.isEmpty() || invoke.types().isEmpty()) {
+                    continue;
+                }
+                invokesByContext.put(String.join(ProfileKey.CTX_SEP, ctx), invoke.types());
+                invokesByPoint.putIfAbsent(ctx.get(0), invoke.types());
+            }
         }
+    }
+
+    /**
+     * Builds the name index the receiver-type profiles are resolved through. Call once the hosted
+     * universe exists; until then type profiles resolve to nothing and are reported as misses.
+     */
+    public void indexTypes(HostedUniverse universe) {
+        Map<String, AnalysisType> index = new HashMap<>();
+        for (HostedType type : universe.getTypes()) {
+            index.putIfAbsent(type.getName(), type.getWrapped());
+        }
+        typesByName = index;
     }
 
     private static long[] toRecords(CrucibleProfile.Conditional conditional) {
@@ -208,8 +239,32 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
 
     @Override
     public Optional<Map<AnalysisType, Long>> getVirtualInvokeProfile(BytecodePosition callingContext) {
-        /* Receiver-type sampling is schema v2 (M3). */
-        return Optional.empty();
+        if (invokesByContext == null) {
+            return Optional.empty();
+        }
+        List<CrucibleProfile.ObservedType> observed = invokesByContext.get(contextKey(callingContext));
+        if (observed == null) {
+            observed = invokesByPoint.get(ProfileKey.methodId(callingContext.getMethod()) + ":" + callingContext.getBCI());
+        }
+        if (observed == null) {
+            typeMisses.incrementAndGet();
+            return Optional.empty();
+        }
+        Map<AnalysisType, Long> resolved = new HashMap<>();
+        for (CrucibleProfile.ObservedType type : observed) {
+            AnalysisType analysisType = typesByName.get(type.name());
+            if (analysisType != null) {
+                resolved.merge(analysisType, type.count(), Long::sum);
+            }
+        }
+        if (resolved.isEmpty()) {
+            /* Every recorded type is gone from this image; that is a miss, not an empty profile. */
+            typeMisses.incrementAndGet();
+            return Optional.empty();
+        }
+        typeHits.incrementAndGet();
+        traceIfRequested("TYPE", contextKey(callingContext));
+        return Optional.of(resolved);
     }
 
     @Override
@@ -233,8 +288,11 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         long misses = conditionalMisses.get();
         long total = hits + misses;
         String rate = total == 0 ? "n/a" : String.format("%.1f%%", 100.0 * hits / total);
+        long typeTotal = typeHits.get() + typeMisses.get();
+        String typeRate = typeTotal == 0 ? "n/a" : String.format("%.1f%%", 100.0 * typeHits.get() / typeTotal);
         return "Crucible: applied " + hits + " of " + total + " conditional profile lookups (" + rate + "), " +
-                        contextInsensitiveHits.get() + " via the context-insensitive fallback.";
+                        contextInsensitiveHits.get() + " via the context-insensitive fallback; " +
+                        typeHits.get() + " of " + typeTotal + " receiver-type lookups (" + typeRate + ").";
     }
 
     private void traceIfRequested(String outcome, String key) {
@@ -269,5 +327,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         byContext = null;
         byPoint = null;
         conditionalTotals = null;
+        invokesByContext = null;
+        invokesByPoint = null;
+        typesByName = Map.of();
     }
 }

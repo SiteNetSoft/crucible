@@ -35,7 +35,7 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
  * Identity of one profile counter. Encoded as a single string so the slot table can live in the
  * image heap as a {@code String[]} and be emitted without further lookups at tear-down.
  */
-public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Conditional {
+public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Conditional, ProfileKey.VirtualInvoke {
 
     String SEP = "|";
     String CTX_SEP = "#";
@@ -65,6 +65,18 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         }
     }
 
+    /**
+     * Identity of one receiver-type sampling site.
+     *
+     * @param bci bytecode index of the call site.
+     */
+    record VirtualInvoke(String methodId, List<String> context, int bci) implements ProfileKey {
+        @Override
+        public String encode() {
+            return "V" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci;
+        }
+    }
+
     static ProfileKey decode(String s) {
         String[] parts = s.split("\\" + SEP, -1);
         switch (parts[0]) {
@@ -73,6 +85,8 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
             case "C":
                 List<String> ctx = Arrays.asList(parts[2].split(CTX_SEP, -1));
                 return new Conditional(parts[1], ctx, Integer.parseInt(parts[3]), Integer.parseInt(parts[4]), Integer.parseInt(parts[5]));
+            case "V":
+                return new VirtualInvoke(parts[1], Arrays.asList(parts[2].split(CTX_SEP, -1)), Integer.parseInt(parts[3]));
             default:
                 throw new IllegalArgumentException("Unknown profile key: " + s);
         }
@@ -83,14 +97,22 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         return method.getDeclaringClass().getName() + "." + method.getName() + method.getSignature().toMethodDescriptor();
     }
 
+    /** Builds the key for the receiver-type sampling site at {@code pos}. */
+    static VirtualInvoke virtualInvokeForPosition(NodeSourcePosition pos) {
+        return new VirtualInvoke(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI());
+    }
+
+    /** Inlining context of {@code pos}, innermost frame first, each element {@code <methodId>:<bci>}. */
+    static List<String> contextOf(NodeSourcePosition pos) {
+        List<String> ctx = new ArrayList<>();
+        for (NodeSourcePosition p = pos; p != null; p = p.getCaller()) {
+            ctx.add(methodId(p.getMethod()) + ":" + p.getBCI());
+        }
+        return ctx;
+    }
+
     /** Builds the key for successor {@code successor} of the control split at {@code pos}. */
     static Conditional forPosition(NodeSourcePosition pos, int successor, int successorBci) {
-        List<String> ctx = new ArrayList<>();
-        NodeSourcePosition p = pos;
-        while (p != null) {
-            ctx.add(methodId(p.getMethod()) + ":" + p.getBCI());
-            p = p.getCaller();
-        }
-        return new Conditional(methodId(pos.getRootMethod()), ctx, pos.getBCI(), successor, successorBci);
+        return new Conditional(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI(), successor, successorBci);
     }
 }

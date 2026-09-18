@@ -33,11 +33,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.IntFunction;
 
 import com.oracle.svm.guest.staging.log.Log;
 import com.oracle.svm.guest.staging.jdk.RuntimeSupport;
 
-/** Streams the collected counters as a schema-v1 CrucibleVM profile. */
+/** Streams the collected counters as a schema-v2 CrucibleVM profile. */
 public final class CrucibleProfileWriter {
 
     private CrucibleProfileWriter() {
@@ -54,7 +55,7 @@ public final class CrucibleProfileWriter {
         CrucibleProfileRuntime rt = CrucibleProfileRuntime.singleton();
         Path path = Path.of(CrucibleOptions.CrucibleProfileOutput.getValue());
         try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), rt.counters(), rt.imageBuildId());
+            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName);
         } catch (IOException e) {
             Log.log().string("CrucibleVM: could not write profile to ").string(path.toString()).string(": ").string(e.toString()).newline();
         }
@@ -71,15 +72,29 @@ public final class CrucibleProfileWriter {
         }
     }
 
+    /** One receiver-type sampling site: observed type names and how often the row overflowed. */
+    private static final class TypeSiteData {
+        final TreeMap<String, Long> types = new TreeMap<>();
+        long overflow;
+    }
+
     /** Per-method accumulation used only while writing. */
     private static final class MethodData {
         long calls;
         /* (bci, ctx) -> (successor index -> accumulated successor record) */
         final TreeMap<String, TreeMap<Integer, SuccessorData>> conditionals = new TreeMap<>();
         final Map<String, ProfileKey.Conditional> exemplars = new TreeMap<>();
+        final TreeMap<String, TypeSiteData> virtualInvokes = new TreeMap<>();
+        final Map<String, ProfileKey.VirtualInvoke> invokeExemplars = new TreeMap<>();
     }
 
+    /** Kept so the existing counter-only tests and callers stay valid. */
     public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId) throws IOException {
+        write(out, keys, counters, imageBuildId, new String[0], new int[0], new long[0], new long[0], id -> null);
+    }
+
+    public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
+                    String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName) throws IOException {
         TreeMap<String, MethodData> methods = new TreeMap<>();
         for (int i = 0; i < keys.length; i++) {
             long count = counters[i];
@@ -98,15 +113,41 @@ public final class CrucibleProfileWriter {
             }
         }
 
+        for (int site = 0; site < typeKeys.length; site++) {
+            ProfileKey.VirtualInvoke key = (ProfileKey.VirtualInvoke) ProfileKey.decode(typeKeys[site]);
+            TypeSiteData data = null;
+            for (int i = 0; i < CrucibleProfileRuntime.TYPE_ROW_WIDTH; i++) {
+                int entry = site * CrucibleProfileRuntime.TYPE_ROW_WIDTH + i;
+                if (entry >= typeIds.length || typeIds[entry] == CrucibleProfileRuntime.NO_TYPE || typeCounts[entry] == 0) {
+                    continue;
+                }
+                String name = typeName.apply(typeIds[entry]);
+                if (name == null) {
+                    /* A type the image cannot name is not useful to pass 2. */
+                    continue;
+                }
+                if (data == null) {
+                    MethodData md = methods.computeIfAbsent(key.methodId(), k -> new MethodData());
+                    String group = String.format("%010d|%s", key.bci(), String.join(ProfileKey.CTX_SEP, key.context()));
+                    data = md.virtualInvokes.computeIfAbsent(group, g -> new TypeSiteData());
+                    md.invokeExemplars.putIfAbsent(group, key);
+                }
+                data.types.merge(name, typeCounts[entry], Long::sum);
+            }
+            if (data != null && site < typeOverflow.length) {
+                data.overflow += typeOverflow[site];
+            }
+        }
+
         out.append("{\n");
-        out.append("  \"schemaVersion\": 1,\n");
+        out.append("  \"schemaVersion\": 2,\n");
         out.append("  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"").append(CrucibleProfileRuntime.GRAAL_BASE)
                         .append("\", \"imageBuildId\": \"").append(escape(imageBuildId)).append("\" },\n");
-        out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\"],\n");
+        out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],\n");
 
         List<Map.Entry<String, MethodData>> live = new ArrayList<>();
         for (Map.Entry<String, MethodData> e : methods.entrySet()) {
-            if (e.getValue().calls != 0 || !e.getValue().conditionals.isEmpty()) {
+            if (e.getValue().calls != 0 || !e.getValue().conditionals.isEmpty() || !e.getValue().virtualInvokes.isEmpty()) {
                 live.add(e);
             }
         }
@@ -121,9 +162,7 @@ public final class CrucibleProfileWriter {
             out.append("    {\n");
             out.append("      \"id\": \"").append(escape(id)).append("\",\n");
             out.append("      \"calls\": ").append(Long.toString(md.calls));
-            if (md.conditionals.isEmpty()) {
-                out.append("\n");
-            } else {
+            if (!md.conditionals.isEmpty()) {
                 out.append(",\n      \"conditionals\": [\n");
                 int c = 0;
                 for (Map.Entry<String, TreeMap<Integer, SuccessorData>> ce : md.conditionals.entrySet()) {
@@ -141,8 +180,30 @@ public final class CrucibleProfileWriter {
                     }
                     out.append(" ] }").append(++c < md.conditionals.size() ? ",\n" : "\n");
                 }
-                out.append("      ]\n");
+                out.append("      ]");
             }
+            if (!md.virtualInvokes.isEmpty()) {
+                out.append(",\n      \"virtualInvokes\": [\n");
+                int v = 0;
+                for (Map.Entry<String, TypeSiteData> ve : md.virtualInvokes.entrySet()) {
+                    ProfileKey.VirtualInvoke ex = md.invokeExemplars.get(ve.getKey());
+                    out.append("        { \"ctx\": [");
+                    for (int i = 0; i < ex.context().size(); i++) {
+                        out.append(i == 0 ? "" : ", ").append('"').append(escape(ex.context().get(i))).append('"');
+                    }
+                    out.append("], \"bci\": ").append(Integer.toString(ex.bci()));
+                    out.append(", \"overflow\": ").append(Long.toString(ve.getValue().overflow));
+                    out.append(", \"types\": [ ");
+                    int t = 0;
+                    for (Map.Entry<String, Long> te : ve.getValue().types.entrySet()) {
+                        out.append(t++ == 0 ? "" : ", ").append("{ \"name\": \"").append(escape(te.getKey()))
+                                        .append("\", \"count\": ").append(Long.toString(te.getValue())).append(" }");
+                    }
+                    out.append(" ] }").append(++v < md.virtualInvokes.size() ? ",\n" : "\n");
+                }
+                out.append("      ]");
+            }
+            out.append("\n");
             out.append("    }").append(m + 1 < live.size() ? ",\n" : "\n");
         }
         out.append("  ]\n}\n");

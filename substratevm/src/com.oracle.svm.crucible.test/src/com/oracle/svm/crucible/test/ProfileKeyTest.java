@@ -53,6 +53,13 @@ public class ProfileKeyTest {
         Assert.assertEquals("C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|0|20", key.encode());
     }
 
+    @Test
+    public void virtualInvokeRoundTrips() {
+        ProfileKey key = new ProfileKey.VirtualInvoke("LFoo;.bar(I)V", List.of("LFoo;.bar(I)V:9"), 9);
+        Assert.assertEquals("V|LFoo;.bar(I)V|LFoo;.bar(I)V:9|9", key.encode());
+        Assert.assertEquals(key, ProfileKey.decode(key.encode()));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsUnknownKind() {
         ProfileKey.decode("X|foo");

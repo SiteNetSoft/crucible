@@ -93,6 +93,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         if (lookup == null || !(providers.getMetaAccess() instanceof UniverseMetaAccess metaAccess) || !(metaAccess.getUniverse() instanceof HostedUniverse universe)) {
             return;
         }
+        if (lookup instanceof CrucibleProfilesLookup crucible) {
+            crucible.indexTypes(universe);
+        }
         /* Before inlining, so that a root method sees its own recorded probabilities. */
         suites.getHighTier().prependPhase(new CrucibleApplyProfilesPhase(universe, lookup));
     }

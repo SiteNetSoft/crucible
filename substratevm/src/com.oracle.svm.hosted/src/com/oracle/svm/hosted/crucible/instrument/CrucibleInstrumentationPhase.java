@@ -49,6 +49,7 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
  */
 public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContext> {
 
+
     private final CounterSlotAllocator allocator;
 
     public CrucibleInstrumentationPhase(CounterSlotAllocator allocator) {
@@ -100,6 +101,7 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
         }
         return UninterruptibleAnnotationUtils.isUninterruptible(method);
     }
+
 
     private static void insertIncrement(StructuredGraph graph, FixedWithNextNode after, int slot) {
         ForeignCallNode call = graph.add(new ForeignCallNode(CrucibleProfileRuntime.INCREMENT, ConstantNode.forInt(slot, graph)));

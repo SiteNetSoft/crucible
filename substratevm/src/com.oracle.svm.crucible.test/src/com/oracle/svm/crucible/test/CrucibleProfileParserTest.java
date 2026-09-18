@@ -55,7 +55,7 @@ public class CrucibleProfileParserTest {
         Assert.assertEquals(CrucibleProfile.SCHEMA_VERSION, profile.schemaVersion());
         Assert.assertEquals("CrucibleVM", profile.producer().tool());
         Assert.assertEquals("build-7", profile.producer().imageBuildId());
-        Assert.assertEquals(List.of("methodCounts", "conditionalProfiles"), profile.categories());
+        Assert.assertEquals(List.of("methodCounts", "conditionalProfiles", "virtualInvokeProfiles"), profile.categories());
 
         Assert.assertEquals(1, profile.methods().size());
         CrucibleProfile.Method method = profile.methods().get(0);
@@ -70,6 +70,35 @@ public class CrucibleProfileParserTest {
     }
 
     @Test
+    public void readsReceiverTypesTheWriterWrote() throws IOException {
+        StringBuilder sb = new StringBuilder();
+        CrucibleProfileWriter.write(sb, new String[]{"M|LFoo;.bar(I)V"}, new long[]{3}, "build-7",
+                        new String[]{"V|LFoo;.bar(I)V|LFoo;.bar(I)V:9|9"},
+                        new int[]{7, 8, -1, -1}, new long[]{20, 5, 0, 0}, new long[]{2},
+                        id -> id == 7 ? "LA;" : id == 8 ? "LB;" : null);
+        CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(sb.toString()));
+
+        CrucibleProfile.Method method = profile.methods().get(0);
+        Assert.assertEquals(1, method.virtualInvokes().size());
+        CrucibleProfile.VirtualInvoke invoke = method.virtualInvokes().get(0);
+        Assert.assertEquals(List.of("LFoo;.bar(I)V:9"), invoke.ctx());
+        Assert.assertEquals(9, invoke.bci());
+        Assert.assertEquals(2, invoke.overflow());
+        Assert.assertEquals(List.of(new CrucibleProfile.ObservedType("LA;", 20), new CrucibleProfile.ObservedType("LB;", 5)), invoke.types());
+    }
+
+    @Test
+    public void dropsTypesTheImageCannotName() throws IOException {
+        StringBuilder sb = new StringBuilder();
+        CrucibleProfileWriter.write(sb, new String[]{"M|LFoo;.bar(I)V"}, new long[]{3}, "build-7",
+                        new String[]{"V|LFoo;.bar(I)V|LFoo;.bar(I)V:9|9"},
+                        new int[]{7, -1, -1, -1}, new long[]{20, 0, 0, 0}, new long[]{0},
+                        id -> null);
+        CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(sb.toString()));
+        Assert.assertTrue(profile.methods().get(0).virtualInvokes().isEmpty());
+    }
+
+    @Test
     public void readsAnEmptyProfile() throws IOException {
         CrucibleProfile profile = roundTrip(new String[0], new long[0]);
         Assert.assertTrue(profile.methods().isEmpty());
@@ -77,7 +106,7 @@ public class CrucibleProfileParserTest {
 
     @Test
     public void ignoresUnknownMembers() throws IOException {
-        String json = "{ \"schemaVersion\": 1, \"somethingNew\": { \"a\": [1, 2] }, " +
+        String json = "{ \"schemaVersion\": 2, \"somethingNew\": { \"a\": [1, 2] }, " +
                         "\"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"vm-25.3.4.1\", \"imageBuildId\": \"x\" }, " +
                         "\"categories\": [\"methodCounts\"], \"methods\": [] }";
         CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(json));
@@ -86,7 +115,7 @@ public class CrucibleProfileParserTest {
 
     @Test
     public void unescapesStrings() throws IOException {
-        String json = "{ \"schemaVersion\": 1, \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"b\", \"imageBuildId\": \"x\" }, " +
+        String json = "{ \"schemaVersion\": 2, \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"b\", \"imageBuildId\": \"x\" }, " +
                         "\"categories\": [], \"methods\": [ { \"id\": \"LA\\\\B;.q(\\\"x\\\")V\", \"calls\": 1 } ] }";
         CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(json));
         Assert.assertEquals("LA\\B;.q(\"x\")V", profile.methods().get(0).id());
@@ -100,12 +129,12 @@ public class CrucibleProfileParserTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsTruncatedInput() throws IOException {
-        CrucibleProfileParser.parse(new StringReader("{ \"schemaVersion\": 1, \"producer\": {"));
+        CrucibleProfileParser.parse(new StringReader("{ \"schemaVersion\": 2, \"producer\": {"));
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsTrailingContent() throws IOException {
-        String json = "{ \"schemaVersion\": 1, \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"b\", \"imageBuildId\": \"x\" }, " +
+        String json = "{ \"schemaVersion\": 2, \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"b\", \"imageBuildId\": \"x\" }, " +
                         "\"categories\": [], \"methods\": [] } trailing";
         CrucibleProfileParser.parse(new StringReader(json));
     }

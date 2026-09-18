@@ -9,6 +9,9 @@ import sys
 
 HOT, COLD = 9_000_000, 1_000_000
 MAIN_ID = "LHelloPGO;.main([Ljava/lang/String;)V"
+STEP_PREFIX = "LHelloPGO;.step("
+SHAPES = {"LHelloPGO$Square;", "LHelloPGO$Circle;"}
+SCHEMA = 2
 
 
 def fail(msg):
@@ -25,8 +28,8 @@ def main(path):
     except json.JSONDecodeError as e:
         fail(f"{path} is not valid JSON: {e}")
 
-    if profile.get("schemaVersion") != 1:
-        fail(f"expected schemaVersion 1, got {profile.get('schemaVersion')!r}")
+    if profile.get("schemaVersion") != SCHEMA:
+        fail(f"expected schemaVersion {SCHEMA}, got {profile.get('schemaVersion')!r}")
 
     producer = profile.get("producer", {})
     if producer.get("tool") != "CrucibleVM":
@@ -35,7 +38,7 @@ def main(path):
         fail("producer.imageBuildId is empty; the profile cannot be paired with its image")
 
     categories = profile.get("categories", [])
-    for required in ("methodCounts", "conditionalProfiles"):
+    for required in ("methodCounts", "conditionalProfiles", "virtualInvokeProfiles"):
         if required not in categories:
             fail(f"missing category {required!r} in {categories!r}")
 
@@ -58,7 +61,23 @@ def main(path):
     if not skewed:
         fail(f"no conditional with the expected {HOT}/{COLD} split")
 
-    print(f"profile OK: {len(methods)} methods; skewed branch at {skewed[0][0]} bci {skewed[0][1]}")
+    # The sample calls Shape.area() on an even split of two implementations; both must be recorded.
+    observed = {}
+    for m in methods:
+        if not m["id"].startswith(STEP_PREFIX):
+            continue
+        for invoke in m.get("virtualInvokes", []):
+            for t in invoke["types"]:
+                observed[t["name"]] = observed.get(t["name"], 0) + t["count"]
+    missing = SHAPES - observed.keys()
+    if missing:
+        fail(f"no receiver types recorded for Shape.area(); missing {sorted(missing)}, saw {sorted(observed)}")
+    for shape in SHAPES:
+        if observed[shape] < HOT // 2:
+            fail(f"receiver {shape} counted only {observed[shape]} times, expected roughly 5000000")
+
+    print(f"profile OK: {len(methods)} methods; skewed branch at {skewed[0][0]} bci {skewed[0][1]}; "
+          f"receiver types {', '.join(f'{k}={v}' for k, v in sorted(observed.items()))}")
 
 
 if __name__ == "__main__":
