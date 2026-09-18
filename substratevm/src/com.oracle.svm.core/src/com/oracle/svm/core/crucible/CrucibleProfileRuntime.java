@@ -32,7 +32,14 @@ import org.graalvm.word.LocationIdentity;
 import com.oracle.svm.core.snippets.SnippetRuntime;
 import com.oracle.svm.core.snippets.SnippetRuntime.SubstrateForeignCallDescriptor;
 import com.oracle.svm.core.snippets.SubstrateForeignCallTarget;
+import com.oracle.svm.guest.staging.core.heap.UnknownObjectField;
+import com.oracle.svm.shared.BuildPhaseProvider.AfterCompilation;
 import com.oracle.svm.shared.Uninterruptible;
+import com.oracle.svm.shared.singletons.traits.BuiltinTraits.AllAccess;
+import com.oracle.svm.shared.singletons.traits.BuiltinTraits.NoLayeredCallbacks;
+import com.oracle.svm.shared.singletons.traits.BuiltinTraits.PartiallyLayerAware;
+import com.oracle.svm.shared.singletons.traits.SingletonLayeredInstallationKind.Duplicable;
+import com.oracle.svm.shared.singletons.traits.SingletonTraits;
 
 import jdk.graal.compiler.core.common.spi.ForeignCallDescriptor.CallSideEffect;
 import jdk.graal.compiler.nodes.NamedLocationIdentity;
@@ -42,23 +49,31 @@ import jdk.graal.compiler.nodes.NamedLocationIdentity;
  * compilations are done ({@code afterCompilation} runs before image-heap layout) and are therefore
  * part of the image heap.
  */
+@SingletonTraits(access = AllAccess.class, layeredCallbacks = NoLayeredCallbacks.class, layeredInstallationKind = Duplicable.class, other = PartiallyLayerAware.class)
 public final class CrucibleProfileRuntime {
 
     public static final String GRAAL_BASE = "vm-25.3.4.1";
 
     public static final LocationIdentity COUNTERS_LOCATION = NamedLocationIdentity.mutable("CrucibleCounters");
 
-    public static final SubstrateForeignCallDescriptor INCREMENT = SnippetRuntime.findForeignCall(CrucibleProfileRuntime.class, "increment", CallSideEffect.HAS_SIDE_EFFECT, COUNTERS_LOCATION);
+    public static final SubstrateForeignCallDescriptor INCREMENT = SnippetRuntime.findForeignCall(CrucibleProfileRuntime.class, "increment", CallSideEffect.NO_SIDE_EFFECT, COUNTERS_LOCATION);
 
-    private long[] counters = new long[0];
-    private String[] keys = new String[0];
-    private String imageBuildId = "";
+    /*
+     * All three fields are only populated by install() in the feature's afterCompilation hook,
+     * which runs after compilation. Without @UnknownObjectField the analysis folds a read through
+     * the constant singleton to the value the field holds while compiling: counters.length folds
+     * to 0, the bounds check in increment() is proven to always fail and the counter update is
+     * deleted, and imageBuildId folds to the empty string.
+     */
+    @UnknownObjectField(availability = AfterCompilation.class) private long[] counters = new long[0];
+    @UnknownObjectField(availability = AfterCompilation.class) private String[] keys = new String[0];
+    @UnknownObjectField(availability = AfterCompilation.class) private String imageBuildId = "";
 
     @Platforms(Platform.HOSTED_ONLY.class)
     public CrucibleProfileRuntime() {
     }
 
-    @Uninterruptible(reason = "Called from the increment foreign call.", mayBeInlined = true)
+    @Uninterruptible(reason = Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
     public static CrucibleProfileRuntime singleton() {
         return ImageSingletons.lookup(CrucibleProfileRuntime.class);
     }
