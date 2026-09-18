@@ -42,12 +42,12 @@ public class CounterSlotAllocatorTest {
     public void slotsAreDenseAndStable() {
         CounterSlotAllocator a = new CounterSlotAllocator();
         int s0 = a.allocate(new ProfileKey.MethodEntry("LA;.m()V"));
-        int s1 = a.allocate(new ProfileKey.Conditional("LA;.m()V", List.of("LA;.m()V:3"), 3, 0));
+        int s1 = a.allocate(new ProfileKey.Conditional("LA;.m()V", List.of("LA;.m()V:3"), 3, 0, 7));
         Assert.assertEquals(0, s0);
         Assert.assertEquals(1, s1);
         Assert.assertEquals(s0, a.allocate(new ProfileKey.MethodEntry("LA;.m()V")));
         String[] keys = a.freeze();
-        Assert.assertArrayEquals(new String[]{"M|LA;.m()V", "C|LA;.m()V|LA;.m()V:3|3|0"}, keys);
+        Assert.assertArrayEquals(new String[]{"M|LA;.m()V", "C|LA;.m()V|LA;.m()V:3|3|0|7"}, keys);
     }
 
     @Test(expected = IllegalStateException.class)

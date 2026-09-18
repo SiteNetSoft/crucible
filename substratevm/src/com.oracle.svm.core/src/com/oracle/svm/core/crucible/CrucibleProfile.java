@@ -22,39 +22,35 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.svm.crucible.test;
+package com.oracle.svm.core.crucible;
 
 import java.util.List;
 
-import org.junit.Assert;
-import org.junit.Test;
+/**
+ * In-memory form of a {@code schemaVersion} 1 profile, as produced by {@link CrucibleProfileWriter}
+ * and consumed by the pass 2 profile lookup.
+ */
+public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods) {
 
-import com.oracle.svm.core.crucible.ProfileKey;
+    public static final int SCHEMA_VERSION = 1;
 
-public class ProfileKeyTest {
-
-    @Test
-    public void methodEntryRoundTrips() {
-        ProfileKey key = new ProfileKey.MethodEntry("LFoo;.bar(I)V");
-        Assert.assertEquals("M|LFoo;.bar(I)V", key.encode());
-        Assert.assertEquals(key, ProfileKey.decode(key.encode()));
+    public record Producer(String tool, String graalBase, String imageBuildId) {
     }
 
-    @Test
-    public void conditionalRoundTrips() {
-        ProfileKey key = new ProfileKey.Conditional("LFoo;.bar(I)V", List.of("LBaz;.q()V:3", "LFoo;.bar(I)V:17"), 3, 1, 42);
-        Assert.assertEquals("C|LFoo;.bar(I)V|LBaz;.q()V:3#LFoo;.bar(I)V:17|3|1|42", key.encode());
-        Assert.assertEquals(key, ProfileKey.decode(key.encode()));
+    /**
+     * @param key index of the successor among the control split's successors.
+     * @param bci bytecode index of the successor itself; pass 2 matches successors by this value.
+     */
+    public record Successor(int key, int bci, long count) {
     }
 
-    @Test
-    public void conditionalWithoutInliningHasSingleContextElement() {
-        ProfileKey.Conditional key = new ProfileKey.Conditional("LFoo;.bar(I)V", List.of("LFoo;.bar(I)V:17"), 17, 0, 20);
-        Assert.assertEquals("C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|0|20", key.encode());
+    /**
+     * @param ctx inlining context, innermost frame first, each element {@code <methodId>:<bci>}.
+     * @param bci bytecode index of the control split.
+     */
+    public record Conditional(List<String> ctx, int bci, List<Successor> successors) {
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void rejectsUnknownKind() {
-        ProfileKey.decode("X|foo");
+    public record Method(String id, long calls, List<Conditional> conditionals) {
     }
 }

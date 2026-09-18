@@ -60,11 +60,22 @@ public final class CrucibleProfileWriter {
         }
     }
 
+    /** One successor of a control split: its own bci and the accumulated execution count. */
+    private static final class SuccessorData {
+        final int bci;
+        long count;
+
+        SuccessorData(int bci, long count) {
+            this.bci = bci;
+            this.count = count;
+        }
+    }
+
     /** Per-method accumulation used only while writing. */
     private static final class MethodData {
         long calls;
-        /* (bci, ctx) -> (successor -> count) */
-        final TreeMap<String, TreeMap<Integer, Long>> conditionals = new TreeMap<>();
+        /* (bci, ctx) -> (successor index -> accumulated successor record) */
+        final TreeMap<String, TreeMap<Integer, SuccessorData>> conditionals = new TreeMap<>();
         final Map<String, ProfileKey.Conditional> exemplars = new TreeMap<>();
     }
 
@@ -78,7 +89,11 @@ public final class CrucibleProfileWriter {
                 md.calls += count;
             } else if (key instanceof ProfileKey.Conditional c && count != 0) {
                 String group = String.format("%010d|%s", c.bci(), String.join(ProfileKey.CTX_SEP, c.context()));
-                md.conditionals.computeIfAbsent(group, g -> new TreeMap<>()).merge(c.successor(), count, Long::sum);
+                md.conditionals.computeIfAbsent(group, g -> new TreeMap<>())
+                                .merge(c.successor(), new SuccessorData(c.successorBci(), count), (a, b) -> {
+                                    a.count += b.count;
+                                    return a;
+                                });
                 md.exemplars.putIfAbsent(group, c);
             }
         }
@@ -111,7 +126,7 @@ public final class CrucibleProfileWriter {
             } else {
                 out.append(",\n      \"conditionals\": [\n");
                 int c = 0;
-                for (Map.Entry<String, TreeMap<Integer, Long>> ce : md.conditionals.entrySet()) {
+                for (Map.Entry<String, TreeMap<Integer, SuccessorData>> ce : md.conditionals.entrySet()) {
                     ProfileKey.Conditional ex = md.exemplars.get(ce.getKey());
                     out.append("        { \"ctx\": [");
                     for (int i = 0; i < ex.context().size(); i++) {
@@ -119,9 +134,10 @@ public final class CrucibleProfileWriter {
                     }
                     out.append("], \"bci\": ").append(Integer.toString(ex.bci())).append(", \"successors\": [ ");
                     int s = 0;
-                    for (Map.Entry<Integer, Long> se : ce.getValue().entrySet()) {
+                    for (Map.Entry<Integer, SuccessorData> se : ce.getValue().entrySet()) {
                         out.append(s++ == 0 ? "" : ", ").append("{ \"key\": ").append(se.getKey().toString())
-                                        .append(", \"count\": ").append(se.getValue().toString()).append(" }");
+                                        .append(", \"bci\": ").append(Integer.toString(se.getValue().bci))
+                                        .append(", \"count\": ").append(Long.toString(se.getValue().count)).append(" }");
                     }
                     out.append(" ] }").append(++c < md.conditionals.size() ? ",\n" : "\n");
                 }

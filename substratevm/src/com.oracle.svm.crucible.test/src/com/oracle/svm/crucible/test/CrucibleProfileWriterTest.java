@@ -54,8 +54,8 @@ public class CrucibleProfileWriterTest {
     public void groupsCountersByMethodAndConditional() throws IOException {
         String[] keys = {
                         "M|LFoo;.bar(I)V",
-                        "C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|0",
-                        "C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|1",
+                        "C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|0|20",
+                        "C|LFoo;.bar(I)V|LFoo;.bar(I)V:17|17|1|31",
                         "M|LZzz;.never()V",
         };
         long[] counts = {12, 10, 2, 0};
@@ -70,7 +70,7 @@ public class CrucibleProfileWriterTest {
                         "      \"id\": \"LFoo;.bar(I)V\",",
                         "      \"calls\": 12,",
                         "      \"conditionals\": [",
-                        "        { \"ctx\": [\"LFoo;.bar(I)V:17\"], \"bci\": 17, \"successors\": [ { \"key\": 0, \"count\": 10 }, { \"key\": 1, \"count\": 2 } ] }",
+                        "        { \"ctx\": [\"LFoo;.bar(I)V:17\"], \"bci\": 17, \"successors\": [ { \"key\": 0, \"bci\": 20, \"count\": 10 }, { \"key\": 1, \"bci\": 31, \"count\": 2 } ] }",
                         "      ]",
                         "    }",
                         "  ]",

@@ -51,10 +51,17 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         }
     }
 
-    record Conditional(String methodId, List<String> context, int bci, int successor) implements ProfileKey {
+    /**
+     * @param bci bytecode index of the control split itself.
+     * @param successor index of the successor among {@code ControlSplitNode.successors()}.
+     * @param successorBci bytecode index reported by the successor's own node source position.
+     *            Upstream's {@code PGOApplyProfilesPhase} matches profile records to successors by
+     *            this value, not by {@link #successor()}, so it has to be recorded in pass 1.
+     */
+    record Conditional(String methodId, List<String> context, int bci, int successor, int successorBci) implements ProfileKey {
         @Override
         public String encode() {
-            return "C" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci + SEP + successor;
+            return "C" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci + SEP + successor + SEP + successorBci;
         }
     }
 
@@ -65,7 +72,7 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
                 return new MethodEntry(parts[1]);
             case "C":
                 List<String> ctx = Arrays.asList(parts[2].split(CTX_SEP, -1));
-                return new Conditional(parts[1], ctx, Integer.parseInt(parts[3]), Integer.parseInt(parts[4]));
+                return new Conditional(parts[1], ctx, Integer.parseInt(parts[3]), Integer.parseInt(parts[4]), Integer.parseInt(parts[5]));
             default:
                 throw new IllegalArgumentException("Unknown profile key: " + s);
         }
@@ -77,13 +84,13 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
     }
 
     /** Builds the key for successor {@code successor} of the control split at {@code pos}. */
-    static Conditional forPosition(NodeSourcePosition pos, int successor) {
+    static Conditional forPosition(NodeSourcePosition pos, int successor, int successorBci) {
         List<String> ctx = new ArrayList<>();
         NodeSourcePosition p = pos;
         while (p != null) {
             ctx.add(methodId(p.getMethod()) + ":" + p.getBCI());
             p = p.getCaller();
         }
-        return new Conditional(methodId(pos.getRootMethod()), ctx, pos.getBCI(), successor);
+        return new Conditional(methodId(pos.getRootMethod()), ctx, pos.getBCI(), successor, successorBci);
     }
 }

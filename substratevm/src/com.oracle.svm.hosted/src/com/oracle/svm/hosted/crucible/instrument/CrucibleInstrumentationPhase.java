@@ -24,6 +24,8 @@
  */
 package com.oracle.svm.hosted.crucible.instrument;
 
+import java.util.List;
+
 import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.ProfileKey;
@@ -69,9 +71,17 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
             if (pos == null || !ProfilingUtilities.isNotForImplicitException(split)) {
                 continue;
             }
+            List<AbstractBeginNode> successors = split.successors().filter(AbstractBeginNode.class).snapshot();
+            if (successors.stream().anyMatch(s -> s.getNodeSourcePosition() == null)) {
+                /*
+                 * Pass 2 matches a profile record to a successor by the successor's own bci, so a
+                 * split with an unpositioned successor cannot be applied later and is not counted.
+                 */
+                continue;
+            }
             int index = 0;
-            for (AbstractBeginNode successor : split.successors().filter(AbstractBeginNode.class).snapshot()) {
-                insertIncrement(graph, successor, allocator.allocate(ProfileKey.forPosition(pos, index)));
+            for (AbstractBeginNode successor : successors) {
+                insertIncrement(graph, successor, allocator.allocate(ProfileKey.forPosition(pos, index, successor.getNodeSourcePosition().getBCI())));
                 index++;
             }
         }

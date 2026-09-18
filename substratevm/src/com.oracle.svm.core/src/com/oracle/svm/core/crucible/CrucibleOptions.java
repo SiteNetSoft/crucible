@@ -51,6 +51,23 @@ public final class CrucibleOptions {
     @Option(help = "Path of the profile written by an instrumented image at exit.", type = OptionType.User)//
     public static final RuntimeOptionKey<String> CrucibleProfileOutput = new RuntimeOptionKey<>("crucible-profile.json");
 
+    @Option(help = "Path of a CrucibleVM profile to apply while building this image.", type = OptionType.User)//
+    public static final HostedOptionKey<String> CrucibleProfile = new HostedOptionKey<>("") {
+        @Override
+        protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, String oldValue, String newValue) {
+            if (newValue != null && !newValue.isEmpty()) {
+                /* Profiles are keyed by node source position, so they must be tracked to apply. */
+                GraalOptions.TrackNodeSourcePosition.update(values, true);
+            }
+        }
+    };
+
+    @Option(help = "Print sample context keys that failed to match when applying a CrucibleVM profile.", type = OptionType.Debug)//
+    public static final HostedOptionKey<Boolean> CrucibleProfileDiagnostics = new HostedOptionKey<>(false);
+
+    @Option(help = "Report every profile lookup whose context contains this substring, hit or miss.", type = OptionType.Debug)//
+    public static final HostedOptionKey<String> CrucibleProfileTrace = new HostedOptionKey<>("");
+
     private CrucibleOptions() {
     }
 }

@@ -32,3 +32,33 @@ crash.
 
 Instrumentation is never applied to `CrucibleProfileRuntime` itself or to any `@Uninterruptible`
 method; see `docs/issues/2026-09-18-instrumented-image-stack-overflow.md` for why.
+
+## Profiled build (pass 2)
+
+    source crucible/env.sh
+    crucible/samples/build.sh -H:+UnlockExperimentalVMOptions \
+        -H:CrucibleProfile=crucible/samples/out/crucible-profile.json
+
+`-H:+CrucibleInstrument` and `-H:CrucibleProfile` are mutually exclusive: an image either records a
+profile or consumes one.
+
+Registering the profile activates upstream's `PGOApplyProfilesPhase` and the PGO paths of
+`SubstratePriorityInliningPhase`. Note that the community edition applies profiles *only* while
+inlining into a hot caller, so CrucibleVM also registers upstream's context-insensitive apply phase
+for methods compiled as their own root; see
+`docs/issues/2026-09-18-apply-seam-has-no-caller-in-ce.md`.
+
+Because CE never reports profile hit rates, the build prints its own summary:
+
+    Crucible: applied 2460 of 11862 conditional profile lookups (20.7%), 1351 via the context-insensitive fallback.
+
+Diagnostics: `-H:+CrucibleProfileDiagnostics` prints sample contexts that matched nothing, and
+`-H:CrucibleProfileTrace=<substring>` reports every lookup whose context contains the substring.
+
+## End-to-end check
+
+    source crucible/env.sh
+    crucible/samples/e2e.sh
+
+Runs both passes and asserts that the profile was applied, including to the sample's own skewed
+branch. Exits non-zero on the first failure.
