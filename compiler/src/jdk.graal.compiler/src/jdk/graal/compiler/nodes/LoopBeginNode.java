@@ -381,6 +381,11 @@ public final class LoopBeginNode extends AbstractMergeNode implements IterableNo
         return (loopType == LoopType.SIMPLE_LOOP);
     }
 
+    public void setSimpleLoop() {
+        assert isMainLoop() : "only a main loop that was never unrolled is still a simple loop";
+        loopType = LoopType.SIMPLE_LOOP;
+    }
+
     public void setPreLoop() {
         assert isSimpleLoop();
         loopType = LoopType.PRE_LOOP;
