@@ -36,7 +36,9 @@ public class CodeLayoutOptimizationFeature implements InternalFeature {
 
     @Override
     public void beforeCompilation(BeforeCompilationAccess access) {
-        ImageSingletons.add(CodeSectionLayouter.class, createCodeSectionLayoutOptimizer());
+        if (!ImageSingletons.contains(CodeSectionLayouter.class)) {
+            ImageSingletons.add(CodeSectionLayouter.class, createCodeSectionLayoutOptimizer());
+        }
     }
 
     protected CodeSectionLayouter createCodeSectionLayoutOptimizer() {
