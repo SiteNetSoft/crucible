@@ -175,7 +175,7 @@ public class SubstratePriorityInliningPhase extends PriorityInliningPhase {
     @SharedGlobalPhaseState private static volatile boolean IPEAShutDownHookAdded;
     static final InterProceduralPartialEscapeAnalysisStatistics IPEAStatistics = new InterProceduralPartialEscapeAnalysisStatistics();
 
-    private SubstratePriorityInliningPhase(CanonicalizerPhase canonicalizer, OptionValues options, RuntimeConfiguration runtimeConfig, OptimisticOptimizations optimisticOpts,
+    public SubstratePriorityInliningPhase(CanonicalizerPhase canonicalizer, OptionValues options, RuntimeConfiguration runtimeConfig, OptimisticOptimizations optimisticOpts,
                     HostedUniverse universe, PhaseSuite<HighTierContext> highTier, SubstrateInliningProvider inliningProvider, PGOProfilesLookup pgoProfiles) {
         super(canonicalizer, options, inliningProvider);
         this.runtimeConfig = runtimeConfig;
