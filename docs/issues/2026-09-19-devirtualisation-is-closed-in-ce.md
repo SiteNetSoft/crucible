@@ -91,3 +91,27 @@ supported.
 What the work did establish is worth keeping: the profile pipeline is complete and correct, branch
 probabilities reach the compiler, and four separate CE shut-offs can be reopened from a feature
 with a single upstream word. The fifth is where the community edition genuinely stops.
+
+## The 81% of lookups that miss is coverage, not mismatch
+
+The pass 2 summary reports that only about 19% of conditional lookups find a profile, which looks
+like a matching defect and is not one.
+
+Tested by moving counter recording from the end of the high tier to the head, so that pass 1
+records contexts at exactly the point pass 2 reads them — the same change that made receiver-type
+sampling work in M3. The result was flat:
+
+    hit rate     18.7%  ->  18.8%
+    BranchBench  +15.7% ->  +15.5%   (within the noise of each other)
+
+The explanation is in the numbers themselves. A profiled `BranchBench` image contains **4,664
+compilation units**, and the profiling run produced data for **561 methods**. The rest is JDK and
+VM code that a three-million-iteration run of a small program never executes, and there can be no
+profile for code that never ran. A hit rate slightly above the raw 12% coverage is what a healthy
+pipeline looks like here, not a broken one.
+
+Two consequences worth carrying forward. Raising the hit rate is not an available lever for making
+CrucibleVM faster; the lever is profiling a workload that exercises more of the image. And the
+change was reverted, since it cost a guard against instrumenting C function transition stubs —
+`CFunctionSnippets.matchCallStructure` rejects any node inserted into a
+`[prologue, invoke, epilogue]` sequence and aborts the build — for no measurable gain.
