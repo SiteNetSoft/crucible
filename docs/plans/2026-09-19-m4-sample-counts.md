@@ -1,5 +1,10 @@
 # M4: Calling-context samples, so the inliner can devirtualise
 
+> **Blocked, do not implement as written.** `getSampleCounts` is never called in the community
+> edition: nothing anywhere in the repository constructs a `PrefixTree`. Implementing it would be
+> dead code. See "Why this is blocked" at the end, and
+> `docs/issues/2026-09-19-devirtualisation-is-closed-in-ce.md`.
+
 **Goal:** implement `PGOProfilesLookup.getSampleCounts` so upstream's `PrefixTree` is populated and
 `SubstratePriorityInliningPhase` can rewrite a biased indirect call into a guarded direct call.
 
@@ -69,3 +74,40 @@ which method those receivers dispatch to, so the callee cannot be named when the
   conservative rather than wrong.
 - Devirtualisation may still not fire for reasons beyond the profile, so task 4 checks the
   generated code and not only the clock.
+
+
+## Why this is blocked
+
+Three independent points disable profile-driven devirtualisation in the community edition, and none
+of them can be reached from a `Feature` without modifying upstream files:
+
+1. **The tree is never built.** `grep -rn "new PrefixTree(" --include=*.java` over the whole
+   repository returns nothing. `PGOProfilesLookup.getSampleCounts` therefore has no caller, and the
+   method's default empty return is never even consulted.
+2. **The context provider is hard-wired to nothing.** The only public constructor of
+   `SubstratePriorityInliningPhase` passes `new SubstrateInliningProvider(universe, _ -> null)`, so
+   `methodContextProvider.apply(root)` always returns null and `samplingMethodProfiles` returns null
+   before looking at any profile. The constructor that accepts a provider is **private**.
+3. **`shouldApplyProfilesWhileExpanding` returns false**, and overriding it would require supplying
+   our own provider, which point 2 forbids.
+
+`PrefixTree` also exposes no public way to obtain a `Cursor` for a compilation root, so even a tree
+we built ourselves could not be handed to the inliner.
+
+What the community edition does consume from a registered lookup is `getConditionalProfile` —
+branch probabilities — and the type profile that `PGOApplyProfilesPhase` attaches to a call target,
+which no phase then acts on for call rewriting. Nothing in `phases/` or `code/` reads
+`getCallCountOrZero`, `isExecuted` or `getTotalConditionalProfileValueOrZero`, so call counts do not
+influence inlining decisions either.
+
+## The options this leaves
+
+1. **Accept the boundary.** CrucibleVM delivers profile acquisition and branch probabilities. State
+   plainly that profile-driven devirtualisation and inlining are not reachable in CE through the
+   public seam, and re-target the benchmark at what branch probabilities can actually improve:
+   block layout, loop unrolling, and code placement on a branch-dominated workload.
+2. **A minimal upstream patch.** Making the eight-argument `SubstratePriorityInliningPhase`
+   constructor public, or having `HostedGraalConfiguration` pass a real context provider, is a
+   change of one to three lines. It breaks the project's "never modify upstream files" rule and adds
+   rebase cost, in exchange for the devirtualisation half of PGO.
+3. **Both**, with the patch kept as a separate, clearly marked commit so a rebase can drop it.
