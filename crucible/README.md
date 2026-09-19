@@ -67,16 +67,24 @@ so a call site that is monomorphic or strongly biased at run time can be devirtu
 ## Benchmark
 
     source crucible/env.sh
-    crucible/samples/bench.sh [reps] [iterations]
+    crucible/samples/bench.sh [workload] [reps] [iterations]
 
-Builds an instrumented, a profiled and a control image from `BenchPGO.java`, then alternates runs
+`workload` is `BranchBench` (layout-dominated) or `BenchPGO` (call-dominated). The script builds an
+instrumented, a profiled and a control image from that workload, then alternates runs
 of the profiled and control images and reports the median of each. Alternating cancels slow drift
 in machine load and the median ignores outliers; neither removes noise, so the script prints the
 control's own run-to-run spread next to the difference and says so when the difference is smaller.
 
-As of 2026-09-19 the profiled image is not measurably faster. The profile is recorded and applied
-at the right call sites, but the hot site is still compiled as an indirect call, so there is
-nothing to gain yet; see `docs/issues/2026-09-19-profiles-apply-but-nothing-devirtualises.md`.
+Results as of 2026-09-19:
+
+    BranchBench   control 1730 ms   profiled 1458 ms   +15.7%   (control spread 15 ms)
+    BenchPGO      control 2221 ms   profiled 2204 ms    +0.8%   (control spread 14 ms)
+
+The two differ in what they ask of the profile. `BranchBench` is decided by layout: its rare paths
+are bulky and a profile lets the compiler move them off the hot path. `BenchPGO` is decided by a
+biased virtual call, and the community edition never rewrites a call however good the profile is,
+so it stays at the noise floor. See
+`docs/issues/2026-09-19-devirtualisation-is-closed-in-ce.md`.
 
 ## End-to-end check
 

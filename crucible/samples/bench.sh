@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Measures what the two-pass loop is worth, using the BenchPGO workload.
 #
-#   source crucible/env.sh && crucible/samples/bench.sh [reps] [iterations]
+#   source crucible/env.sh && crucible/samples/bench.sh [workload] [reps] [iterations]
+#
+# workload is the class name, BenchPGO (call-dominated) or BranchBench (layout-dominated).
 #
 # Builds three images from the same source -- instrumented, profiled, and a control with identical
 # flags and no profile -- then runs the profiled and control images alternately and reports the
@@ -12,32 +14,33 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 out="$here/out"
-reps="${1:-11}"
-iterations="${2:-400000000}"
+workload="${1:-BenchPGO}"
+reps="${2:-11}"
+iterations="${3:-400000000}"
 profile_iterations=3000000
 mkdir -p "$out"
 
 fail() { echo "bench FAILED: $*" >&2; exit 1; }
 
-javac -d "$out" "$here/BenchPGO.java" || fail "cannot compile the workload"
+javac -d "$out" "$here/$workload.java" || fail "cannot compile $workload"
 
 build() { # build <output-name> <extra flags...>
     local name="$1"; shift
     ( cd "$root/substratevm" && mx native-image -cp "$out" -o "$out/$name" \
-            -H:+UnlockExperimentalVMOptions "$@" BenchPGO ) > "$out/bench-$name.log" 2>&1 \
+            -H:+UnlockExperimentalVMOptions "$@" $workload ) > "$out/bench-$name.log" 2>&1 \
         || fail "building $name failed, see $out/bench-$name.log"
 }
 
 echo "== building instrumented =="
-build bench-inst -H:+CrucibleInstrument
-( cd "$out" && rm -f crucible-profile.json && ./bench-inst "$profile_iterations" >/dev/null ) \
+build "bench-inst-$workload" -H:+CrucibleInstrument
+( cd "$out" && rm -f crucible-profile.json && "./bench-inst-$workload" "$profile_iterations" >/dev/null ) \
     || fail "the instrumented workload did not run"
 [ -s "$out/crucible-profile.json" ] || fail "no profile was written"
 
 echo "== building profiled and control =="
-build bench-pgo -H:CrucibleProfile="$out/crucible-profile.json"
-build bench-ctl
-grep -m1 "^Crucible: applied" "$out/bench-bench-pgo.log" || fail "the profile was not applied"
+build "bench-pgo-$workload" -H:CrucibleProfile="$out/crucible-profile.json"
+build "bench-ctl-$workload"
+grep -m1 "^Crucible: applied" "$out/bench-bench-pgo-$workload.log" || fail "the profile was not applied"
 
 run_ms() { # run_ms <image>
     local s e
@@ -46,12 +49,12 @@ run_ms() { # run_ms <image>
 }
 
 echo "== warming up =="
-run_ms bench-ctl >/dev/null; run_ms bench-pgo >/dev/null
+run_ms "bench-ctl-$workload" >/dev/null; run_ms "bench-pgo-$workload" >/dev/null
 
-echo "== $reps alternating runs of $iterations iterations =="
+echo "== $workload: $reps alternating runs of $iterations iterations =="
 ctl=(); pgo=()
 for ((r = 1; r <= reps; r++)); do
-    c=$(run_ms bench-ctl); p=$(run_ms bench-pgo)
+    c=$(run_ms "bench-ctl-$workload"); p=$(run_ms "bench-pgo-$workload")
     ctl+=("$c"); pgo+=("$p")
     printf "  run %2d   control %6s ms   profiled %6s ms\n" "$r" "$c" "$p"
 done
