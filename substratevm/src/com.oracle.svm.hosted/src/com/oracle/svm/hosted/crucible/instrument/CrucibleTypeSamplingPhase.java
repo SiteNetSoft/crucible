@@ -73,11 +73,11 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             }
             CALL_TARGETS_INDIRECT.incrementAndGet();
             NodeSourcePosition pos = call.getNodeSourcePosition();
-            if (pos == null || call.arguments().isEmpty()) {
+            if (pos == null || call.arguments().isEmpty() || call.targetMethod() == null) {
                 continue;
             }
             ValueNode receiver = call.arguments().get(0);
-            int site = typeSiteAllocator.allocate(ProfileKey.virtualInvokeForPosition(pos));
+            int site = typeSiteAllocator.allocate(ProfileKey.virtualInvokeForPosition(pos, call.targetMethod()));
             ForeignCallNode record = graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), receiver));
             graph.addBeforeFixed(call.invoke().asFixedNode(), record);
             SITES_INSTRUMENTED.incrementAndGet();

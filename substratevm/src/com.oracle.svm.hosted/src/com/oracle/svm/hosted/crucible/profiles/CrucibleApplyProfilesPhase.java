@@ -24,12 +24,16 @@
  */
 package com.oracle.svm.hosted.crucible.profiles;
 
+import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.phases.PGOApplyProfilesPhase;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.phases.BasePhase;
+import java.util.concurrent.atomic.AtomicLong;
+
 import jdk.graal.compiler.phases.tiers.HighTierContext;
 
 /**
@@ -46,6 +50,11 @@ import jdk.graal.compiler.phases.tiers.HighTierContext;
  */
 public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext> {
 
+    /** How far the hot-caller marking actually gets, since the inliner may use its own graphs. */
+    public static final AtomicLong GRAPHS = new AtomicLong();
+    public static final AtomicLong MARKED = new AtomicLong();
+    public static final AtomicLong MARKED_HOT = new AtomicLong();
+
     private final HostedUniverse universe;
     private final PGOProfilesLookup profiles;
 
@@ -54,11 +63,44 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
         this.profiles = profiles;
     }
 
+    /**
+     * Tells the compiler how much of the recorded run happened in this method.
+     * <p>
+     * Every graph otherwise keeps {@code GlobalProfileProvider.DEFAULT}, whose {@code hotCaller}
+     * is false, and nothing in the community edition ever calls
+     * {@code StructuredGraph.setGlobalProfileProvider}. The priority inliner checks exactly that
+     * flag before devirtualising, so without this the profile can never reach a call site.
+     */
+    private void installGlobalProfile(StructuredGraph graph) {
+        if (!(graph.method() instanceof HostedMethod method) || !(profiles instanceof CrucibleProfilesLookup lookup)) {
+            return;
+        }
+        MARKED.incrementAndGet();
+        double share = lookup.selfTimeShare(method);
+        boolean hot = lookup.isHotCaller(method, CrucibleOptions.CrucibleHotCallerRatio.getValue());
+        if (hot) {
+            MARKED_HOT.incrementAndGet();
+        }
+        graph.setGlobalProfileProvider(new StructuredGraph.GlobalProfileProvider() {
+            @Override
+            public double getGlobalSelfTimePercent() {
+                return share;
+            }
+
+            @Override
+            public boolean hotCaller() {
+                return hot;
+            }
+        });
+    }
+
     @Override
     protected void run(StructuredGraph graph, HighTierContext context) {
         if (graph.method() == null) {
             return;
         }
+        GRAPHS.incrementAndGet();
+        installGlobalProfile(graph);
         PGOApplyProfilesPhase.createContextInsensitive(universe, profiles).apply(graph, context);
     }
 }

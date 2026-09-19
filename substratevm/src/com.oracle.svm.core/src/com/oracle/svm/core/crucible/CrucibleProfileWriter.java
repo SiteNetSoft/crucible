@@ -140,7 +140,7 @@ public final class CrucibleProfileWriter {
         }
 
         out.append("{\n");
-        out.append("  \"schemaVersion\": 2,\n");
+        out.append("  \"schemaVersion\": 3,\n");
         out.append("  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"").append(CrucibleProfileRuntime.GRAAL_BASE)
                         .append("\", \"imageBuildId\": \"").append(escape(imageBuildId)).append("\" },\n");
         out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],\n");
@@ -192,6 +192,7 @@ public final class CrucibleProfileWriter {
                         out.append(i == 0 ? "" : ", ").append('"').append(escape(ex.context().get(i))).append('"');
                     }
                     out.append("], \"bci\": ").append(Integer.toString(ex.bci()));
+                    out.append(", \"target\": \"").append(escape(ex.targetMethodId())).append('"');
                     out.append(", \"overflow\": ").append(Long.toString(ve.getValue().overflow));
                     out.append(", \"types\": [ ");
                     int t = 0;

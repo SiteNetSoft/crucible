@@ -79,6 +79,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private Map<String, List<CrucibleProfile.ObservedType>> invokesByPoint;
     /** Type name to analysis type, built once the hosted universe exists. */
     private Map<String, AnalysisType> typesByName = Map.of();
+    /** Total recorded method executions, used to express one method's share of the whole run. */
+    private final long totalCalls;
 
     /*
      * Upstream tracks lookup hit rates behind -H:+PGOPrintProfileQuality but only reports them in
@@ -105,7 +107,9 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         this.invokesByContext = new HashMap<>();
         this.invokesByPoint = new HashMap<>();
 
+        long calls = 0;
         for (CrucibleProfile.Method method : profile.methods()) {
+            calls += method.calls();
             callCounts.merge(method.id(), method.calls(), Long::sum);
             for (CrucibleProfile.Conditional conditional : method.conditionals()) {
                 long[] records = toRecords(conditional);
@@ -137,6 +141,25 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 invokesByPoint.putIfAbsent(ctx.get(0), invoke.types());
             }
         }
+        this.totalCalls = calls;
+    }
+
+    /**
+     * Share of all recorded executions that ran this method, or -1 when the profile says nothing
+     * about it. Upstream reads this as an approximation of time spent in the method.
+     */
+    public double selfTimeShare(HostedMethod method) {
+        if (callCounts == null || totalCalls <= 0) {
+            return -1;
+        }
+        Long count = callCounts.get(ProfileKey.methodId(method));
+        return count == null ? -1 : (double) count / totalCalls;
+    }
+
+    /** Whether the profile saw enough of this method for the inliner to treat it as a hot caller. */
+    public boolean isHotCaller(HostedMethod method, double ratio) {
+        double share = selfTimeShare(method);
+        return share >= 0 && share >= ratio;
     }
 
     /**

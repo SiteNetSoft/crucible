@@ -106,6 +106,7 @@ public final class CrucibleProfileParser {
                     types.add(new CrucibleProfile.ObservedType(asString(to.get("name"), "types[].name"), asLong(to.get("count"), "types[].count")));
                 }
                 invokes.add(new CrucibleProfile.VirtualInvoke(List.copyOf(ctx), (int) asLong(vo.get("bci"), "virtualInvokes[].bci"),
+                                asString(vo.get("target"), "virtualInvokes[].target"),
                                 asLong(vo.getOrDefault("overflow", Long.valueOf(0)), "virtualInvokes[].overflow"), List.copyOf(types)));
             }
             methods.add(new CrucibleProfile.Method(asString(mo.get("id"), "methods[].id"), asLong(mo.getOrDefault("calls", Long.valueOf(0)), "methods[].calls"),

@@ -11,7 +11,7 @@ HOT, COLD = 9_000_000, 1_000_000
 MAIN_ID = "LHelloPGO;.main([Ljava/lang/String;)V"
 STEP_PREFIX = "LHelloPGO;.step("
 SHAPES = {"LHelloPGO$Square;", "LHelloPGO$Circle;"}
-SCHEMA = 2
+SCHEMA = 3
 
 
 def fail(msg):

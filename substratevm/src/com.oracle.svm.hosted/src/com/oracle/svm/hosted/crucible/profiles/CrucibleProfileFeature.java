@@ -38,6 +38,10 @@ import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfile;
 import com.oracle.svm.core.crucible.CrucibleProfileParser;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.graal.GraalConfiguration;
+import com.oracle.svm.hosted.cai.PrefixTree;
+import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.util.UserError;
 import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
@@ -83,7 +87,15 @@ public final class CrucibleProfileFeature implements InternalFeature {
             /* A drifted profile still applies; the positions it misses are reported as misses. */
             System.err.println("Warning: profile " + path + " was recorded against " + recordedBase + ", this toolchain is " + CrucibleProfileRuntime.GRAAL_BASE + ".");
         }
+        parsedProfile = profile;
         ImageSingletons.add(PGOProfilesLookup.class, new CrucibleProfilesLookup(profile));
+        /*
+         * Must win the race with NativeImageGenerator.setDefaultConfiguration, which runs after
+         * afterRegistration and keeps whichever hosted configuration was registered first.
+         */
+        if (!SubstrateOptions.useEconomyCompilerConfig()) {
+            GraalConfiguration.setHostedInstanceIfEmpty(new CrucibleGraalConfiguration());
+        }
     }
 
     /**
@@ -92,6 +104,30 @@ public final class CrucibleProfileFeature implements InternalFeature {
      * one suite, or as an inliner present in one and absent in another.
      */
     private final List<Suites> hostedSuites = new CopyOnWriteArrayList<>();
+
+    /*
+     * Reachable statically because the inlining provider is handed a function, not an object: the
+     * configuration is built before the profile has anywhere to live, and the function is not
+     * called until compilation.
+     */
+    private static volatile CrucibleProfile parsedProfile;
+    private static volatile CrucibleCallTree callTree;
+
+    /** The calling context for a compilation root, built from the profile on first use. */
+    static PrefixTree.Cursor cursorFor(HostedUniverse universe, HostedMethod compilationRoot) {
+        CrucibleCallTree tree = callTree;
+        if (tree == null) {
+            synchronized (CrucibleProfileFeature.class) {
+                tree = callTree;
+                if (tree == null && parsedProfile != null) {
+                    tree = new CrucibleCallTree(parsedProfile, universe);
+                    callTree = tree;
+                    System.out.println(tree.summary());
+                }
+            }
+        }
+        return tree == null ? null : tree.cursorFor(compilationRoot);
+    }
 
     @Override
     public void registerGraalPhases(Providers providers, Suites suites, boolean hosted, boolean fallback) {
@@ -115,6 +151,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            System.out.println("Crucible: " + CrucibleApplyProfilesPhase.GRAPHS.get() + " graphs seen by the apply phase, " +
+                            CrucibleApplyProfilesPhase.MARKED.get() + " given a global profile, " +
+                            CrucibleApplyProfilesPhase.MARKED_HOT.get() + " marked hot.");
             if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
                 System.out.println(crucible.diagnostics());
             }

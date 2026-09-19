@@ -68,6 +68,9 @@ public final class CrucibleOptions {
     @Option(help = "Report every profile lookup whose context contains this substring, hit or miss.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleProfileTrace = new HostedOptionKey<>("");
 
+    @Option(help = "Share of recorded calls a method needs before it counts as a hot caller, which is what lets the inliner devirtualise its call sites.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleHotCallerRatio = new HostedOptionKey<>(0.001);
+
     private CrucibleOptions() {
     }
 }

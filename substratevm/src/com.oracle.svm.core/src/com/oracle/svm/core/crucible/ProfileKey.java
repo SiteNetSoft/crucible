@@ -70,10 +70,15 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
      *
      * @param bci bytecode index of the call site.
      */
-    record VirtualInvoke(String methodId, List<String> context, int bci) implements ProfileKey {
+    /**
+     * @param targetMethodId the method declared at the call site. The receiver types observed at
+     *            run time are resolved against it in pass 2 to name the method each call actually
+     *            reached.
+     */
+    record VirtualInvoke(String methodId, List<String> context, int bci, String targetMethodId) implements ProfileKey {
         @Override
         public String encode() {
-            return "V" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci;
+            return "V" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci + SEP + targetMethodId;
         }
     }
 
@@ -86,7 +91,7 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
                 List<String> ctx = Arrays.asList(parts[2].split(CTX_SEP, -1));
                 return new Conditional(parts[1], ctx, Integer.parseInt(parts[3]), Integer.parseInt(parts[4]), Integer.parseInt(parts[5]));
             case "V":
-                return new VirtualInvoke(parts[1], Arrays.asList(parts[2].split(CTX_SEP, -1)), Integer.parseInt(parts[3]));
+                return new VirtualInvoke(parts[1], Arrays.asList(parts[2].split(CTX_SEP, -1)), Integer.parseInt(parts[3]), parts[4]);
             default:
                 throw new IllegalArgumentException("Unknown profile key: " + s);
         }
@@ -98,8 +103,8 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
     }
 
     /** Builds the key for the receiver-type sampling site at {@code pos}. */
-    static VirtualInvoke virtualInvokeForPosition(NodeSourcePosition pos) {
-        return new VirtualInvoke(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI());
+    static VirtualInvoke virtualInvokeForPosition(NodeSourcePosition pos, ResolvedJavaMethod targetMethod) {
+        return new VirtualInvoke(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI(), methodId(targetMethod));
     }
 
     /** Inlining context of {@code pos}, innermost frame first, each element {@code <methodId>:<bci>}. */

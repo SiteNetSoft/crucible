@@ -55,8 +55,8 @@ public class ProfileKeyTest {
 
     @Test
     public void virtualInvokeRoundTrips() {
-        ProfileKey key = new ProfileKey.VirtualInvoke("LFoo;.bar(I)V", List.of("LFoo;.bar(I)V:9"), 9);
-        Assert.assertEquals("V|LFoo;.bar(I)V|LFoo;.bar(I)V:9|9", key.encode());
+        ProfileKey key = new ProfileKey.VirtualInvoke("LFoo;.bar(I)V", List.of("LFoo;.bar(I)V:9"), 9, "LOp;.apply()I");
+        Assert.assertEquals("V|LFoo;.bar(I)V|LFoo;.bar(I)V:9|9|LOp;.apply()I", key.encode());
         Assert.assertEquals(key, ProfileKey.decode(key.encode()));
     }
 

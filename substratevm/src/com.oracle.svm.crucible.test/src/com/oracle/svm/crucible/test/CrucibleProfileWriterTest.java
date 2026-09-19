@@ -42,7 +42,7 @@ public class CrucibleProfileWriterTest {
     @Test
     public void emitsHeaderAndCategories() throws IOException {
         String json = write(new String[0], new long[0]);
-        Assert.assertTrue(json, json.contains("\"schemaVersion\": 2"));
+        Assert.assertTrue(json, json.contains("\"schemaVersion\": 3"));
         Assert.assertTrue(json, json.contains("\"tool\": \"CrucibleVM\""));
         Assert.assertTrue(json, json.contains("\"graalBase\": \"vm-25.3.4.1\""));
         Assert.assertTrue(json, json.contains("\"imageBuildId\": \"build-1\""));
@@ -62,7 +62,7 @@ public class CrucibleProfileWriterTest {
         String json = write(keys, counts);
         String expected = String.join("\n",
                         "{",
-                        "  \"schemaVersion\": 2,",
+                        "  \"schemaVersion\": 3,",
                         "  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"vm-25.3.4.1\", \"imageBuildId\": \"build-1\" },",
                         "  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],",
                         "  \"methods\": [",
