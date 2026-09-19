@@ -135,3 +135,39 @@ What this does not show is parity in general. It is one workload, and the one Or
 to demonstrate their PGO on. Their per-context method variants are still something we do
 not have, and a program whose time goes into virtual dispatch rather than a stencil would
 not be helped by this phase at all.
+
+## Follow-up: a second workload, and what was left of the gap
+
+GameOfLife is Oracle's own example, so `crucible/samples/ArrayBench.java` was written as a
+check on it: a dot product, a prefix sum, a guarded blur and a matrix multiply, each over
+arrays longer than the range looped over, so that no access is trivially in bounds.
+
+At first the phase gave +29% where Oracle's PGO gives +70%. Building Oracle's image with
+`-H:-Vectorization` placed the difference: 1347 ms without against 780 ms with, while ours
+ran 1550 ms either way. On scalar code we were within 13%. The rest was the vectorizer,
+which this tree also contains and also runs, and which was declining every one of our
+middle loops with `don't vectorize partially unrolled loop`.
+
+`insertPrePostLoops` marks its loops pre, main and post because partial unrolling is what
+it was written for, and `LoopVectorizationAnalysis` reads the mark as a loop whose strides
+have been changed. Ours have not. `LoopBeginNode.setSimpleLoop` takes the mark off the
+middle loop again; it is the third and smallest upstream patch.
+
+The phase also learned to take bounds that are fixed in the loop without being constants,
+an array length above all. A length read inside the loop is hoisted in front of it,
+looking through the null check the array came by, and if the array may be null the length
+is read behind a null test and counts as zero, so that the middle loop does not run and
+the loops either side of it throw where the original would have. Bounds are worked out in
+64 bits and the middle range is kept to where `iv + c` cannot wrap. Loops that can also be
+left by an exception are taken. A second instance runs after lowering.
+
+`-O3`, interleaved rounds, each compiler against its own control, identical output:
+
+| workload | Oracle PGO | CrucibleVM PGO | Oracle, absolute | CrucibleVM, absolute |
+| --- | --- | --- | --- | --- |
+| GameOfLife, 20 generations | +40.2% | **+51.3%** | 5600 ms | **4782 ms** |
+| ArrayBench, 1500 rounds | +70.4% | **+68.6%** | 781 ms | **694 ms** |
+
+BranchBench stays at +50.1% and BenchPGO at -2.2%; neither has a loop the phase takes.
+BenchPGO is the call-dominated one, and it is where the method-variant machinery described
+above would have to earn its keep. That is the part still missing.

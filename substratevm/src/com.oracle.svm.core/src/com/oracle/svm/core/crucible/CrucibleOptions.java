@@ -104,10 +104,20 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumBias = new HostedOptionKey<>(0.99);
 
     @Option(help = "How many lopsided checks a loop needs before splitting its range is worth three copies of it.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Integer> CrucibleLoopRangeSplitMinimumChecks = new HostedOptionKey<>(2);
+    public static final HostedOptionKey<Integer> CrucibleLoopRangeSplitMinimumChecks = new HostedOptionKey<>(1);
 
     @Option(help = "How many iterations per entry the profile has to show before a loop's range is split.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumFrequency = new HostedOptionKey<>(64.0);
+
+    @Option(help = "Split loop ranges a second time after lowering, around the bounds checks of array accesses.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplitAfterLowering = new HostedOptionKey<>(true);
+
+    @Option(help = "Unswitch loops once more after lowering, before splitting their ranges. Lowering is what creates the null check " +
+                    "on an array, and until that is moved out of the loop the array's length cannot be read ahead of it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplitUnswitchFirst = new HostedOptionKey<>(false);
+
+    @Option(help = "Split the range of loops that can also be left some other way than by running out, by an exception for one.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplitManyExits = new HostedOptionKey<>(true);
 
     @Option(help = "Largest loop, in compiler nodes, whose range is split.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleLoopRangeSplitMaximumSize = new HostedOptionKey<>(1500);

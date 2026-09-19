@@ -51,6 +51,9 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 
 import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
+import jdk.graal.compiler.phases.common.IterativeConditionalEliminationPhase;
+import jdk.graal.compiler.nodes.loop.DefaultLoopPolicies;
+import jdk.graal.compiler.phases.common.CanonicalizerPhase;
 import jdk.graal.compiler.phases.tiers.Suites;
 import jdk.graal.compiler.phases.util.Providers;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
@@ -195,7 +198,19 @@ public final class CrucibleProfileFeature implements InternalFeature {
              */
             var unswitching = suites.getHighTier().findPhase(LoopUnswitchingPhase.class);
             if (unswitching != null) {
-                unswitching.add(new CrucibleLoopRangeSplitPhase());
+                unswitching.add(new CrucibleLoopRangeSplitPhase(false));
+            }
+            /*
+             * And again once array accesses have been lowered and their bounds checks are tests
+             * this phase can see, after the conditional elimination that removes the ones a
+             * first split already made redundant.
+             */
+            var elimination = suites.getMidTier().findPhase(IterativeConditionalEliminationPhase.class);
+            if (elimination != null && CrucibleOptions.CrucibleLoopRangeSplitAfterLowering.getValue()) {
+                if (CrucibleOptions.CrucibleLoopRangeSplitUnswitchFirst.getValue()) {
+                    elimination.add(new LoopUnswitchingPhase(new DefaultLoopPolicies(), CanonicalizerPhase.create()));
+                }
+                elimination.add(new CrucibleLoopRangeSplitPhase(true));
             }
         }
         hostedSuites.add(suites);
@@ -207,7 +222,11 @@ public final class CrucibleProfileFeature implements InternalFeature {
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
             System.out.println("Crucible: loop range split considered " + CrucibleLoopRangeSplitPhase.LOOPS_CONSIDERED.get() + " hot counted loops, split " +
-                            CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks; hot counted loops passed over: " + CrucibleLoopRangeSplitPhase.REJECTED + ".");
+                            CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks.");
+            if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
+                System.out.println("Crucible: hot counted loops passed over: " + new java.util.TreeMap<>(CrucibleLoopRangeSplitPhase.REJECTED));
+                CrucibleLoopRangeSplitPhase.SPLITS.forEach(split -> System.out.println("Crucible: split " + split));
+            }
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
