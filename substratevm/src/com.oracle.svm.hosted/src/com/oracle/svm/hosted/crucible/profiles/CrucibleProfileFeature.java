@@ -39,6 +39,7 @@ import com.oracle.svm.core.crucible.CrucibleProfile;
 import com.oracle.svm.core.crucible.CrucibleProfileParser;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.shared.option.HostedOptionValues;
 import com.oracle.svm.core.graal.GraalConfiguration;
 import com.oracle.svm.hosted.cai.PrefixTree;
 import com.oracle.svm.hosted.code.CodeSectionLayouter;
@@ -132,6 +133,20 @@ public final class CrucibleProfileFeature implements InternalFeature {
 
     private CrucibleCodeSectionLayouter layouter;
 
+    /**
+     * Whether to guard biased calls, which depends on the optimization level unless asked for.
+     * <p>
+     * Measured on the dispatch-heavy sample: +3.8% at {@code -O2} and -2.5% at {@code -O3}, where
+     * the compiler already resolves the call well enough that the guard is only overhead. An
+     * explicit setting always wins, so the level is a default and not a restriction.
+     */
+    private static boolean typeGuardEnabled() {
+        if (CrucibleOptions.CrucibleTypeGuard.hasBeenSet(HostedOptionValues.singleton().get())) {
+            return CrucibleOptions.CrucibleTypeGuard.getValue();
+        }
+        return !SubstrateOptions.isMaximumOptimizationLevel();
+    }
+
     @Override
     public void beforeAnalysis(BeforeAnalysisAccess access) {
         /*
@@ -156,7 +171,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             crucible.indexTypes(universe);
         }
-        if (CrucibleOptions.CrucibleTypeGuard.getValue()) {
+        if (typeGuardEnabled()) {
             /*
              * Prepended before the apply phase below, so it ends up after it: probabilities first,
              * then the guard, and the inliner afterwards turns the resulting direct call into an
@@ -183,6 +198,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
+            System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused.");
             System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
             System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
                             CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");

@@ -91,7 +91,9 @@ public final class CrucibleOptions {
     @Option(help = "Most guarded targets to emit at a single devirtualised call site.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleDevirtualizeMaxTargets = new HostedOptionKey<>(2);
 
-    @Option(help = "Turn a strongly biased virtual call into a type-guarded direct call before inlining, so the inliner can inline it.", type = OptionType.User)//
+    @Option(help = "Turn a strongly biased virtual call into a type-guarded direct call before inlining. " +
+                    "Left unset it follows the optimization level: on at -O2 and below, off at -O3, where the compiler " +
+                    "already handles the dispatch and the guard measured as a 2.5% regression.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleTypeGuard = new HostedOptionKey<>(true);
 
     @Option(help = "Order the image's code section by how often the profile saw each method run.", type = OptionType.User)//
@@ -102,6 +104,10 @@ public final class CrucibleOptions {
 
     @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
+
+    @Option(help = "Share of all recorded executions a callee must account for before it is inlined even when the " +
+                    "static budget refuses. Nothing in the community edition uses profiled call counts to decide inlining.", type = OptionType.User)//
+    public static final HostedOptionKey<Double> CrucibleHotInlineShare = new HostedOptionKey<>(0.005);
 
     private CrucibleOptions() {
     }

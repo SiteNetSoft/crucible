@@ -26,6 +26,7 @@ package com.oracle.svm.hosted.crucible.profiles;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstratePolicyFactory;
@@ -54,6 +55,8 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
     public static final AtomicLong COLD_INLINES_SUPPRESSED = new AtomicLong();
     /** Cold-method decisions the inliner was going to decline anyway. */
     public static final AtomicLong COLD_INLINES_ALREADY_DECLINED = new AtomicLong();
+    /** Inlines allowed because the profile shows the callee running often, that the budget refused. */
+    public static final AtomicLong HOT_INLINES_ALLOWED = new AtomicLong();
 
     @Override
     public SubstrateInlinerPolicy createInlinerPolicy(OptionValues options) {
@@ -86,6 +89,38 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
             node.setDontInlineCause(DontInlineCause.CostBenefit);
             COLD_INLINES_SUPPRESSED.incrementAndGet();
             return false;
+        }
+
+        /**
+         * Lets a measurably hot callee through a budget that would otherwise refuse it.
+         * <p>
+         * Nothing in the community edition consults profiled call counts when deciding what to
+         * inline: the budget is the same whether a callee runs once or ten million times. A
+         * profile is exactly the information that distinguishes those cases, and inlining a hot
+         * callee is where most of what profile-guided optimisation is worth comes from.
+         */
+        @Override
+        protected boolean isWithinBudget(CallTreeNode node, int expansionRound) {
+            if (super.isWithinBudget(node, expansionRound)) {
+                return true;
+            }
+            if (isHotCallee(node)) {
+                HOT_INLINES_ALLOWED.incrementAndGet();
+                return true;
+            }
+            return false;
+        }
+
+        /** Whether the profile saw this callee take a meaningful share of the recorded run. */
+        private static boolean isHotCallee(CallTreeNode node) {
+            if (!(PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles)) {
+                return false;
+            }
+            if (!(node.targetMethod() instanceof HostedMethod callee)) {
+                return false;
+            }
+            double share = profiles.selfTimeShare(callee);
+            return share > 0 && share >= CrucibleOptions.CrucibleHotInlineShare.getValue();
         }
 
         /** Whether this decision is about code inside a method the profile never saw execute. */
