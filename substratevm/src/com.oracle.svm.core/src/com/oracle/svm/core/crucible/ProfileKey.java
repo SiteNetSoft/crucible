@@ -35,7 +35,7 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
  * Identity of one profile counter. Encoded as a single string so the slot table can live in the
  * image heap as a {@code String[]} and be emitted without further lookups at tear-down.
  */
-public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Conditional, ProfileKey.VirtualInvoke {
+public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Conditional, ProfileKey.VirtualInvoke, ProfileKey.InstanceOf {
 
     String SEP = "|";
     String CTX_SEP = "#";
@@ -82,6 +82,14 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         }
     }
 
+    /** Identity of one {@code instanceof} site whose tested values are sampled. */
+    record InstanceOf(String methodId, List<String> context, int bci) implements ProfileKey {
+        @Override
+        public String encode() {
+            return "I" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci;
+        }
+    }
+
     static ProfileKey decode(String s) {
         String[] parts = s.split("\\" + SEP, -1);
         switch (parts[0]) {
@@ -92,6 +100,8 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
                 return new Conditional(parts[1], ctx, Integer.parseInt(parts[3]), Integer.parseInt(parts[4]), Integer.parseInt(parts[5]));
             case "V":
                 return new VirtualInvoke(parts[1], Arrays.asList(parts[2].split(CTX_SEP, -1)), Integer.parseInt(parts[3]), parts[4]);
+            case "I":
+                return new InstanceOf(parts[1], Arrays.asList(parts[2].split(CTX_SEP, -1)), Integer.parseInt(parts[3]));
             default:
                 throw new IllegalArgumentException("Unknown profile key: " + s);
         }
@@ -100,6 +110,11 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
     /** JVM-style descriptor {@code L<class>;.<name><signature>} of a method. */
     static String methodId(ResolvedJavaMethod method) {
         return method.getDeclaringClass().getName() + "." + method.getName() + method.getSignature().toMethodDescriptor();
+    }
+
+    /** Builds the key for the {@code instanceof} sampling site at {@code pos}. */
+    static InstanceOf instanceOfForPosition(NodeSourcePosition pos) {
+        return new InstanceOf(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI());
     }
 
     /** Builds the key for the receiver-type sampling site at {@code pos}. */

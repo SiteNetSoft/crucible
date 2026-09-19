@@ -64,6 +64,10 @@ public record CrucibleProfile(int schemaVersion, Producer producer, List<String>
     public record VirtualInvoke(List<String> ctx, int bci, String target, long overflow, List<ObservedType> types) {
     }
 
-    public record Method(String id, long calls, List<Conditional> conditionals, List<VirtualInvoke> virtualInvokes) {
+    /** Types observed at one {@code instanceof} site. */
+    public record InstanceOfSite(List<String> ctx, int bci, long overflow, List<ObservedType> types) {
+    }
+
+    public record Method(String id, long calls, List<Conditional> conditionals, List<VirtualInvoke> virtualInvokes, List<InstanceOfSite> instanceOfs) {
     }
 }

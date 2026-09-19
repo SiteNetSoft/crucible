@@ -34,6 +34,9 @@ import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.phases.BasePhase;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.svm.core.nodes.SubstrateMethodCallTargetNode;
+
+import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
 
 /**
@@ -54,6 +57,9 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
     public static final AtomicLong GRAPHS = new AtomicLong();
     public static final AtomicLong MARKED = new AtomicLong();
     public static final AtomicLong MARKED_HOT = new AtomicLong();
+    /** Call targets that came out of the apply phase carrying a profile-derived type profile. */
+    public static final AtomicLong DYNAMIC_TYPE_PROFILES = new AtomicLong();
+    public static final AtomicLong INDIRECT_TARGETS = new AtomicLong();
 
     private final HostedUniverse universe;
     private final PGOProfilesLookup profiles;
@@ -77,7 +83,13 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
         }
         MARKED.incrementAndGet();
         double share = lookup.selfTimeShare(method);
-        boolean hot = lookup.isHotCaller(method, CrucibleOptions.CrucibleHotCallerRatio.getValue());
+        /*
+         * hotCaller gates exactly one thing upstream: applying receiver-type profiles to invokes,
+         * which leads to devirtualisation. Measured as a 1.8% regression on a dispatch-heavy
+         * workload, because the direct call it produces is not then inlined. Branch probabilities,
+         * which are what this project is actually worth, are applied regardless of this flag.
+         */
+        boolean hot = CrucibleOptions.CrucibleMarkHotCallers.getValue() && lookup.isHotCaller(method, CrucibleOptions.CrucibleHotCallerRatio.getValue());
         if (hot) {
             MARKED_HOT.incrementAndGet();
         }
@@ -94,6 +106,23 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
         });
     }
 
+    /**
+     * Counts what the apply phase actually left behind, since a dynamic type profile on an
+     * indirect call target is what makes the priority inliner build an inline cache and inline
+     * through it.
+     */
+    private static void countDynamicProfiles(StructuredGraph graph) {
+        for (MethodCallTargetNode callTarget : graph.getNodes().filter(MethodCallTargetNode.class)) {
+            if (!callTarget.invokeKind().isIndirect()) {
+                continue;
+            }
+            INDIRECT_TARGETS.incrementAndGet();
+            if (callTarget instanceof SubstrateMethodCallTargetNode substrate && substrate.hasDynamicTypeProfile()) {
+                DYNAMIC_TYPE_PROFILES.incrementAndGet();
+            }
+        }
+    }
+
     @Override
     protected void run(StructuredGraph graph, HighTierContext context) {
         if (graph.method() == null) {
@@ -102,5 +131,6 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
         GRAPHS.incrementAndGet();
         installGlobalProfile(graph);
         PGOApplyProfilesPhase.createContextInsensitive(universe, profiles).apply(graph, context);
+        countDynamicProfiles(graph);
     }
 }

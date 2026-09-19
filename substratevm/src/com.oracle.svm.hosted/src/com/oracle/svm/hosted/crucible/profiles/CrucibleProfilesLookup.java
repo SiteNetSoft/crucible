@@ -77,6 +77,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     /** Receiver types by full inlining context, and by bare point for the fallback. */
     private Map<String, List<CrucibleProfile.ObservedType>> invokesByContext;
     private Map<String, List<CrucibleProfile.ObservedType>> invokesByPoint;
+    private Map<String, List<CrucibleProfile.ObservedType>> testsByContext;
+    private Map<String, List<CrucibleProfile.ObservedType>> testsByPoint;
     /** Type name to analysis type, built once the hosted universe exists. */
     private Map<String, AnalysisType> typesByName = Map.of();
     /** Total recorded method executions, used to express one method's share of the whole run. */
@@ -106,6 +108,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         this.conditionalTotals = new HashMap<>();
         this.invokesByContext = new HashMap<>();
         this.invokesByPoint = new HashMap<>();
+        this.testsByContext = new HashMap<>();
+        this.testsByPoint = new HashMap<>();
 
         long calls = 0;
         for (CrucibleProfile.Method method : profile.methods()) {
@@ -139,6 +143,13 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 }
                 invokesByContext.put(String.join(ProfileKey.CTX_SEP, ctx), invoke.types());
                 invokesByPoint.putIfAbsent(ctx.get(0), invoke.types());
+            }
+            for (CrucibleProfile.InstanceOfSite test : method.instanceOfs()) {
+                if (test.ctx().isEmpty() || test.types().isEmpty()) {
+                    continue;
+                }
+                testsByContext.put(String.join(ProfileKey.CTX_SEP, test.ctx()), test.types());
+                testsByPoint.putIfAbsent(test.ctx().get(0), test.types());
             }
         }
         this.totalCalls = calls;
@@ -296,6 +307,28 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     }
 
     @Override
+    public Optional<Map<jdk.vm.ci.meta.JavaType, Long>> getInstanceofProfile(BytecodePosition callingContext) {
+        if (testsByContext == null) {
+            return Optional.empty();
+        }
+        List<CrucibleProfile.ObservedType> observed = testsByContext.get(contextKey(callingContext));
+        if (observed == null) {
+            observed = testsByPoint.get(ProfileKey.methodId(callingContext.getMethod()) + ":" + callingContext.getBCI());
+        }
+        if (observed == null) {
+            return Optional.empty();
+        }
+        Map<jdk.vm.ci.meta.JavaType, Long> resolved = new HashMap<>();
+        for (CrucibleProfile.ObservedType type : observed) {
+            AnalysisType analysisType = typesByName.get(type.name());
+            if (analysisType != null) {
+                resolved.merge(analysisType, type.count(), Long::sum);
+            }
+        }
+        return resolved.isEmpty() ? Optional.empty() : Optional.of(resolved);
+    }
+
+    @Override
     public Optional<Map<AnalysisType, Long>> getMonitorProfiles() {
         return Optional.empty();
     }
@@ -352,6 +385,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         conditionalTotals = null;
         invokesByContext = null;
         invokesByPoint = null;
+        testsByContext = null;
+        testsByPoint = null;
         typesByName = Map.of();
     }
 }

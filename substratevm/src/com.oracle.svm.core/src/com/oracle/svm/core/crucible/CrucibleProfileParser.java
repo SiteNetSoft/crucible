@@ -109,8 +109,23 @@ public final class CrucibleProfileParser {
                                 asString(vo.get("target"), "virtualInvokes[].target"),
                                 asLong(vo.getOrDefault("overflow", Long.valueOf(0)), "virtualInvokes[].overflow"), List.copyOf(types)));
             }
+            List<CrucibleProfile.InstanceOfSite> tests = new ArrayList<>();
+            for (Object t : asArray(mo.getOrDefault("instanceOfs", List.of()), "instanceOfs")) {
+                Map<String, Object> to = asObject(t, "instanceOfs[]");
+                List<String> ctx = new ArrayList<>();
+                for (Object e : asArray(to.getOrDefault("ctx", List.of()), "instanceOfs[].ctx")) {
+                    ctx.add(asString(e, "instanceOfs[].ctx[]"));
+                }
+                List<CrucibleProfile.ObservedType> types = new ArrayList<>();
+                for (Object ty : asArray(to.getOrDefault("types", List.of()), "instanceOfs[].types")) {
+                    Map<String, Object> tyo = asObject(ty, "instanceOfs[].types[]");
+                    types.add(new CrucibleProfile.ObservedType(asString(tyo.get("name"), "types[].name"), asLong(tyo.get("count"), "types[].count")));
+                }
+                tests.add(new CrucibleProfile.InstanceOfSite(List.copyOf(ctx), (int) asLong(to.get("bci"), "instanceOfs[].bci"),
+                                asLong(to.getOrDefault("overflow", Long.valueOf(0)), "instanceOfs[].overflow"), List.copyOf(types)));
+            }
             methods.add(new CrucibleProfile.Method(asString(mo.get("id"), "methods[].id"), asLong(mo.getOrDefault("calls", Long.valueOf(0)), "methods[].calls"),
-                            List.copyOf(conditionals), List.copyOf(invokes)));
+                            List.copyOf(conditionals), List.copyOf(invokes), List.copyOf(tests)));
         }
         return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods));
     }

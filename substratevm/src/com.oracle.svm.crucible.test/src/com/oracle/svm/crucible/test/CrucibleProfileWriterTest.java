@@ -46,7 +46,7 @@ public class CrucibleProfileWriterTest {
         Assert.assertTrue(json, json.contains("\"tool\": \"CrucibleVM\""));
         Assert.assertTrue(json, json.contains("\"graalBase\": \"vm-25.3.4.1\""));
         Assert.assertTrue(json, json.contains("\"imageBuildId\": \"build-1\""));
-        Assert.assertTrue(json, json.contains("\"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"]"));
+        Assert.assertTrue(json, json.contains("\"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\", \"instanceOfProfiles\"]"));
         Assert.assertTrue(json, json.contains("\"methods\": []"));
     }
 
@@ -64,7 +64,7 @@ public class CrucibleProfileWriterTest {
                         "{",
                         "  \"schemaVersion\": 3,",
                         "  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"vm-25.3.4.1\", \"imageBuildId\": \"build-1\" },",
-                        "  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],",
+                        "  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\", \"instanceOfProfiles\"],",
                         "  \"methods\": [",
                         "    {",
                         "      \"id\": \"LFoo;.bar(I)V\",",

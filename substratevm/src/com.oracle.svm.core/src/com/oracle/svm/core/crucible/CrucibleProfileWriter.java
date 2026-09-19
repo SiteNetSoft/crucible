@@ -86,6 +86,8 @@ public final class CrucibleProfileWriter {
         final Map<String, ProfileKey.Conditional> exemplars = new TreeMap<>();
         final TreeMap<String, TypeSiteData> virtualInvokes = new TreeMap<>();
         final Map<String, ProfileKey.VirtualInvoke> invokeExemplars = new TreeMap<>();
+        final TreeMap<String, TypeSiteData> instanceOfs = new TreeMap<>();
+        final Map<String, ProfileKey.InstanceOf> instanceOfExemplars = new TreeMap<>();
     }
 
     /** Kept so the existing counter-only tests and callers stay valid. */
@@ -114,7 +116,7 @@ public final class CrucibleProfileWriter {
         }
 
         for (int site = 0; site < typeKeys.length; site++) {
-            ProfileKey.VirtualInvoke key = (ProfileKey.VirtualInvoke) ProfileKey.decode(typeKeys[site]);
+            ProfileKey decoded = ProfileKey.decode(typeKeys[site]);
             TypeSiteData data = null;
             for (int i = 0; i < CrucibleProfileRuntime.TYPE_ROW_WIDTH; i++) {
                 int entry = site * CrucibleProfileRuntime.TYPE_ROW_WIDTH + i;
@@ -127,10 +129,18 @@ public final class CrucibleProfileWriter {
                     continue;
                 }
                 if (data == null) {
-                    MethodData md = methods.computeIfAbsent(key.methodId(), k -> new MethodData());
-                    String group = String.format("%010d|%s", key.bci(), String.join(ProfileKey.CTX_SEP, key.context()));
-                    data = md.virtualInvokes.computeIfAbsent(group, g -> new TypeSiteData());
-                    md.invokeExemplars.putIfAbsent(group, key);
+                    MethodData md = methods.computeIfAbsent(decoded.methodId(), k -> new MethodData());
+                    if (decoded instanceof ProfileKey.VirtualInvoke invoke) {
+                        String group = String.format("%010d|%s", invoke.bci(), String.join(ProfileKey.CTX_SEP, invoke.context()));
+                        data = md.virtualInvokes.computeIfAbsent(group, g -> new TypeSiteData());
+                        md.invokeExemplars.putIfAbsent(group, invoke);
+                    } else if (decoded instanceof ProfileKey.InstanceOf test) {
+                        String group = String.format("%010d|%s", test.bci(), String.join(ProfileKey.CTX_SEP, test.context()));
+                        data = md.instanceOfs.computeIfAbsent(group, g -> new TypeSiteData());
+                        md.instanceOfExemplars.putIfAbsent(group, test);
+                    } else {
+                        break;
+                    }
                 }
                 data.types.merge(name, typeCounts[entry], Long::sum);
             }
@@ -143,11 +153,11 @@ public final class CrucibleProfileWriter {
         out.append("  \"schemaVersion\": 3,\n");
         out.append("  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"").append(CrucibleProfileRuntime.GRAAL_BASE)
                         .append("\", \"imageBuildId\": \"").append(escape(imageBuildId)).append("\" },\n");
-        out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\"],\n");
+        out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\", \"instanceOfProfiles\"],\n");
 
         List<Map.Entry<String, MethodData>> live = new ArrayList<>();
         for (Map.Entry<String, MethodData> e : methods.entrySet()) {
-            if (e.getValue().calls != 0 || !e.getValue().conditionals.isEmpty() || !e.getValue().virtualInvokes.isEmpty()) {
+            if (e.getValue().calls != 0 || !e.getValue().conditionals.isEmpty() || !e.getValue().virtualInvokes.isEmpty() || !e.getValue().instanceOfs.isEmpty()) {
                 live.add(e);
             }
         }
@@ -201,6 +211,27 @@ public final class CrucibleProfileWriter {
                                         .append("\", \"count\": ").append(Long.toString(te.getValue())).append(" }");
                     }
                     out.append(" ] }").append(++v < md.virtualInvokes.size() ? ",\n" : "\n");
+                }
+                out.append("      ]");
+            }
+            if (!md.instanceOfs.isEmpty()) {
+                out.append(",\n      \"instanceOfs\": [\n");
+                int i = 0;
+                for (Map.Entry<String, TypeSiteData> ie : md.instanceOfs.entrySet()) {
+                    ProfileKey.InstanceOf ex = md.instanceOfExemplars.get(ie.getKey());
+                    out.append("        { \"ctx\": [");
+                    for (int c2 = 0; c2 < ex.context().size(); c2++) {
+                        out.append(c2 == 0 ? "" : ", ").append('"').append(escape(ex.context().get(c2))).append('"');
+                    }
+                    out.append("], \"bci\": ").append(Integer.toString(ex.bci()));
+                    out.append(", \"overflow\": ").append(Long.toString(ie.getValue().overflow));
+                    out.append(", \"types\": [ ");
+                    int t = 0;
+                    for (Map.Entry<String, Long> te : ie.getValue().types.entrySet()) {
+                        out.append(t++ == 0 ? "" : ", ").append("{ \"name\": \"").append(escape(te.getKey()))
+                                        .append("\", \"count\": ").append(Long.toString(te.getValue())).append(" }");
+                    }
+                    out.append(" ] }").append(++i < md.instanceOfs.size() ? ",\n" : "\n");
                 }
                 out.append("      ]");
             }

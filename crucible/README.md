@@ -33,10 +33,30 @@ crash.
 Instrumentation is never applied to `CrucibleProfileRuntime` itself or to any `@Uninterruptible`
 method; see `docs/issues/2026-09-18-instrumented-image-stack-overflow.md` for why.
 
-An instrumented image records three things: how often each method body ran, how often each
+An instrumented image records four things: how often each method body ran, how often each
 successor of each branch was taken, and which receiver types occurred at each indirect call. A
 call site remembers four distinct receiver types; beyond that it counts overflows, which the
 profile reports per site so a site with a wider type set is visible rather than silently truncated.
+The fourth is which types reach each `instanceof`, recorded the same way and used by the compiler
+to order and shortcut the type check.
+
+### Merging profiles
+
+    python3 crucible/samples/merge-profiles.py merged.json run1.json run2.json [...]
+
+One run covers a fraction of an image — a few hundred methods out of several thousand — so a single
+profile describes far less than an application does. Merging several runs, or several workloads,
+widens that coverage, which affects how much profile reaches the compiler more than any tuning of
+the pipeline. Counts add; conditionals match on calling context and bytecode index, successors on
+their own bytecode index, and types by name.
+
+### A note on devirtualisation
+
+`-H:+CrucibleMarkHotCallers` tells the compiler which methods ran often, which is the only thing
+that lets upstream apply receiver-type profiles and devirtualise. It is **off by default**: the
+resulting direct call is not inlined afterwards, and a guard costs more than a well-predicted
+indirect call saves — measured as a 1.8% regression on a dispatch-heavy workload. Branch
+probabilities, which are what this project is measurably worth, are applied regardless.
 
 ## Profiled build (pass 2)
 

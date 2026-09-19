@@ -178,6 +178,8 @@ public final class CrucibleProfileFeature implements InternalFeature {
                             CrucibleDevirtualizationPhase.SITES_UNSUPPORTED.get() + " not guardable, " +
                             CrucibleDevirtualizationPhase.SITES_PROFILED.get() + " with a receiver profile, " +
                             CrucibleDevirtualizationPhase.SITES_DEVIRTUALIZED.get() + " devirtualised.");
+            System.out.println("Crucible: " + CrucibleApplyProfilesPhase.INDIRECT_TARGETS.get() + " indirect call targets after applying, " +
+                            CrucibleApplyProfilesPhase.DYNAMIC_TYPE_PROFILES.get() + " carrying a dynamic type profile (what makes the inliner build an inline cache).");
             System.out.println("Crucible: " + CrucibleApplyProfilesPhase.GRAPHS.get() + " graphs seen by the apply phase, " +
                             CrucibleApplyProfilesPhase.MARKED.get() + " given a global profile, " +
                             CrucibleApplyProfilesPhase.MARKED_HOT.get() + " marked hot.");

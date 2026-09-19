@@ -30,11 +30,14 @@ import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.code.SubstrateCompilationDirectives;
 
+import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeSourcePosition;
 import jdk.graal.compiler.nodes.ConstantNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.extended.ForeignCallNode;
+import jdk.graal.compiler.nodes.IfNode;
+import jdk.graal.compiler.nodes.java.InstanceOfNode;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.BasePhase;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
@@ -53,6 +56,7 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
     public static final AtomicLong CALL_TARGETS_SEEN = new AtomicLong();
     public static final AtomicLong CALL_TARGETS_INDIRECT = new AtomicLong();
     public static final AtomicLong SITES_INSTRUMENTED = new AtomicLong();
+    public static final AtomicLong INSTANCEOF_SITES = new AtomicLong();
 
     private final CounterSlotAllocator typeSiteAllocator;
 
@@ -81,6 +85,37 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             ForeignCallNode record = graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), receiver));
             graph.addBeforeFixed(call.invoke().asFixedNode(), record);
             SITES_INSTRUMENTED.incrementAndGet();
+        }
+        sampleInstanceOfs(graph);
+    }
+
+    /**
+     * Samples the type of the value each {@code instanceof} tests, which upstream turns into a
+     * {@code JavaTypeProfile} on the node and uses to order and shortcut the type check.
+     * <p>
+     * An {@link InstanceOfNode} floats, so the counter is anchored at the {@link IfNode} that
+     * consumes it; a test whose result is not branched on is not worth sampling anyway.
+     */
+    private void sampleInstanceOfs(StructuredGraph graph) {
+        for (InstanceOfNode instanceOf : graph.getNodes().filter(InstanceOfNode.class).snapshot()) {
+            NodeSourcePosition pos = instanceOf.getNodeSourcePosition();
+            if (pos == null) {
+                continue;
+            }
+            IfNode anchor = null;
+            for (Node usage : instanceOf.usages()) {
+                if (usage instanceof IfNode candidate) {
+                    anchor = candidate;
+                    break;
+                }
+            }
+            if (anchor == null) {
+                continue;
+            }
+            int site = typeSiteAllocator.allocate(ProfileKey.instanceOfForPosition(pos));
+            ForeignCallNode record = graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), instanceOf.getValue()));
+            graph.addBeforeFixed(anchor, record);
+            INSTANCEOF_SITES.incrementAndGet();
         }
     }
 }

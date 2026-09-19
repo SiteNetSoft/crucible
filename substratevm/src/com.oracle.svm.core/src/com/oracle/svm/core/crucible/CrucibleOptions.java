@@ -68,7 +68,12 @@ public final class CrucibleOptions {
     @Option(help = "Report every profile lookup whose context contains this substring, hit or miss.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleProfileTrace = new HostedOptionKey<>("");
 
-    @Option(help = "Share of recorded calls a method needs before it counts as a hot caller, which is what lets the inliner devirtualise its call sites.", type = OptionType.Expert)//
+    @Option(help = "Tell the compiler which methods the profile saw running often. This is the only thing that lets upstream " +
+                    "apply receiver-type profiles, and therefore devirtualise. Off by default: devirtualisation without inlining " +
+                    "measured as a regression, and nothing else consults the flag.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleMarkHotCallers = new HostedOptionKey<>(false);
+
+    @Option(help = "Share of recorded calls a method needs before it counts as a hot caller.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleHotCallerRatio = new HostedOptionKey<>(0.001);
 
     @Option(help = "Rewrite an indirect call into a type-guarded direct call when the profile shows a dominant receiver. " +

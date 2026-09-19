@@ -55,7 +55,7 @@ public class CrucibleProfileParserTest {
         Assert.assertEquals(CrucibleProfile.SCHEMA_VERSION, profile.schemaVersion());
         Assert.assertEquals("CrucibleVM", profile.producer().tool());
         Assert.assertEquals("build-7", profile.producer().imageBuildId());
-        Assert.assertEquals(List.of("methodCounts", "conditionalProfiles", "virtualInvokeProfiles"), profile.categories());
+        Assert.assertEquals(List.of("methodCounts", "conditionalProfiles", "virtualInvokeProfiles", "instanceOfProfiles"), profile.categories());
 
         Assert.assertEquals(1, profile.methods().size());
         CrucibleProfile.Method method = profile.methods().get(0);
@@ -97,6 +97,24 @@ public class CrucibleProfileParserTest {
                         id -> null);
         CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(sb.toString()));
         Assert.assertTrue(profile.methods().get(0).virtualInvokes().isEmpty());
+    }
+
+    @Test
+    public void readsInstanceOfSites() throws IOException {
+        StringBuilder sb = new StringBuilder();
+        CrucibleProfileWriter.write(sb, new String[]{"M|LFoo;.bar(I)V"}, new long[]{3}, "build-7",
+                        new String[]{"I|LFoo;.bar(I)V|LFoo;.bar(I)V:11|11"},
+                        new int[]{5, 6, -1, -1}, new long[]{40, 8, 0, 0}, new long[]{1},
+                        id -> id == 5 ? "LA;" : id == 6 ? "LB;" : null);
+        CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(sb.toString()));
+
+        CrucibleProfile.Method method = profile.methods().get(0);
+        Assert.assertTrue(method.virtualInvokes().isEmpty());
+        Assert.assertEquals(1, method.instanceOfs().size());
+        CrucibleProfile.InstanceOfSite test = method.instanceOfs().get(0);
+        Assert.assertEquals(11, test.bci());
+        Assert.assertEquals(1, test.overflow());
+        Assert.assertEquals(List.of(new CrucibleProfile.ObservedType("LA;", 40), new CrucibleProfile.ObservedType("LB;", 8)), test.types());
     }
 
     @Test
