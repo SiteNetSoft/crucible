@@ -156,6 +156,15 @@ public final class CrucibleProfileFeature implements InternalFeature {
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             crucible.indexTypes(universe);
         }
+        if (CrucibleOptions.CrucibleTypeGuard.getValue()) {
+            /*
+             * Prepended before the apply phase below, so it ends up after it: probabilities first,
+             * then the guard, and the inliner afterwards turns the resulting direct call into an
+             * inlined body.
+             */
+            suites.getHighTier().prependPhase(new CrucibleTypeGuardPhase(universe, lookup,
+                            CrucibleOptions.CrucibleDevirtualizeMinimumBias.getValue(), CrucibleOptions.CrucibleDevirtualizeMaxTargets.getValue()));
+        }
         /* Before inlining, so that a root method sees its own recorded probabilities. */
         suites.getHighTier().prependPhase(new CrucibleApplyProfilesPhase(universe, lookup));
         if (CrucibleOptions.CrucibleDevirtualize.getValue()) {
@@ -174,6 +183,8 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
+            System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
+                            CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");
             System.out.println("Crucible: " + CrucibleDevirtualizationPhase.SITES_SEEN.get() + " indirect call sites, " +
                             CrucibleDevirtualizationPhase.SITES_UNSUPPORTED.get() + " not guardable, " +
                             CrucibleDevirtualizationPhase.SITES_PROFILED.get() + " with a receiver profile, " +

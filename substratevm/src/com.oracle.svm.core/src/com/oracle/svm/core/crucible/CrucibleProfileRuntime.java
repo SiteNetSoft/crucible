@@ -83,6 +83,12 @@ public final class CrucibleProfileRuntime {
     @UnknownObjectField(availability = AfterCompilation.class) private long[] typeCounts = new long[0];
     /** Times a site saw a receiver type that no longer fit in its row. */
     @UnknownObjectField(availability = AfterCompilation.class) private long[] typeOverflow = new long[0];
+    /**
+     * Order in which counters first fired, so the image can be laid out in the sequence a run
+     * actually touches it. Zero means never; the first slot to fire gets 1.
+     */
+    @UnknownObjectField(availability = AfterCompilation.class) private int[] firstCallOrder = new int[0];
+    private int firstCallClock;
     @UnknownObjectField(availability = AfterCompilation.class) private String[] typeKeys = new String[0];
     /** Type ids the image can observe, ascending, parallel to {@link #typeNames}. */
     @UnknownObjectField(availability = AfterCompilation.class) private int[] typeIdTable = new int[0];
@@ -104,6 +110,7 @@ public final class CrucibleProfileRuntime {
     @Platforms(Platform.HOSTED_ONLY.class)
     public void install(long[] newCounters, String[] newKeys, String newImageBuildId) {
         assert newCounters.length == newKeys.length;
+        this.firstCallOrder = new int[newCounters.length];
         this.counters = newCounters;
         this.keys = newKeys;
         this.imageBuildId = newImageBuildId;
@@ -135,6 +142,10 @@ public final class CrucibleProfileRuntime {
 
     public long[] typeOverflow() {
         return typeOverflow;
+    }
+
+    public int[] firstCallOrder() {
+        return firstCallOrder;
     }
 
     public String[] typeKeys() {
@@ -175,9 +186,26 @@ public final class CrucibleProfileRuntime {
     @Uninterruptible(reason = "Called from compiled code without a frame state; must not safepoint.")
     @SubstrateForeignCallTarget(fullyUninterruptible = true, stubCallingConvention = false)
     private static void increment(int slot) {
-        long[] c = singleton().counters;
+        CrucibleProfileRuntime runtime = singleton();
+        long[] c = runtime.counters;
         if (slot >= 0 && slot < c.length) {
+            if (c[slot] == 0) {
+                runtime.noteFirstCall(slot);
+            }
             c[slot]++;
+        }
+    }
+
+    /**
+     * Stamps a slot with its position in the order counters first fired. Racy like the counters:
+     * two threads starting at once may take the same ordinal, which blurs the order slightly and
+     * cannot corrupt it.
+     */
+    @Uninterruptible(reason = Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private void noteFirstCall(int slot) {
+        int[] order = firstCallOrder;
+        if (slot < order.length && order[slot] == 0) {
+            order[slot] = ++firstCallClock;
         }
     }
 

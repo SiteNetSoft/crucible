@@ -87,6 +87,9 @@ public final class CrucibleOptions {
     @Option(help = "Most guarded targets to emit at a single devirtualised call site.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleDevirtualizeMaxTargets = new HostedOptionKey<>(2);
 
+    @Option(help = "Turn a strongly biased virtual call into a type-guarded direct call before inlining, so the inliner can inline it.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleTypeGuard = new HostedOptionKey<>(true);
+
     @Option(help = "Order the image's code section by how often the profile saw each method run.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleCodeLayout = new HostedOptionKey<>(true);
 
