@@ -59,9 +59,17 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
     public static final AtomicLong INSTANCEOF_SITES = new AtomicLong();
 
     private final CounterSlotAllocator typeSiteAllocator;
+    /**
+     * Whether this instance runs after inlining and takes only the sites inlining brought in. A
+     * callee is inlined from a fresh copy of its graph, not from the one the first instance
+     * sampled, so a call site in a method that is always inlined is otherwise never observed at
+     * all -- and a small method called from a hot loop is exactly the kind that always is.
+     */
+    private final boolean inlinedSitesOnly;
 
-    public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator) {
+    public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly) {
         this.typeSiteAllocator = typeSiteAllocator;
+        this.inlinedSitesOnly = inlinedSitesOnly;
     }
 
     @Override
@@ -78,6 +86,9 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             CALL_TARGETS_INDIRECT.incrementAndGet();
             NodeSourcePosition pos = call.getNodeSourcePosition();
             if (pos == null || call.arguments().isEmpty() || call.targetMethod() == null) {
+                continue;
+            }
+            if (inlinedSitesOnly && pos.getCaller() == null) {
                 continue;
             }
             ValueNode receiver = call.arguments().get(0);
@@ -99,7 +110,7 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
     private void sampleInstanceOfs(StructuredGraph graph) {
         for (InstanceOfNode instanceOf : graph.getNodes().filter(InstanceOfNode.class).snapshot()) {
             NodeSourcePosition pos = instanceOf.getNodeSourcePosition();
-            if (pos == null) {
+            if (pos == null || inlinedSitesOnly && pos.getCaller() == null) {
                 continue;
             }
             IfNode anchor = null;

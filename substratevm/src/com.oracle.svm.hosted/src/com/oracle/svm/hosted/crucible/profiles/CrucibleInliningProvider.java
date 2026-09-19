@@ -29,7 +29,12 @@ import java.util.function.Function;
 import com.oracle.svm.hosted.cai.PrefixTree;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
+import com.oracle.svm.hosted.pgo.phases.PGOApplyProfilesPhase;
+import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstrateInliningProvider;
+
+import jdk.graal.compiler.graph.NodeSourcePosition;
+import jdk.vm.ci.meta.ResolvedJavaMethod;
 
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.phases.common.priorityinline.PolicyFactory;
@@ -46,8 +51,23 @@ import com.oracle.svm.core.crucible.CrucibleOptions;
  */
 public final class CrucibleInliningProvider extends SubstrateInliningProvider {
 
+    private final HostedUniverse hostedUniverse;
+
     public CrucibleInliningProvider(HostedUniverse universe, Function<HostedMethod, PrefixTree.Cursor> methodContextProvider) {
         super(universe, methodContextProvider);
+        this.hostedUniverse = universe;
+    }
+
+    /**
+     * The inherited version looks the callee up in a tree of sampled calling contexts, which is
+     * built from a sampling profile and which a counter-based profile does not have. The phase
+     * itself gets by without one, as it must for recursive calls, and then applies the profiles
+     * recorded for the inlining context alone.
+     */
+    @Override
+    public PGOApplyProfilesPhase createPGOApplyProfilesPhase(ResolvedJavaMethod compilationRoot, NodeSourcePosition nodeSourcePosition, ResolvedJavaMethod callee,
+                    NodeSourcePosition methodContext) {
+        return PGOApplyProfilesPhase.createForExpandingHotCutoffs(methodContext, hostedUniverse, null, PGOProfilesLookup.singleton());
     }
 
     @Override
@@ -55,9 +75,20 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
         return true;
     }
 
+    /**
+     * An image that records a profile keeps its polymorphic calls as calls. Left alone the inliner
+     * turns a call with a few possible receivers into a chain of type tests with the bodies
+     * inlined, and then there is no call left at which to see which receiver actually turns up,
+     * which for a call that is hot is the one thing the profile is wanted for.
+     */
+    @Override
+    public int getMaxPolymorphicDispatches(OptionValues options) {
+        return CrucibleOptions.CrucibleInstrument.getValue() ? 0 : super.getMaxPolymorphicDispatches(options);
+    }
+
     @Override
     public PolicyFactory policy(OptionValues options) {
-        if (CrucibleOptions.CrucibleColdCodeSize.getValue()) {
+        if (CrucibleOptions.CrucibleColdCodeSize.getValue() && !CrucibleOptions.CrucibleInstrument.getValue()) {
             return new CruciblePolicyFactory();
         }
         return super.policy(options);

@@ -34,6 +34,8 @@ import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.graal.GraalConfiguration;
+import com.oracle.svm.hosted.crucible.profiles.CrucibleGraalConfiguration;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.CrucibleProfileWriter;
@@ -42,6 +44,7 @@ import com.oracle.svm.core.graal.meta.SubstrateForeignCallsProvider;
 import com.oracle.svm.hosted.FeatureImpl.BeforeAnalysisAccessImpl;
 import com.oracle.svm.hosted.meta.HostedType;
 import com.oracle.svm.hosted.meta.HostedUniverse;
+import com.oracle.svm.hosted.phases.priorityinline.SubstratePriorityInliningPhase;
 import com.oracle.svm.guest.staging.jdk.RuntimeSupport;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
 
@@ -70,6 +73,14 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
         ImageSingletons.add(CrucibleProfileRuntime.class, new CrucibleProfileRuntime());
+        /*
+         * The same hosted configuration a profiled build uses, for its inlining provider, which in
+         * a recording build keeps polymorphic calls as calls so that their receivers can be seen.
+         * Registered here for the reason given there: the first configuration registered wins.
+         */
+        if (!SubstrateOptions.useEconomyCompilerConfig()) {
+            GraalConfiguration.setHostedInstanceIfEmpty(new CrucibleGraalConfiguration());
+        }
     }
 
     @Override
@@ -95,7 +106,11 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
             if (providers.getMetaAccess() instanceof UniverseMetaAccess metaAccess && metaAccess.getUniverse() instanceof HostedUniverse hUniverse) {
                 universe = hUniverse;
             }
-            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator));
+            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator, false));
+            var inliner = suites.getHighTier().findPhase(SubstratePriorityInliningPhase.class);
+            if (inliner != null) {
+                inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true));
+            }
             suites.getHighTier().appendPhase(new CrucibleInstrumentationPhase(allocator));
         }
     }
