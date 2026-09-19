@@ -35,19 +35,37 @@ import org.junit.Test;
 
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.crucible.instrument.CounterSlotAllocator;
+import com.oracle.svm.hosted.crucible.instrument.MethodIdPool;
 
 public class CounterSlotAllocatorTest {
 
     @Test
     public void slotsAreDenseAndStable() {
-        CounterSlotAllocator a = new CounterSlotAllocator();
+        MethodIdPool pool = new MethodIdPool();
+        CounterSlotAllocator a = new CounterSlotAllocator(pool);
         int s0 = a.allocate(new ProfileKey.MethodEntry("LA;.m()V"));
         int s1 = a.allocate(new ProfileKey.Conditional("LA;.m()V", List.of("LA;.m()V:3"), 3, 0, 7));
         Assert.assertEquals(0, s0);
         Assert.assertEquals(1, s1);
         Assert.assertEquals(s0, a.allocate(new ProfileKey.MethodEntry("LA;.m()V")));
         String[] keys = a.freeze();
-        Assert.assertArrayEquals(new String[]{"M|LA;.m()V", "C|LA;.m()V|LA;.m()V:3|3|0|7"}, keys);
+        Assert.assertArrayEquals(new String[]{"M|0", "C|0|0:3|3|0|7"}, keys);
+        Assert.assertArrayEquals(new String[]{"LA;.m()V"}, pool.freeze());
+        Assert.assertEquals(new ProfileKey.MethodEntry("LA;.m()V"), ProfileKey.decode(keys[0], pool.freeze()));
+        Assert.assertEquals(new ProfileKey.Conditional("LA;.m()V", List.of("LA;.m()V:3"), 3, 0, 7), ProfileKey.decode(keys[1], pool.freeze()));
+    }
+
+    @Test
+    public void allocatorsSharingAPoolAgreeOnIndices() {
+        MethodIdPool pool = new MethodIdPool();
+        CounterSlotAllocator counters = new CounterSlotAllocator(pool);
+        CounterSlotAllocator typeSites = new CounterSlotAllocator(pool);
+        counters.allocate(new ProfileKey.MethodEntry("LA;.m()V"));
+        typeSites.allocate(new ProfileKey.VirtualInvoke("LB;.n()V", List.of("LB;.n()V:1"), 1, "LA;.m()V"));
+        String[] ids = pool.freeze();
+        Assert.assertArrayEquals(new String[]{"LA;.m()V", "LB;.n()V"}, ids);
+        Assert.assertEquals(new ProfileKey.VirtualInvoke("LB;.n()V", List.of("LB;.n()V:1"), 1, "LA;.m()V"),
+                        ProfileKey.decode(typeSites.freeze()[0], ids));
     }
 
     @Test(expected = IllegalStateException.class)

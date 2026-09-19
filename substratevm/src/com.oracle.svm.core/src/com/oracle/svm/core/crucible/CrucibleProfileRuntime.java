@@ -76,6 +76,8 @@ public final class CrucibleProfileRuntime {
      */
     @UnknownObjectField(availability = AfterCompilation.class) private long[] counters = new long[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String[] keys = new String[0];
+    /** Method ids the pooled keys index into; see {@link ProfileKey#encode}. */
+    @UnknownObjectField(availability = AfterCompilation.class) private String[] keyPool = new String[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String imageBuildId = "";
 
     /* Receiver-type sampling: TYPE_ROW_WIDTH (typeId, count) pairs per site, flattened. */
@@ -108,11 +110,12 @@ public final class CrucibleProfileRuntime {
     }
 
     @Platforms(Platform.HOSTED_ONLY.class)
-    public void install(long[] newCounters, String[] newKeys, String newImageBuildId) {
+    public void install(long[] newCounters, String[] newKeys, String[] newKeyPool, String newImageBuildId) {
         assert newCounters.length == newKeys.length;
         this.firstCallOrder = new int[newCounters.length];
         this.counters = newCounters;
         this.keys = newKeys;
+        this.keyPool = newKeyPool;
         this.imageBuildId = newImageBuildId;
     }
 
@@ -176,6 +179,10 @@ public final class CrucibleProfileRuntime {
 
     public String[] keys() {
         return keys;
+    }
+
+    public String[] keyPool() {
+        return keyPool;
     }
 
     public String imageBuildId() {

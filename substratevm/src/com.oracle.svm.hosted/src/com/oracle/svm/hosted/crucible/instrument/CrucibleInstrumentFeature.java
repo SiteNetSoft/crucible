@@ -52,8 +52,10 @@ import jdk.graal.compiler.phases.util.Providers;
 @AutomaticallyRegisteredFeature
 public final class CrucibleInstrumentFeature implements InternalFeature {
 
-    private final CounterSlotAllocator allocator = new CounterSlotAllocator();
-    private final CounterSlotAllocator typeSiteAllocator = new CounterSlotAllocator();
+    /* One pool behind both allocators, so the image carries one copy of each method id. */
+    private final MethodIdPool methodIds = new MethodIdPool();
+    private final CounterSlotAllocator allocator = new CounterSlotAllocator(methodIds);
+    private final CounterSlotAllocator typeSiteAllocator = new CounterSlotAllocator(methodIds);
     /**
      * Captured while phases are registered, which is the only hook that hands out something the
      * hosted universe can be reached from; afterCompilation needs it to name type ids.
@@ -101,10 +103,12 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
         String[] keys = allocator.freeze();
-        CrucibleProfileRuntime runtime = CrucibleProfileRuntime.singleton();
-        runtime.install(new long[keys.length], keys, SubstrateOptions.ImageBuildID.getValue());
-
         String[] typeKeys = typeSiteAllocator.freeze();
+        /* Frozen only once both allocators are done, so every index they handed out resolves. */
+        String[] keyPool = methodIds.freeze();
+        CrucibleProfileRuntime runtime = CrucibleProfileRuntime.singleton();
+        runtime.install(new long[keys.length], keys, keyPool, SubstrateOptions.ImageBuildID.getValue());
+
         int[] typeIds = new int[typeKeys.length * CrucibleProfileRuntime.TYPE_ROW_WIDTH];
         Arrays.fill(typeIds, CrucibleProfileRuntime.NO_TYPE);
         int[] idTable = typeIdTable();
@@ -117,6 +121,10 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
         for (String key : typeKeys) {
             typeKeyChars += key.length();
         }
+        long poolChars = 0;
+        for (String methodId : keyPool) {
+            poolChars += methodId.length();
+        }
         long nameChars = 0;
         for (String name : typeNameTable()) {
             nameChars += name.length();
@@ -124,7 +132,8 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
         System.out.println("Crucible: instrumented " + keys.length + " counters and " + typeKeys.length +
                         " receiver-type sites; the image can name " + idTable.length + " types.");
         System.out.println("Crucible: key tables hold " + (keyChars / 1024) + " KiB of counter keys, " +
-                        (typeKeyChars / 1024) + " KiB of type-site keys and " + (nameChars / 1024) +
+                        (typeKeyChars / 1024) + " KiB of type-site keys, " + (poolChars / 1024) + " KiB of pooled method ids (" +
+                        keyPool.length + " distinct) and " + (nameChars / 1024) +
                         " KiB of type names, all carried in the instrumented image.");
         System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
                         CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +

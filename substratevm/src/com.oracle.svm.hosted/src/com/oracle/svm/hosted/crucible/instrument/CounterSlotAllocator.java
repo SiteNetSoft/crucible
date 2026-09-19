@@ -30,18 +30,34 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.oracle.svm.core.crucible.ProfileKey;
 
-/** Build-time registry mapping profile keys to dense counter slots. Safe for parallel compilation. */
+/**
+ * Build-time registry mapping profile keys to dense counter slots. Safe for parallel compilation.
+ * <p>
+ * Keys are stored in the pooled encoding: the method ids they are mostly made of go into a shared
+ * string pool and the key keeps only indices. Both arrays end up in the image heap, so this is what
+ * keeps an instrumented image from being dominated by repeated copies of the same method names.
+ */
 public final class CounterSlotAllocator {
 
     private final ConcurrentHashMap<String, Integer> slots = new ConcurrentHashMap<>();
     private final List<String> keysBySlot = new ArrayList<>();
+    private final MethodIdPool pool;
     private volatile boolean frozen;
+
+    public CounterSlotAllocator() {
+        this(new MethodIdPool());
+    }
+
+    /** Uses {@code sharedPool} so several allocators can index into one set of method ids. */
+    public CounterSlotAllocator(MethodIdPool sharedPool) {
+        this.pool = sharedPool;
+    }
 
     public int allocate(ProfileKey key) {
         if (frozen) {
             throw new IllegalStateException("Counter slots are frozen; compilation is complete");
         }
-        String encoded = key.encode();
+        String encoded = key.encode(pool::intern);
         Integer existing = slots.get(encoded);
         if (existing != null) {
             return existing;

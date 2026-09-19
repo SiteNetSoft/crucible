@@ -90,7 +90,7 @@ public final class CrucibleProfileWriter {
          */
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder());
+            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool());
             w.flush();
             w.close();
             Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -142,10 +142,19 @@ public final class CrucibleProfileWriter {
 
     public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
                     String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName, int[] firstCallOrder) throws IOException {
+        write(out, keys, counters, imageBuildId, typeKeys, typeIds, typeCounts, typeOverflow, typeName, firstCallOrder, new String[0]);
+    }
+
+    /**
+     * @param keyPool method ids that {@code keys} and {@code typeKeys} index into, or empty when
+     *            they carry their method ids inline.
+     */
+    public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
+                    String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName, int[] firstCallOrder, String[] keyPool) throws IOException {
         TreeMap<String, MethodData> methods = new TreeMap<>();
         for (int i = 0; i < keys.length; i++) {
             long count = counters[i];
-            ProfileKey key = ProfileKey.decode(keys[i]);
+            ProfileKey key = ProfileKey.decode(keys[i], keyPool);
             MethodData md = methods.computeIfAbsent(key.methodId(), k -> new MethodData());
             if (key instanceof ProfileKey.MethodEntry) {
                 md.calls += count;
@@ -164,7 +173,7 @@ public final class CrucibleProfileWriter {
         }
 
         for (int site = 0; site < typeKeys.length; site++) {
-            ProfileKey decoded = ProfileKey.decode(typeKeys[site]);
+            ProfileKey decoded = ProfileKey.decode(typeKeys[site], keyPool);
             TypeSiteData data = null;
             for (int i = 0; i < CrucibleProfileRuntime.TYPE_ROW_WIDTH; i++) {
                 int entry = site * CrucibleProfileRuntime.TYPE_ROW_WIDTH + i;

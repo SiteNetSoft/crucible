@@ -27,6 +27,7 @@ package com.oracle.svm.core.crucible;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.ToIntFunction;
 
 import jdk.graal.compiler.graph.NodeSourcePosition;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
@@ -44,10 +45,27 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
 
     String encode();
 
+    /**
+     * Encodes this key with every method id replaced by its index in {@code intern}'s pool.
+     * <p>
+     * A key names its method at least twice -- once as the owner and once inside each context
+     * frame -- and a method id runs to sixty characters or more, so the readable encoding stores
+     * the same few thousand strings hundreds of thousands of times. In a GameOfLife image that was
+     * 29 MiB of key strings. Pooling leaves each key a handful of decimal digits and the pool one
+     * copy of each distinct id. The profile written at tear-down is unaffected: {@link #decode} is
+     * given the pool and reconstitutes the readable form.
+     */
+    String encode(ToIntFunction<String> intern);
+
     record MethodEntry(String methodId) implements ProfileKey {
         @Override
         public String encode() {
             return "M" + SEP + methodId;
+        }
+
+        @Override
+        public String encode(ToIntFunction<String> intern) {
+            return "M" + SEP + intern.applyAsInt(methodId);
         }
     }
 
@@ -62,6 +80,11 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         @Override
         public String encode() {
             return "C" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci + SEP + successor + SEP + successorBci;
+        }
+
+        @Override
+        public String encode(ToIntFunction<String> intern) {
+            return "C" + SEP + intern.applyAsInt(methodId) + SEP + encodeContext(context, intern) + SEP + bci + SEP + successor + SEP + successorBci;
         }
     }
 
@@ -80,6 +103,11 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         public String encode() {
             return "V" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci + SEP + targetMethodId;
         }
+
+        @Override
+        public String encode(ToIntFunction<String> intern) {
+            return "V" + SEP + intern.applyAsInt(methodId) + SEP + encodeContext(context, intern) + SEP + bci + SEP + intern.applyAsInt(targetMethodId);
+        }
     }
 
     /** Identity of one {@code instanceof} site whose tested values are sampled. */
@@ -87,6 +115,66 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         @Override
         public String encode() {
             return "I" + SEP + methodId + SEP + String.join(CTX_SEP, context) + SEP + bci;
+        }
+
+        @Override
+        public String encode(ToIntFunction<String> intern) {
+            return "I" + SEP + intern.applyAsInt(methodId) + SEP + encodeContext(context, intern) + SEP + bci;
+        }
+    }
+
+    /**
+     * Replaces the method part of each {@code <methodId>:<bci>} frame with its pool index. A method
+     * id is a JVM descriptor and never contains a colon, so the last one separates the two parts.
+     */
+    private static String encodeContext(List<String> context, ToIntFunction<String> intern) {
+        StringBuilder sb = new StringBuilder();
+        for (String frame : context) {
+            if (sb.length() != 0) {
+                sb.append(CTX_SEP);
+            }
+            int colon = frame.lastIndexOf(':');
+            if (colon < 0) {
+                /* Not a frame this encoder produced; carry it through verbatim. */
+                sb.append(frame);
+            } else {
+                sb.append(intern.applyAsInt(frame.substring(0, colon))).append(':').append(frame, colon + 1, frame.length());
+            }
+        }
+        return sb.toString();
+    }
+
+    private static List<String> decodeContext(String encoded, String[] pool) {
+        String[] frames = encoded.split(CTX_SEP, -1);
+        List<String> context = new ArrayList<>(frames.length);
+        for (String frame : frames) {
+            int colon = frame.lastIndexOf(':');
+            if (colon < 0) {
+                context.add(frame);
+            } else {
+                context.add(pool[Integer.parseInt(frame.substring(0, colon))] + ':' + frame.substring(colon + 1));
+            }
+        }
+        return context;
+    }
+
+    /** Decodes a key encoded by {@link #encode(ToIntFunction)} against the same pool. */
+    static ProfileKey decode(String s, String[] pool) {
+        if (pool.length == 0) {
+            return decode(s);
+        }
+        String[] parts = s.split("\\" + SEP, -1);
+        switch (parts[0]) {
+            case "M":
+                return new MethodEntry(pool[Integer.parseInt(parts[1])]);
+            case "C":
+                return new Conditional(pool[Integer.parseInt(parts[1])], decodeContext(parts[2], pool), Integer.parseInt(parts[3]), Integer.parseInt(parts[4]), Integer.parseInt(parts[5]));
+            case "V":
+                return new VirtualInvoke(pool[Integer.parseInt(parts[1])], decodeContext(parts[2], pool), Integer.parseInt(parts[3]), pool[Integer.parseInt(parts[4])]);
+            case "I":
+                return new InstanceOf(pool[Integer.parseInt(parts[1])], decodeContext(parts[2], pool), Integer.parseInt(parts[3]));
+            default:
+                throw new IllegalArgumentException("Unknown profile key: " + s);
         }
     }
 
