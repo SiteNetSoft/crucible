@@ -84,6 +84,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         ImageSingletons.add(PGOProfilesLookup.class, new CrucibleProfilesLookup(profile));
     }
 
+    /** Kept so the final phase order can be reported once the suite is fully assembled. */
+    private Suites hostedSuites;
+
     @Override
     public void registerGraalPhases(Providers providers, Suites suites, boolean hosted, boolean fallback) {
         if (!hosted || fallback) {
@@ -98,6 +101,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
         }
         /* Before inlining, so that a root method sees its own recorded probabilities. */
         suites.getHighTier().prependPhase(new CrucibleApplyProfilesPhase(universe, lookup));
+        hostedSuites = suites;
     }
 
     @Override
@@ -110,6 +114,13 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
             if (!CrucibleOptions.CrucibleProfileTrace.getValue().isEmpty()) {
                 System.out.println(crucible.tracedLookups());
+            }
+            if (CrucibleOptions.CrucibleProfileDiagnostics.getValue() && hostedSuites != null) {
+                System.out.println("Crucible: Optimize=" + com.oracle.svm.core.SubstrateOptions.Optimize.getValue() +
+                                " AOTPriorityInline=" + com.oracle.svm.core.SubstrateOptions.AOTPriorityInline.getValue());
+                StringBuilder order = new StringBuilder("Crucible: high tier phase order:");
+                hostedSuites.getHighTier().getPhases().forEach(phase -> order.append("\n  ").append(phase.getClass().getSimpleName()));
+                System.out.println(order);
             }
         }
     }

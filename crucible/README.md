@@ -64,6 +64,20 @@ marked `HIT`, `MISS` or `TYPE`.
 Receiver-type profiles feed upstream's `JavaTypeProfile`, from which it derives a method profile,
 so a call site that is monomorphic or strongly biased at run time can be devirtualised in pass 2.
 
+## Benchmark
+
+    source crucible/env.sh
+    crucible/samples/bench.sh [reps] [iterations]
+
+Builds an instrumented, a profiled and a control image from `BenchPGO.java`, then alternates runs
+of the profiled and control images and reports the median of each. Alternating cancels slow drift
+in machine load and the median ignores outliers; neither removes noise, so the script prints the
+control's own run-to-run spread next to the difference and says so when the difference is smaller.
+
+As of 2026-09-19 the profiled image is not measurably faster. The profile is recorded and applied
+at the right call sites, but the hot site is still compiled as an indirect call, so there is
+nothing to gain yet; see `docs/issues/2026-09-19-profiles-apply-but-nothing-devirtualises.md`.
+
 ## End-to-end check
 
     source crucible/env.sh
