@@ -125,6 +125,7 @@ public final class CrucibleProfileParser {
                                 asLong(to.getOrDefault("overflow", Long.valueOf(0)), "instanceOfs[].overflow"), List.copyOf(types)));
             }
             methods.add(new CrucibleProfile.Method(asString(mo.get("id"), "methods[].id"), asLong(mo.getOrDefault("calls", Long.valueOf(0)), "methods[].calls"),
+                            (int) asLong(mo.getOrDefault("firstCall", Long.valueOf(0)), "methods[].firstCall"),
                             List.copyOf(conditionals), List.copyOf(invokes), List.copyOf(tests)));
         }
         return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods));

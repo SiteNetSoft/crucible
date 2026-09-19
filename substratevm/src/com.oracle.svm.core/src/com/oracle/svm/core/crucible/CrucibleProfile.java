@@ -68,6 +68,11 @@ public record CrucibleProfile(int schemaVersion, Producer producer, List<String>
     public record InstanceOfSite(List<String> ctx, int bci, long overflow, List<ObservedType> types) {
     }
 
-    public record Method(String id, long calls, List<Conditional> conditionals, List<VirtualInvoke> virtualInvokes, List<InstanceOfSite> instanceOfs) {
+    /**
+     * @param firstCall position of this method in the order the run first entered methods, or 0
+     *            when the profile never saw it start. Used to lay the image out in the sequence a
+     *            run touches it.
+     */
+    public record Method(String id, long calls, int firstCall, List<Conditional> conditionals, List<VirtualInvoke> virtualInvokes, List<InstanceOfSite> instanceOfs) {
     }
 }

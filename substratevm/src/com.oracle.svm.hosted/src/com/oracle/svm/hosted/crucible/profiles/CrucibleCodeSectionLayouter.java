@@ -54,11 +54,14 @@ import jdk.graal.compiler.code.CompilationResult;
 public final class CrucibleCodeSectionLayouter implements CodeSectionLayouter {
 
     private final CrucibleProfilesLookup profiles;
+    private final boolean byStartupOrder;
     private int hot;
     private int cold;
+    private int ordered;
 
-    public CrucibleCodeSectionLayouter(CrucibleProfilesLookup profiles) {
+    public CrucibleCodeSectionLayouter(CrucibleProfilesLookup profiles, boolean byStartupOrder) {
         this.profiles = profiles;
+        this.byStartupOrder = byStartupOrder;
     }
 
     @Override
@@ -72,8 +75,26 @@ public final class CrucibleCodeSectionLayouter implements CodeSectionLayouter {
                 unobserved.add(method);
             }
         }
-        /* Hottest first, ties and unobserved methods by name so the layout is reproducible. */
-        executed.sort(Comparator.comparingLong(profiles::getCallCountOrZero).reversed().thenComparing(HostedMethod::getQualifiedName));
+        if (byStartupOrder) {
+            /*
+             * Startup order: lay methods out in the sequence the run first entered them, so the
+             * pages touched while starting up are contiguous and in the order they are needed.
+             * Methods that ran but whose first entry was never recorded follow, hottest first.
+             */
+            List<HostedMethod> started = new ArrayList<>();
+            List<HostedMethod> rest = new ArrayList<>();
+            for (HostedMethod method : executed) {
+                (profiles.firstCallOrder(method) > 0 ? started : rest).add(method);
+            }
+            started.sort(Comparator.comparingInt(profiles::firstCallOrder).thenComparing(HostedMethod::getQualifiedName));
+            rest.sort(Comparator.comparingLong(profiles::getCallCountOrZero).reversed().thenComparing(HostedMethod::getQualifiedName));
+            ordered = started.size();
+            executed = new ArrayList<>(started);
+            executed.addAll(rest);
+        } else {
+            /* Hottest first, ties and unobserved methods by name so the layout is reproducible. */
+            executed.sort(Comparator.comparingLong(profiles::getCallCountOrZero).reversed().thenComparing(HostedMethod::getQualifiedName));
+        }
         unobserved.sort(Comparator.comparing(HostedMethod::getQualifiedName));
         hot = executed.size();
         cold = unobserved.size();
@@ -85,6 +106,8 @@ public final class CrucibleCodeSectionLayouter implements CodeSectionLayouter {
     }
 
     public String summary() {
-        return "Crucible: code section ordered by profile, " + hot + " observed methods first, " + cold + " never observed after them.";
+        return "Crucible: code section ordered by " + (byStartupOrder ? "startup sequence" : "call count") + ", " +
+                        hot + " observed methods first" + (byStartupOrder ? " (" + ordered + " in recorded startup order)" : "") +
+                        ", " + cold + " never observed after them.";
     }
 }

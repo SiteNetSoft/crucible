@@ -78,6 +78,7 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
         access.getBigBang().addRootMethod((AnalysisMethod) CrucibleProfileRuntime.RECORD_TYPE.findMethod(access.getMetaAccess()), true,
                         "Receiver-type sampling foreign call, registered in " + CrucibleInstrumentFeature.class);
         RuntimeSupport.getRuntimeSupport().addTearDownHook(CrucibleProfileWriter.teardownHook());
+        RuntimeSupport.getRuntimeSupport().addStartupHook(CrucibleProfileWriter.periodicDumpHook());
     }
 
     @Override

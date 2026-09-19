@@ -57,3 +57,32 @@ callable. It is the sharpest difference between profiling a closed-world image a
 `-H:CrucibleDevirtualizeMaxTargets` (2). The after-lowering phase stays available behind
 `-H:+CrucibleDevirtualize` and off, and `-H:+CrucibleMarkHotCallers` stays off; both were measured
 as regressions.
+
+## Addendum: the optimization level dominates everything measured here
+
+Every number above, and every number reported earlier in this project, was taken at the default
+`-O2`. Repeating the measurements at `-O3` changes the picture substantially, and in one case
+changes the sign:
+
+    BranchBench     -O2  +15.2%     -O3  +50.1%      (1722 ms -> 859 ms)
+    BenchPGO        -O2   +4.6%     -O3   -2.3%      (1019 ms -> 1042 ms)
+    GameOfLife  1g  -O2   -2.2%     -O3  +21.7%
+    GameOfLife 20g  -O2   +8.6%     -O3  +13.5%
+
+`-O3` runs the frequency-driven phases -- partial loop unrolling above all -- that consume branch
+probabilities, so the same profile is worth far more there. The conditional application rate rises
+too, from 21.9% to 35.4% on GameOfLife, because more of the graph survives in a form the profile
+can be matched against.
+
+The type guard reverses: worth +4.6% at `-O2` and -2.3% at `-O3`, where the compiler already
+handles that dispatch and the guard becomes overhead. It should not be an unconditional default,
+and is left on only because `-O2` is the default level; this needs tuning per level rather than a
+single answer.
+
+## Against Oracle's own benchmark
+
+`crucible/samples/GameOfLife.java` is Oracle's PGO example, copied verbatim from
+`docs/reference-manual/native-image/PGO-Basic-Usage.md`, so CrucibleVM can be measured on the
+program Oracle publishes numbers for rather than only on its own. Oracle documents roughly 42% for
+one generation and 45% for a hundred. At `-O3` CrucibleVM reaches **+21.7%** and **+13.5%**: about
+a third of the published figure, on the same program, with identical output.

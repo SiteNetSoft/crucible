@@ -83,6 +83,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private Map<String, AnalysisType> typesByName = Map.of();
     /** Total recorded method executions, used to express one method's share of the whole run. */
     private final long totalCalls;
+    /** Method id to its position in the order the run first entered methods. */
+    private Map<String, Integer> firstCallOrder;
 
     /*
      * Upstream tracks lookup hit rates behind -H:+PGOPrintProfileQuality but only reports them in
@@ -110,11 +112,15 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         this.invokesByPoint = new HashMap<>();
         this.testsByContext = new HashMap<>();
         this.testsByPoint = new HashMap<>();
+        this.firstCallOrder = new HashMap<>();
 
         long calls = 0;
         for (CrucibleProfile.Method method : profile.methods()) {
             calls += method.calls();
             callCounts.merge(method.id(), method.calls(), Long::sum);
+            if (method.firstCall() != 0) {
+                firstCallOrder.merge(method.id(), method.firstCall(), Math::min);
+            }
             for (CrucibleProfile.Conditional conditional : method.conditionals()) {
                 long[] records = toRecords(conditional);
                 List<String> ctx = conditional.ctx();
@@ -165,6 +171,12 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         }
         Long count = callCounts.get(ProfileKey.methodId(method));
         return count == null ? -1 : (double) count / totalCalls;
+    }
+
+    /** Position of this method in the order the run first entered methods, or 0 if never seen. */
+    public int firstCallOrder(HostedMethod method) {
+        Integer order = firstCallOrder == null ? null : firstCallOrder.get(ProfileKey.methodId(method));
+        return order == null ? 0 : order;
     }
 
     /** Whether the profile saw enough of this method for the inliner to treat it as a hot caller. */
@@ -387,6 +399,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         invokesByPoint = null;
         testsByContext = null;
         testsByPoint = null;
+        firstCallOrder = null;
         typesByName = Map.of();
     }
 }

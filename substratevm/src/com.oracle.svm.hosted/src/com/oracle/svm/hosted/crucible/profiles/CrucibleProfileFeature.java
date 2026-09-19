@@ -139,7 +139,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
          * the community edition's alphabetical layouter when nothing has claimed the slot.
          */
         if (CrucibleOptions.CrucibleCodeLayout.getValue() && PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup lookup) {
-            layouter = new CrucibleCodeSectionLayouter(lookup);
+            layouter = new CrucibleCodeSectionLayouter(lookup, CrucibleOptions.CrucibleCodeLayoutByStartup.getValue());
             ImageSingletons.add(CodeSectionLayouter.class, layouter);
         }
     }
@@ -183,6 +183,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
+            System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
             System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
                             CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");
             System.out.println("Crucible: " + CrucibleDevirtualizationPhase.SITES_SEEN.get() + " indirect call sites, " +

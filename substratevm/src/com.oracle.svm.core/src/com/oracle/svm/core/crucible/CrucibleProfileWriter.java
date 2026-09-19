@@ -48,14 +48,52 @@ public final class CrucibleProfileWriter {
         return isFirstIsolate -> writeAtExit();
     }
 
-    private static void writeAtExit() {
+    /**
+     * Starts periodic writing when {@code -XX:CrucibleProfileDumpInterval} is set.
+     * <p>
+     * The tear-down hook only runs when the process shuts down. A service killed with SIGKILL, or
+     * one that crashes, yields no profile at all -- which rules out profiling exactly the
+     * long-running workloads a profile is most worth having for. Writing periodically costs one
+     * pass over the counters per interval and bounds what a kill can destroy.
+     */
+    public static RuntimeSupport.Hook periodicDumpHook() {
+        return isFirstIsolate -> {
+            int seconds = CrucibleOptions.CrucibleProfileDumpInterval.getValue();
+            if (seconds <= 0) {
+                return;
+            }
+            Thread writer = new Thread(() -> {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                        Thread.sleep(seconds * 1000L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    writeAtExit();
+                }
+            }, "CrucibleProfileWriter");
+            writer.setDaemon(true);
+            writer.start();
+        };
+    }
+
+    private static synchronized void writeAtExit() {
         if (!CrucibleProfileRuntime.isPresent()) {
             return;
         }
         CrucibleProfileRuntime rt = CrucibleProfileRuntime.singleton();
         Path path = Path.of(CrucibleOptions.CrucibleProfileOutput.getValue());
-        try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName);
+        /*
+         * Written to a temporary file and moved into place, so a periodic write interrupted by a
+         * kill cannot leave a half-written profile where a complete one used to be.
+         */
+        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+        try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder());
+            w.flush();
+            w.close();
+            Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             Log.log().string("CrucibleVM: could not write profile to ").string(path.toString()).string(": ").string(e.toString()).newline();
         }
@@ -81,6 +119,8 @@ public final class CrucibleProfileWriter {
     /** Per-method accumulation used only while writing. */
     private static final class MethodData {
         long calls;
+        /** Position in the order methods first ran; 0 means the profile never saw it start. */
+        int firstCall;
         /* (bci, ctx) -> (successor index -> accumulated successor record) */
         final TreeMap<String, TreeMap<Integer, SuccessorData>> conditionals = new TreeMap<>();
         final Map<String, ProfileKey.Conditional> exemplars = new TreeMap<>();
@@ -97,6 +137,11 @@ public final class CrucibleProfileWriter {
 
     public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
                     String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName) throws IOException {
+        write(out, keys, counters, imageBuildId, typeKeys, typeIds, typeCounts, typeOverflow, typeName, new int[0]);
+    }
+
+    public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
+                    String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName, int[] firstCallOrder) throws IOException {
         TreeMap<String, MethodData> methods = new TreeMap<>();
         for (int i = 0; i < keys.length; i++) {
             long count = counters[i];
@@ -104,6 +149,9 @@ public final class CrucibleProfileWriter {
             MethodData md = methods.computeIfAbsent(key.methodId(), k -> new MethodData());
             if (key instanceof ProfileKey.MethodEntry) {
                 md.calls += count;
+                if (i < firstCallOrder.length && firstCallOrder[i] != 0) {
+                    md.firstCall = md.firstCall == 0 ? firstCallOrder[i] : Math.min(md.firstCall, firstCallOrder[i]);
+                }
             } else if (key instanceof ProfileKey.Conditional c && count != 0) {
                 String group = String.format("%010d|%s", c.bci(), String.join(ProfileKey.CTX_SEP, c.context()));
                 md.conditionals.computeIfAbsent(group, g -> new TreeMap<>())
@@ -172,6 +220,9 @@ public final class CrucibleProfileWriter {
             out.append("    {\n");
             out.append("      \"id\": \"").append(escape(id)).append("\",\n");
             out.append("      \"calls\": ").append(Long.toString(md.calls));
+            if (md.firstCall != 0) {
+                out.append(",\n      \"firstCall\": ").append(Integer.toString(md.firstCall));
+            }
             if (!md.conditionals.isEmpty()) {
                 out.append(",\n      \"conditionals\": [\n");
                 int c = 0;

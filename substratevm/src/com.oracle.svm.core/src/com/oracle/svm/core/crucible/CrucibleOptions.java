@@ -51,6 +51,10 @@ public final class CrucibleOptions {
     @Option(help = "Path of the profile written by an instrumented image at exit.", type = OptionType.User)//
     public static final RuntimeOptionKey<String> CrucibleProfileOutput = new RuntimeOptionKey<>("crucible-profile.json");
 
+    @Option(help = "Seconds between periodic profile writes in an instrumented image; 0 writes only at exit. " +
+                    "A profile is otherwise lost entirely if the process is killed rather than shut down.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> CrucibleProfileDumpInterval = new RuntimeOptionKey<>(0);
+
     @Option(help = "Path of a CrucibleVM profile to apply while building this image.", type = OptionType.User)//
     public static final HostedOptionKey<String> CrucibleProfile = new HostedOptionKey<>("") {
         @Override
@@ -92,6 +96,12 @@ public final class CrucibleOptions {
 
     @Option(help = "Order the image's code section by how often the profile saw each method run.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleCodeLayout = new HostedOptionKey<>(true);
+
+    @Option(help = "Lay the code section out in the order the profiled run first entered methods, rather than by call count.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleCodeLayoutByStartup = new HostedOptionKey<>(false);
+
+    @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
 
     private CrucibleOptions() {
     }

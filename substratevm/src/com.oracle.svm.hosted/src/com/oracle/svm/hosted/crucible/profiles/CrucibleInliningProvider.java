@@ -32,6 +32,9 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.phases.priorityinline.SubstrateInliningProvider;
 
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.phases.common.priorityinline.PolicyFactory;
+
+import com.oracle.svm.core.crucible.CrucibleOptions;
 
 /**
  * Supplies the priority inliner with calling contexts from a CrucibleVM profile.
@@ -50,5 +53,13 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
     @Override
     protected boolean shouldApplyProfilesWhileExpanding(OptionValues options) {
         return true;
+    }
+
+    @Override
+    public PolicyFactory policy(OptionValues options) {
+        if (CrucibleOptions.CrucibleColdCodeSize.getValue()) {
+            return new CruciblePolicyFactory();
+        }
+        return super.policy(options);
     }
 }
