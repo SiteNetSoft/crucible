@@ -109,6 +109,11 @@ public final class CrucibleOptions {
                     "static budget refuses. Nothing in the community edition uses profiled call counts to decide inlining.", type = OptionType.User)//
     public static final HostedOptionKey<Double> CrucibleHotInlineShare = new HostedOptionKey<>(0.005);
 
+    @Option(help = "How many inlining frames to record with each profile site. The full context is what makes the " +
+                    "instrumented image large, and about nine in ten applied profiles are matched by the innermost " +
+                    "frame alone; 0 records the whole context.", type = OptionType.User)//
+    public static final HostedOptionKey<Integer> CrucibleMaxContextDepth = new HostedOptionKey<>(1);
+
     private CrucibleOptions() {
     }
 }

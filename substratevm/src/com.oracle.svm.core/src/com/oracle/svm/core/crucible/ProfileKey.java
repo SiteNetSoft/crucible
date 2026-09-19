@@ -122,11 +122,22 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
         return new VirtualInvoke(methodId(pos.getRootMethod()), contextOf(pos), pos.getBCI(), methodId(targetMethod));
     }
 
-    /** Inlining context of {@code pos}, innermost frame first, each element {@code <methodId>:<bci>}. */
+    /**
+     * Inlining context of {@code pos}, innermost frame first, each element {@code <methodId>:<bci>}.
+     * <p>
+     * Truncated to {@link CrucibleOptions#CrucibleMaxContextDepth} frames. Carrying the whole
+     * context is what makes an instrumented image large -- it was 65 MiB of key strings in a
+     * GameOfLife image -- while about nine in ten applied profiles are matched by the innermost
+     * frame alone, through the context-insensitive fallback.
+     */
     static List<String> contextOf(NodeSourcePosition pos) {
+        int limit = CrucibleOptions.CrucibleMaxContextDepth.getValue();
         List<String> ctx = new ArrayList<>();
         for (NodeSourcePosition p = pos; p != null; p = p.getCaller()) {
             ctx.add(methodId(p.getMethod()) + ":" + p.getBCI());
+            if (limit > 0 && ctx.size() >= limit) {
+                break;
+            }
         }
         return ctx;
     }

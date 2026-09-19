@@ -109,8 +109,23 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
         Arrays.fill(typeIds, CrucibleProfileRuntime.NO_TYPE);
         int[] idTable = typeIdTable();
         runtime.installTypeTables(typeIds, new long[typeIds.length], new long[typeKeys.length], typeKeys, idTable, typeNameTable());
+        long keyChars = 0;
+        for (String key : keys) {
+            keyChars += key.length();
+        }
+        long typeKeyChars = 0;
+        for (String key : typeKeys) {
+            typeKeyChars += key.length();
+        }
+        long nameChars = 0;
+        for (String name : typeNameTable()) {
+            nameChars += name.length();
+        }
         System.out.println("Crucible: instrumented " + keys.length + " counters and " + typeKeys.length +
                         " receiver-type sites; the image can name " + idTable.length + " types.");
+        System.out.println("Crucible: key tables hold " + (keyChars / 1024) + " KiB of counter keys, " +
+                        (typeKeyChars / 1024) + " KiB of type-site keys and " + (nameChars / 1024) +
+                        " KiB of type names, all carried in the instrumented image.");
         System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
                         CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +
                         CrucibleTypeSamplingPhase.SITES_INSTRUMENTED.get() + " sampled.");
