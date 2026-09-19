@@ -96,6 +96,22 @@ public final class CrucibleOptions {
                     "already handles the dispatch and the guard measured as a 2.5% regression.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleTypeGuard = new HostedOptionKey<>(true);
 
+    @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
+                    "the profile saw almost never fail.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);
+
+    @Option(help = "How lopsided a check inside a loop has to be before the loop's range is split around it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumBias = new HostedOptionKey<>(0.99);
+
+    @Option(help = "How many lopsided checks a loop needs before splitting its range is worth three copies of it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleLoopRangeSplitMinimumChecks = new HostedOptionKey<>(2);
+
+    @Option(help = "How many iterations per entry the profile has to show before a loop's range is split.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumFrequency = new HostedOptionKey<>(64.0);
+
+    @Option(help = "Largest loop, in compiler nodes, whose range is split.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleLoopRangeSplitMaximumSize = new HostedOptionKey<>(1500);
+
     @Option(help = "Order the image's code section by how often the profile saw each method run.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleCodeLayout = new HostedOptionKey<>(true);
 

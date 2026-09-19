@@ -94,3 +94,44 @@ Reaching parity is not a matter of recording more, or of applying what we record
 earlier. We already record the same categories Oracle does, in more detail, and we
 apply them before inlining. The missing piece is a compilation tier: a sampling profile
 of hot calling contexts, and per-context method specialisation driven from it.
+
+## Follow-up: what the hot variant actually contains, and closing the gap
+
+None of Oracle's own switches removes their speedup: with `-H:-CAIAggressivelyOptimizeHot`
+it is still +29%, with `-H:HotCodeMinSelfTime=2.0` +31%, and `-H:-Vectorization` changes
+nothing. The machine code says why. The inner loop of `run%%H1` does one range check per
+cell and then loads the neighbours unguarded; the 36 border comparisons per cell are gone
+and the original loop survives as a fallback. It is loop versioning on the checks the
+profile says never fail.
+
+Doing the same split by hand in the source, with no profile at all, confirms that this is
+the whole effect: Oracle's plain `-O3` goes from 9073 ms to 5973 ms, against 5802 ms for
+their PGO, and ours goes from 9724 ms to 6957 ms.
+
+Our build already unswitches the checks on the row, which do not change inside the inner
+loop; the loop phases log `f=4001.00` from a trusted source, so the profile reaches them.
+The checks on the column depend on the induction variable and unswitching cannot move them.
+
+`CrucibleLoopRangeSplitPhase` handles those. For a hot counted loop it collects the checks
+of the form `iv + c < K` that the profile saw go one way at least 99% of the time, works
+out the range of `iv` over which they all go that way, and runs the loop three times: up
+to that range, across it with the checks folded, and over the rest. The three-loop
+structure is `LoopTransformations.insertPrePostLoops`, which the compiler already has for
+partial unrolling; the phase only picks the two limits and folds the checks.
+
+GameOfLife, `-O3`, 20 generations, 11 interleaved rounds, identical output at 1, 2, 7 and
+20 generations:
+
+| | control | PGO | gain |
+| --- | --- | --- | --- |
+| Oracle GraalVM | 9340 ms | 5609 ms | +39.9% |
+| CrucibleVM, range split off | 9812 ms | 8692 ms | +11.4% |
+| CrucibleVM | 9812 ms | **5003 ms** | **+49.0%** |
+
+Four loops split and 24 checks folded. BranchBench (+50.0% either way) and BenchPGO (-0.5%
+either way) have no loop that qualifies and are unchanged.
+
+What this does not show is parity in general. It is one workload, and the one Oracle chose
+to demonstrate their PGO on. Their per-context method variants are still something we do
+not have, and a program whose time goes into virtual dispatch rather than a stencil would
+not be helped by this phase at all.

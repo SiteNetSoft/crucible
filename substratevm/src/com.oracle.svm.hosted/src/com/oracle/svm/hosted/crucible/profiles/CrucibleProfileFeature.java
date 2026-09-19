@@ -50,6 +50,7 @@ import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 
+import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.phases.tiers.Suites;
 import jdk.graal.compiler.phases.util.Providers;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
@@ -187,6 +188,16 @@ public final class CrucibleProfileFeature implements InternalFeature {
             suites.getHighTier().appendPhase(new CrucibleDevirtualizationPhase(universe, lookup,
                             CrucibleOptions.CrucibleDevirtualizeMinimumBias.getValue(), CrucibleOptions.CrucibleDevirtualizeMaxTargets.getValue()));
         }
+        if (CrucibleOptions.CrucibleLoopRangeSplit.getValue()) {
+            /*
+             * After unswitching, which has by then moved out the checks that do not depend on the
+             * induction variable and left this phase the ones that do.
+             */
+            var unswitching = suites.getHighTier().findPhase(LoopUnswitchingPhase.class);
+            if (unswitching != null) {
+                unswitching.add(new CrucibleLoopRangeSplitPhase());
+            }
+        }
         hostedSuites.add(suites);
     }
 
@@ -195,6 +206,8 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            System.out.println("Crucible: loop range split considered " + CrucibleLoopRangeSplitPhase.LOOPS_CONSIDERED.get() + " hot counted loops, split " +
+                            CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks; hot counted loops passed over: " + CrucibleLoopRangeSplitPhase.REJECTED + ".");
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
