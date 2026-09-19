@@ -39,50 +39,65 @@ dispatches through the vtable:
 A receiver that is 96.9% one type was not turned into a guarded direct call, so the call overhead
 the profile was supposed to remove is still there. That fully accounts for the missing speedup.
 
-## Where it stops, and the part that is unexplained
+## Where it stops
 
-`PGOApplyProfilesPhase` sets a `JavaTypeProfile` on the call target, and upstream derives a method
-profile from it. Acting on that profile — guarding on the dominant type and inlining it — is the
-inliner's job, and **`SubstratePriorityInliningPhase` does not appear in the high tier at all**:
+`PGOApplyProfilesPhase` sets a `JavaTypeProfile` on the call target and upstream derives a method
+profile from it. That is not what drives devirtualisation.
 
-    Crucible: Optimize=2 AOTPriorityInline=true
-    Crucible: high tier phase order:
-      CrucibleApplyProfilesPhase
-      CanonicalizerPhase
-      BoxNodeIdentityPhase
-      DeadStoreRemovalPhase
-      RemoveUnwindPhase
-      ...
+The priority inliner devirtualises in `devirtualizeIndirectCallTargetInvokes`, which asks
+`SubstrateInliningProvider.samplingMethodProfiles(root, invoke)` for a `JavaMethodProfile`. That
+method reads from a `PrefixTree.Cursor`, and the tree is built in `PrefixTree.populatePrefixTree`:
 
-`HostedGraalConfiguration.createHostedInliners` inserts the priority inliner between
-`BoxNodeIdentityPhase` and the `DeadStoreRemovalPhase`/`RemoveUnwindPhase` pair that
-`NativeImageGenerator.createSuites` adds straight afterwards. Those two neighbours are present and
-the inliner between them is not, so the insertion ran and the phase still is not in the suite this
-build compiled with.
+```java
+Map<NodeSourcePosition, Long> samples = pgoProfiles.getSampleCounts().orElseGet(HashMap::new);
+```
 
-Two explanations were checked and ruled out:
+`getSampleCounts` is a `PGOProfilesLookup` method with a default returning `Optional.empty()`, and
+CrucibleVM never overrode it. The prefix tree is therefore empty, `profileFor` returns `null` at
+every call site, no `JavaMethodProfile` is produced, and no devirtualisation is attempted. The
+`JavaTypeProfile` CrucibleVM does supply influences other decisions, but not this one.
 
-- **Not the optimization level.** `AOTPriorityInline` gates on `-O2`/`-O3` and reports `true` at
-  both; `-O3` produces the same phase list.
-- **Not a stale capture.** The phase list is read after compilation from the `Suites` handed to
-  `registerGraalPhases`, and that same object did receive `DeadStoreRemovalPhase` and
-  `RemoveUnwindPhase`, which are added after the inliner.
+So the seam has a second half nobody noticed: registering a lookup and answering the conditional
+and receiver-type queries is enough to change branch probabilities, and not enough to change a
+call.
 
-The remaining candidate is that hosted compilation uses a different `Suites` instance from the one
-features register phases on — plausible, since `CrucibleApplyProfilesPhase` demonstrably runs, but
-not established. Until it is, the diagnosis stops here rather than guessing further.
+### A correction to an earlier reading
+
+An earlier revision of this note claimed `SubstratePriorityInliningPhase` was absent from the high
+tier. That was wrong, and the fault was in the diagnostic rather than in the build. Features are
+offered **two** hosted suites; the first is the real AOT suite and the second is a reduced one. The
+diagnostic kept only the last suite it was given and printed that:
+
+    suite #0: CrucibleApplyProfilesPhase, CanonicalizerPhase, BoxNodeIdentityPhase,
+              SubstratePriorityInliningPhase, DeadStoreRemovalPhase, RemoveUnwindPhase,
+              ... FinalPartialEscapePhase, ReadEliminationPhase, BoxNodeOptimizationPhase
+    suite #1: CrucibleApplyProfilesPhase, CanonicalizerPhase, BoxNodeIdentityPhase,
+              DeadStoreRemovalPhase, RemoveUnwindPhase, ...
+
+The inliner is present, it runs after `CrucibleApplyProfilesPhase`, and the ordering was never the
+problem.
 
 ## What this does and does not say about M1-M3
 
 The acquisition half — the part CrucibleVM set out to build — works: counters, receiver types, a
-schema, a parser, and a lookup that upstream consumes at the right call sites. What is not yet
-shown is that the community edition's optimiser *acts* on the profile once it has it. The
-two-pass loop is complete and verified; the payoff is not.
+schema, a parser, and a lookup upstream consumes at the right call sites. Branch probabilities do
+reach the compiler. What is missing is the one input the inliner needs to rewrite a call, and it is
+a different input from the one the design anticipated.
 
-## Next
+Note that upstream's own documentation states plainly that "PGO is not available in GraalVM
+Community Edition" (`docs/reference-manual/native-image/PGO.md`). The machinery is present and
+reachable; it is the data supply that CE leaves unimplemented, which is exactly the seam this
+project set out to fill. `getSampleCounts` is simply a part of that seam that was not visible until
+a benchmark asked why nothing got faster.
 
-1. Establish whether the compiling suite is the one features see, by identity rather than inference.
-2. If the inliner is genuinely absent, find what installs it in a normal build and why it is missing
-   here; if it is present, find why a 96.9% biased receiver is not guarded.
-3. Only then repeat the benchmark. A speedup number is meaningless while the optimiser is not
-   consuming the profile.
+## Next: M4
+
+Feeding `getSampleCounts` needs a calling-context tree: each key is a `NodeSourcePosition` chain
+whose methods are `AnalysisMethod`s, each value the number of times that context was executed, and
+the callee must appear as a child of its call site for `profileFor` to find candidates.
+
+CrucibleVM already records, per call site, which receiver types occurred and how often. What it
+does not record is which method each of those receivers would dispatch to, so the callee cannot be
+named. Adding the invoked method to the virtual-invoke record, and resolving the concrete
+implementation per observed receiver type at apply time, produces exactly the (context, callee,
+count) triples the tree wants. That is the M4 plan.

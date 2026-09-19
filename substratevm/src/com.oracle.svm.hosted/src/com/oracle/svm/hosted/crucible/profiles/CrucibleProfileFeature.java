@@ -29,6 +29,8 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.graalvm.nativeimage.ImageSingletons;
 
@@ -84,8 +86,12 @@ public final class CrucibleProfileFeature implements InternalFeature {
         ImageSingletons.add(PGOProfilesLookup.class, new CrucibleProfilesLookup(profile));
     }
 
-    /** Kept so the final phase order can be reported once the suite is fully assembled. */
-    private Suites hostedSuites;
+    /**
+     * Every hosted suite this feature was offered, not just the last: if compilation uses a
+     * different instance from the one phases are registered on, that shows up here as more than
+     * one suite, or as an inliner present in one and absent in another.
+     */
+    private final List<Suites> hostedSuites = new CopyOnWriteArrayList<>();
 
     @Override
     public void registerGraalPhases(Providers providers, Suites suites, boolean hosted, boolean fallback) {
@@ -101,7 +107,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
         }
         /* Before inlining, so that a root method sees its own recorded probabilities. */
         suites.getHighTier().prependPhase(new CrucibleApplyProfilesPhase(universe, lookup));
-        hostedSuites = suites;
+        hostedSuites.add(suites);
     }
 
     @Override
@@ -115,12 +121,18 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (!CrucibleOptions.CrucibleProfileTrace.getValue().isEmpty()) {
                 System.out.println(crucible.tracedLookups());
             }
-            if (CrucibleOptions.CrucibleProfileDiagnostics.getValue() && hostedSuites != null) {
+            if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
                 System.out.println("Crucible: Optimize=" + com.oracle.svm.core.SubstrateOptions.Optimize.getValue() +
                                 " AOTPriorityInline=" + com.oracle.svm.core.SubstrateOptions.AOTPriorityInline.getValue());
-                StringBuilder order = new StringBuilder("Crucible: high tier phase order:");
-                hostedSuites.getHighTier().getPhases().forEach(phase -> order.append("\n  ").append(phase.getClass().getSimpleName()));
-                System.out.println(order);
+                System.out.println("Crucible: " + hostedSuites.size() + " hosted suite(s) offered to features");
+                int index = 0;
+                for (Suites suite : hostedSuites) {
+                    StringBuilder order = new StringBuilder("Crucible: suite #" + index++ + " (identity " +
+                                    Integer.toHexString(System.identityHashCode(suite)) + ", high tier " +
+                                    Integer.toHexString(System.identityHashCode(suite.getHighTier())) + "):");
+                    suite.getHighTier().getPhases().forEach(phase -> order.append("\n  ").append(phase.getClass().getSimpleName()));
+                    System.out.println(order);
+                }
             }
         }
     }
