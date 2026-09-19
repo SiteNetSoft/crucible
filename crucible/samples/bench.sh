@@ -71,7 +71,9 @@ awk -v c="$ctl_med" -v p="$pgo_med" -v cs="$ctl_med" -v cm="$ctl_min" 'BEGIN {
     pct = c > 0 ? 100.0 * delta / c : 0
     noise = cs - cm
     printf "difference %+d ms (%+.1f%%), run-to-run spread of the control %d ms\n", delta, pct, noise
-    if (delta <= noise) {
+    if (delta < -noise) {
+        print "REGRESSION: the profiled image is slower by more than the noise."
+    } else if (delta <= noise) {
         print "Not a measurement: the difference is within the noise on this machine."
     }
 }'

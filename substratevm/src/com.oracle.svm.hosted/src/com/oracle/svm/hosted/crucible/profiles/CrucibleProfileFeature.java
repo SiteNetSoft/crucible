@@ -41,6 +41,7 @@ import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.graal.GraalConfiguration;
 import com.oracle.svm.hosted.cai.PrefixTree;
+import com.oracle.svm.hosted.code.CodeSectionLayouter;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.util.UserError;
@@ -129,6 +130,20 @@ public final class CrucibleProfileFeature implements InternalFeature {
         return tree == null ? null : tree.cursorFor(compilationRoot);
     }
 
+    private CrucibleCodeSectionLayouter layouter;
+
+    @Override
+    public void beforeAnalysis(BeforeAnalysisAccess access) {
+        /*
+         * Registered before CodeLayoutOptimizationFeature.beforeCompilation, which only installs
+         * the community edition's alphabetical layouter when nothing has claimed the slot.
+         */
+        if (CrucibleOptions.CrucibleCodeLayout.getValue() && PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup lookup) {
+            layouter = new CrucibleCodeSectionLayouter(lookup);
+            ImageSingletons.add(CodeSectionLayouter.class, layouter);
+        }
+    }
+
     @Override
     public void registerGraalPhases(Providers providers, Suites suites, boolean hosted, boolean fallback) {
         if (!hosted || fallback) {
@@ -143,6 +158,11 @@ public final class CrucibleProfileFeature implements InternalFeature {
         }
         /* Before inlining, so that a root method sees its own recorded probabilities. */
         suites.getHighTier().prependPhase(new CrucibleApplyProfilesPhase(universe, lookup));
+        if (CrucibleOptions.CrucibleDevirtualize.getValue()) {
+            /* After lowering, which is where an indirect call target node exists to rewrite. */
+            suites.getHighTier().appendPhase(new CrucibleDevirtualizationPhase(universe, lookup,
+                            CrucibleOptions.CrucibleDevirtualizeMinimumBias.getValue(), CrucibleOptions.CrucibleDevirtualizeMaxTargets.getValue()));
+        }
         hostedSuites.add(suites);
     }
 
@@ -151,6 +171,13 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            if (layouter != null) {
+                System.out.println(layouter.summary());
+            }
+            System.out.println("Crucible: " + CrucibleDevirtualizationPhase.SITES_SEEN.get() + " indirect call sites, " +
+                            CrucibleDevirtualizationPhase.SITES_UNSUPPORTED.get() + " not guardable, " +
+                            CrucibleDevirtualizationPhase.SITES_PROFILED.get() + " with a receiver profile, " +
+                            CrucibleDevirtualizationPhase.SITES_DEVIRTUALIZED.get() + " devirtualised.");
             System.out.println("Crucible: " + CrucibleApplyProfilesPhase.GRAPHS.get() + " graphs seen by the apply phase, " +
                             CrucibleApplyProfilesPhase.MARKED.get() + " given a global profile, " +
                             CrucibleApplyProfilesPhase.MARKED_HOT.get() + " marked hot.");

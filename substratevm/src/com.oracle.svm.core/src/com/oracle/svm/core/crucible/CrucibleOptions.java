@@ -71,6 +71,20 @@ public final class CrucibleOptions {
     @Option(help = "Share of recorded calls a method needs before it counts as a hot caller, which is what lets the inliner devirtualise its call sites.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleHotCallerRatio = new HostedOptionKey<>(0.001);
 
+    @Option(help = "Rewrite an indirect call into a type-guarded direct call when the profile shows a dominant receiver. " +
+                    "Off by default: measured as a regression, because the resulting direct call cannot be inlined afterwards " +
+                    "and a guard costs more than a well-predicted indirect call saves.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleDevirtualize = new HostedOptionKey<>(false);
+
+    @Option(help = "Share of calls one receiver type must account for before its call site is devirtualised.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleDevirtualizeMinimumBias = new HostedOptionKey<>(0.7);
+
+    @Option(help = "Most guarded targets to emit at a single devirtualised call site.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleDevirtualizeMaxTargets = new HostedOptionKey<>(2);
+
+    @Option(help = "Order the image's code section by how often the profile saw each method run.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleCodeLayout = new HostedOptionKey<>(true);
+
     private CrucibleOptions() {
     }
 }
