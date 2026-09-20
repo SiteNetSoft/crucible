@@ -86,6 +86,21 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
         return CrucibleOptions.CrucibleInstrument.getValue() ? 0 : super.getMaxPolymorphicDispatches(options);
     }
 
+    /**
+     * One receiver in ten is the least the inliner will give a type test and an inlined body,
+     * which is caution about a list of receivers that static analysis could only guess the
+     * weights of. Counted receivers deserve more trust: a receiver seen three times in a hundred
+     * is left as an indirect call otherwise, and an indirect call in a loop costs every
+     * iteration, because everything live has to survive it.
+     */
+    @Override
+    public double getMinPolymorphicDispatchProbability(OptionValues options) {
+        if (CrucibleOptions.CrucibleInstrument.getValue() || PGOProfilesLookup.singletonOrNull() == null) {
+            return super.getMinPolymorphicDispatchProbability(options);
+        }
+        return Math.min(super.getMinPolymorphicDispatchProbability(options), CrucibleOptions.CrucibleMinimumReceiverShare.getValue());
+    }
+
     @Override
     public PolicyFactory policy(OptionValues options) {
         if (CrucibleOptions.CrucibleColdCodeSize.getValue() && !CrucibleOptions.CrucibleInstrument.getValue()) {

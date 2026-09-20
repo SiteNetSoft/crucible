@@ -96,6 +96,9 @@ public final class CrucibleOptions {
                     "already handles the dispatch and the guard measured as a 2.5% regression.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleTypeGuard = new HostedOptionKey<>(true);
 
+    @Option(help = "Smallest share of the calls at a site that a receiver type needs for the inliner to test for it and inline its method.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleMinimumReceiverShare = new HostedOptionKey<>(0.01);
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);
