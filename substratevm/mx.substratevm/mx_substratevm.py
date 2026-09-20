@@ -2700,6 +2700,12 @@ def run_helloworld_command(args, config, command_name, native_image_wrapper=None
     )
 
 
+@mx.command(suite_name=suite.name, command_name='crucible-e2e', usage_msg='')
+def crucible_e2e(args):
+    """record a profile with the CrucibleVM sample, rebuild with it, and check that it was applied"""
+    mx.run(['bash', join(suite.vc_dir, 'crucible', 'samples', 'e2e.sh')] + args, cwd=suite.vc_dir)
+
+
 @mx.command(suite_name=suite.name, command_name='debuginfotest', usage_msg='[options]')
 def debuginfotest(args, config=None):
     """
