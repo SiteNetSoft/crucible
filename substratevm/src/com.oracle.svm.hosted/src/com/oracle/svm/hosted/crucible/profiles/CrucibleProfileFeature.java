@@ -41,6 +41,7 @@ import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.shared.option.HostedOptionValues;
 import com.oracle.svm.core.graal.GraalConfiguration;
+import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.hosted.cai.PrefixTree;
 import com.oracle.svm.hosted.code.CodeSectionLayouter;
 import com.oracle.svm.hosted.meta.HostedMethod;
@@ -99,8 +100,19 @@ public final class CrucibleProfileFeature implements InternalFeature {
          * Must win the race with NativeImageGenerator.setDefaultConfiguration, which runs after
          * afterRegistration and keeps whichever hosted configuration was registered first.
          */
+        if (!SubstrateOptions.isMaximumOptimizationLevel() && !CrucibleOptions.CrucibleHotMethodsAtFullSettings.getValue()) {
+            /*
+             * Most of what a profile is worth comes through optimizations the lower levels hold
+             * back: measured on the samples, a quarter to a third of the gain at -O3.
+             */
+            System.out.println("Crucible: building below -O3 with -H:-CrucibleHotMethodsAtFullSettings. A profile then pays a quarter to a third of what it does at -O3.");
+        }
         if (!SubstrateOptions.useEconomyCompilerConfig()) {
             GraalConfiguration.setHostedInstanceIfEmpty(new CrucibleGraalConfiguration());
+            if (CrucibleOptions.CrucibleHotMethodsAtFullSettings.getValue()) {
+                /* Registered here for the same reason: the first hosted configuration wins. */
+                HostedConfiguration.setInstanceIfEmpty(new CrucibleHostedConfiguration());
+            }
         }
     }
 
@@ -233,6 +245,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            if (CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() > 0) {
+                System.out.println("Crucible: " + CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() + " hot methods compiled with the inliner settings of -O3.");
+            }
             System.out.println("Crucible: calling contexts -- " + CrucibleCallTree.CONTEXT_HITS.get() + " of " + CrucibleCallTree.CONTEXT_LOOKUPS.get() +
                             " inlining paths found in the tree; " + CrucibleCallTree.TARGET_HITS.get() + " of " + CrucibleCallTree.TARGET_LOOKUPS.get() +
                             " calls had their targets in context, " + CrucibleCallTree.TARGET_HITS_SINGLE.get() + " of them a single target.");

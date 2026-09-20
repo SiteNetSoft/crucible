@@ -59,3 +59,36 @@ where we allocate about a third more for the same work and collect it more slowl
 is something the inliner's thresholds, its depth, or knowledge of call targets moved. What
 is left is escape analysis and the collector itself, and of those only the first is a
 compiler problem a profile could bear on.
+
+## mnemonics, the largest loss, measured
+
+Raising the limits of escape analysis (`EscapeAnalysisIterations`, `EscapeAnalysisLoopCutoff`,
+`MaximumEscapeAnalysisArrayLength`) changed nothing, 5.8 s either way and the same image to
+the byte. The analysis is not being cut short.
+
+Both images under JFR for ten iterations:
+
+| | collections | paused | reclaimed over four iterations | per collection |
+| --- | --- | --- | --- | --- |
+| Oracle | 247 | 4.4 s | 13.1 GB | 85 MB |
+| CrucibleVM | 1804 | 16.2 s | 23.3 GB | 36 MB |
+
+The pauses differ by 1.2 s an iteration and the iterations by 1.26 s: the loss on this
+benchmark is collection, all of it. A collection costs the two about the same, 10 ms and
+15 ms. We have seven times as many, from two causes that multiply: we allocate about three
+quarters more for the same work, and the collector's default policy in this tree settles on a
+young generation of about 36 MB where Oracle's release settles on about 85 MB.
+
+What is allocated is the same in both, the machinery of a stream: `IntPipeline$Head` and
+`IntPipeline$1`, the sink wrappers, `StringLatin1$CharsSpliterator`, strings and their
+bytes. Oracle allocates most of it too. It removes a larger share: the sink wrapper
+`IntPipeline$1$1` is 3.6 GB in ours and 1.4 GB in theirs, `StringBuilder` 3.1 GB and 1.7 GB.
+That is escape analysis doing more with the same inlining, and nothing the profile feeds.
+
+A larger young generation does not make up for it. Wall time with `-Xmn128m`, `-Xmn256m`
+and `-Xmn512m` against the default: no change on mnemonics (38.0 s to between 38.3 s and
+38.6 s), slightly worse on par-mnemonics, mixed on scrabble, worse on scala-stm-bench7
+(17.3 s to 22.1 s at 128 MB), and far worse on akka-uct, 119 s to 307 s, 263 s and 209 s.
+Oracle's binary does not care either way. Neither the collection policy nor the young
+generation is a setting that can be recommended in general; both help some programs by a
+fifth and hurt others by more.

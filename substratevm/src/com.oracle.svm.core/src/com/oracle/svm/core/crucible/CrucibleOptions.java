@@ -117,6 +117,9 @@ public final class CrucibleOptions {
     @Option(help = "Largest callee, in bytes of bytecode, that a cold method still inlines.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleColdInlineMaximumBytecodes = new HostedOptionKey<>(12);
 
+    @Option(help = "Below -O3, compile the methods the run spent its time in with the inliner settings of -O3.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleHotMethodsAtFullSettings = new HostedOptionKey<>(true);
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);
