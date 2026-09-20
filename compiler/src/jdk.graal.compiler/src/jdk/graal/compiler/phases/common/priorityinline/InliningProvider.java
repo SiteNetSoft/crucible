@@ -25,6 +25,7 @@
 package jdk.graal.compiler.phases.common.priorityinline;
 
 import static jdk.graal.compiler.phases.common.priorityinline.PriorityInliningPhase.Options.MaxPolymorphicDispatches;
+import static jdk.graal.compiler.phases.common.priorityinline.PriorityInliningPhase.Options.MinPolymorphicDispatchProbability;
 
 import java.util.List;
 
@@ -172,6 +173,10 @@ public interface InliningProvider {
 
     default int getMaxPolymorphicDispatches(OptionValues options) {
         return MaxPolymorphicDispatches.getValue(options);
+    }
+
+    default double getMinPolymorphicDispatchProbability(OptionValues options) {
+        return MinPolymorphicDispatchProbability.getValue(options);
     }
 
     default boolean areDeoptsAllowed() {

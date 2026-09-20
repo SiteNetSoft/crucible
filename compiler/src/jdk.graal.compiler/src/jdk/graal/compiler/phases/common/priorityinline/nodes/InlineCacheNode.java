@@ -25,7 +25,6 @@
 package jdk.graal.compiler.phases.common.priorityinline.nodes;
 
 import static jdk.graal.compiler.core.common.NativeImageSupport.inRuntimeCode;
-import static jdk.graal.compiler.phases.common.priorityinline.PriorityInliningPhase.Options.MinPolymorphicDispatchProbability;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -190,7 +189,7 @@ public class InlineCacheNode extends ParentNode {
                     // Force-inlined and directed dispatches are not counted toward the maximum
                     // number of dispatches.
                     relevantDispatches.add(info);
-                } else if (dispatchesLeft > 0 && info.probability >= MinPolymorphicDispatchProbability.getValue(options)) {
+                } else if (dispatchesLeft > 0 && info.probability >= caller.callTree().inliningProvider().getMinPolymorphicDispatchProbability(options)) {
                     relevantDispatches.add(info);
                     dispatchesLeft--;
                 } else {
