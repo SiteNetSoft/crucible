@@ -15,12 +15,24 @@ Absolute time of the profile-guided binary from each compiler.
 | BranchBench | 1001 ms | **859 ms** | ahead |
 | JsonBench | 2526 ms | 2512 ms | level |
 | BenchPGO | **541 ms** | 578 ms | behind by 7% |
-| Renaissance scrabble | **520 ms** | 677 ms | behind by 23% |
+| Renaissance philosophers | 2152 ms | **1902 ms** | ahead |
+| Renaissance akka-uct | 28040 ms | **27029 ms** | ahead |
+| Renaissance scala-doku | 2086 ms | **1999 ms** | ahead |
+| Renaissance scala-kmeans | 308 ms | **300 ms** | ahead |
+| Renaissance rx-scrabble | **121 ms** | 136 ms | behind by 12% |
+| Renaissance fj-kmeans | **6507 ms** | 7521 ms | behind by 16% |
+| Renaissance scala-stm-bench7 | **1612 ms** | 1866 ms | behind by 16% |
+| Renaissance future-genetic | **1720 ms** | 2159 ms | behind by 26% |
+| Renaissance scrabble | **517 ms** | 655 ms | behind by 27% |
+| Renaissance reactors | **15611 ms** | 20312 ms | behind by 30% |
+| Renaissance par-mnemonics | **3488 ms** | 4886 ms | behind by 40% |
+| Renaissance mnemonics | **3561 ms** | 5718 ms | behind by 61% |
 
-On scrabble the two profile-guided gains are the same, +20%. What separates the binaries is the
-compiler underneath: without any profile Oracle's build runs an iteration in 650 ms and the
-community edition's in 849 ms. Where the two controls are close we are ahead, because our profile
-is put to more use; where theirs starts ahead, matching their gain is not enough.
+Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
+benchmarks. What separates the binaries is what is underneath: where the two controls are
+level we are ahead, and where Oracle's starts ahead we stay behind by about that much. On the
+benchmarks that allocate most, the difference is a third more allocation and a slower
+collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the-suite.md`.
 
 ## Open
 
@@ -29,12 +41,12 @@ is put to more use; where theirs starts ahead, matching their gain is not enough
 | C | The community edition is behind Oracle's before any profile is involved: 30% on scrabble | measured, and mostly not the optimizer: a third more allocation, and a collector that takes twice as long over it | decides what "ahead of Oracle" can mean on allocation-heavy code |
 | D | A separate copy of a hot method for each hot calling context, which is what Oracle's `%%H1` variants are | half done: sampled stacks now give the inliner call targets per inlining context, without copies | matters when a method behaves differently depending on who calls it; did not on scrabble |
 | G | The last 7% on BenchPGO, which is a loop Oracle unrolls twice | blocked: upstream's early-exit merging cannot take an exception exit | small, and risky to force |
-| H | More of Renaissance: the Scala and actor benchmarks, then the Spark ones | scrabble done, mnemonics measured once (Oracle 3.8 s, us 7.0 s an iteration), the rest queued | breadth; the Spark ones may not build closed-world at all |
-| I | Reading Oracle's `.iprof`, reporting profile quality, warning about stale profiles, an `mx` gate for the end-to-end check | not started | needed before this stops being alpha |
+| H | More of Renaissance | twelve measured; dotty fails the harness's validation under both compilers; the Spark, Neo4j and Finagle ones not attempted | breadth; the Spark ones may not build closed-world at all |
+| I | Usability | done: `iprof-to-crucible.py` reads Oracle's `.iprof` (a converted profile drives the build as well as our own recording), the build says how much of a profile fits the program and warns when it does not, `mx crucible-e2e` is the gate. Left: documentation for users | needed before this stops being alpha |
 | J | Allocation: we allocate a third more than Oracle on scrabble | found | escape analysis is where a profile could plausibly help, by saying which allocation sites are hot |
 | K | Compile what the profile calls cold for size. Oracle's scrabble image has 5.9 MB of code, ours had 17.4 MB | first step done: cold methods no longer look into their callees, which brought scrabble to 8.5 MB of code and the image from 38.5 MB to 29.0 MB at the same speed. Left: turning off loop optimizations and escape analysis in cold code, for which `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size |
 | L | At the default `-O2` the compile queue turns off escape analysis in the inliner and narrows its search, for every method alike | found; same way in as K | a profile could give the hot methods the `-O3` settings and leave the rest cheap |
-| M | Which collection policy suits a profiled image | `BySpaceAndTime` was 12% better than the default on scrabble | one benchmark; needs the rest of Renaissance before anything is recommended |
+| M | Which collection policy suits a profiled image | settled: none as a default. `BySpaceAndTime` is worth 20% on mnemonics and par-mnemonics and 10% on scrabble, and costs 25% on akka-uct | worth a line in the user documentation as a thing to try |
 
 ## Done since the list was started
 

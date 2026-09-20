@@ -231,6 +231,69 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         return inlinedSomewhere != null && inlinedSomewhere.contains(id);
     }
 
+    /**
+     * How well the profile fits the program being built: how many of the methods it has counts
+     * for exist in this image, by number and by the calls they account for. A profile recorded
+     * from other code, or from this code some versions ago, still applies wherever names happen to
+     * agree, and quietly does nothing elsewhere, so the build should say how much of it landed.
+     *
+     * @return the report, starting with {@code Warning:} when too little of the profile fits.
+     */
+    public String fitReport(HostedUniverse universe) {
+        if (callCounts == null || callCounts.isEmpty()) {
+            return "Crucible: the profile has no method counts.";
+        }
+        java.util.Set<String> inImage = new java.util.HashSet<>();
+        for (HostedMethod method : universe.getMethods()) {
+            inImage.add(ProfileKey.methodId(method));
+        }
+        int named = 0;
+        int found = 0;
+        long calls = 0;
+        long callsFound = 0;
+        int ownNamed = 0;
+        int ownFound = 0;
+        for (Map.Entry<String, Long> entry : callCounts.entrySet()) {
+            if (entry.getValue() <= 0) {
+                continue;
+            }
+            boolean present = inImage.contains(entry.getKey());
+            named++;
+            calls += entry.getValue();
+            if (present) {
+                found++;
+                callsFound += entry.getValue();
+            }
+            /*
+             * The class library and the VM are in every image, so a profile of some other program
+             * fits four fifths of this one by that alone. What tells them apart is the rest.
+             */
+            if (!isPlatformCode(entry.getKey())) {
+                ownNamed++;
+                if (present) {
+                    ownFound++;
+                }
+            }
+        }
+        if (named == 0) {
+            return "Crucible: the profile saw no method run.";
+        }
+        double byNumber = 100.0 * found / named;
+        double byCalls = calls == 0 ? 100.0 : 100.0 * callsFound / calls;
+        double ofOwn = ownNamed == 0 ? 100.0 : 100.0 * ownFound / ownNamed;
+        String report = String.format("the profile saw %d methods run, %d of them (%.1f%%) are in this image, accounting for %.1f%% of the calls it counted; " +
+                        "of the %d outside the class library and the VM, %d (%.1f%%) are.", named, found, byNumber, byCalls, ownNamed, ownFound, ofOwn);
+        if (byCalls < 80.0 || byNumber < 50.0 || ofOwn < 50.0) {
+            return "Warning: " + report + " It looks stale, or recorded from a different program; record it again.";
+        }
+        return "Crucible: " + report;
+    }
+
+    private static boolean isPlatformCode(String methodId) {
+        return methodId.startsWith("Ljava/") || methodId.startsWith("Ljavax/") || methodId.startsWith("Ljdk/") || methodId.startsWith("Lsun/") ||
+                        methodId.startsWith("Lcom/sun/") || methodId.startsWith("Lcom/oracle/svm/") || methodId.startsWith("Lorg/graalvm/") || methodId.startsWith("Lcom/oracle/graal/");
+    }
+
     /** Share of all recorded work that happened in this method and what was inlined into it. */
     public double workShare(HostedMethod method) {
         if (totalWork <= 0) {

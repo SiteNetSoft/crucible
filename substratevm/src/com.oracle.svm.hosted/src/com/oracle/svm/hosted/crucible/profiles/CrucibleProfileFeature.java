@@ -141,6 +141,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
         return tree == null || compilationRoot == null ? null : tree.cursorFor(compilationRoot);
     }
 
+    private boolean fitReported;
     private CrucibleCodeSectionLayouter layouter;
 
     /**
@@ -180,6 +181,11 @@ public final class CrucibleProfileFeature implements InternalFeature {
         }
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             crucible.indexTypes(universe);
+            if (!fitReported) {
+                fitReported = true;
+                String report = crucible.fitReport(universe);
+                (report.startsWith("Warning:") ? System.err : System.out).println(report);
+            }
         }
         if (typeGuardEnabled()) {
             /*
