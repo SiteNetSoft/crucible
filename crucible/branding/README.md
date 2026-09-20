@@ -5,7 +5,7 @@
 | `logo-mark.svg` | Primary mark. Square, transparent, reads down to 16 px. Use for favicons, avatars, and anywhere the name already appears next to it. |
 | `logo-mark-mono.svg` | Single-colour mark. Inherits `currentColor`, so it takes the surrounding text colour. Use on busy backgrounds, in print, and where the palette would clash. |
 | `logo.svg` | Horizontal lockup, mark plus name. Use in page headers and READMEs. |
-| `logo_320x64.svg` | The lockup on a 320 x 64 canvas with the name converted to paths, so it renders the same everywhere. It is the size of the GraalVM logo it replaces at the top of the repository README. |
+| `logo-readme.svg` | The lockup with the name converted to paths, so it renders the same everywhere, and an ALPHA tag in the molten colours. 352 x 64, shown at one and a half times that at the top of the repository README. Drop the tag by regenerating from `logo.svg` once the project leaves alpha. |
 
 ## The mark
 

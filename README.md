@@ -1,6 +1,14 @@
-[![CrucibleVM](crucible/branding/logo_320x64.svg)](crucible/README.md)
+<a href="crucible/README.md"><img src="crucible/branding/logo-readme.svg" alt="CrucibleVM (alpha)" width="528" height="96"></a>
 
-CrucibleVM is a fork of GraalVM Community Edition that adds open-source profile-guided optimization to `native-image`. Start at [`crucible/README.md`](crucible/README.md). What follows is the upstream GraalVM README.
+CrucibleVM is a fork of GraalVM Community Edition that adds open-source profile-guided optimization to `native-image`. Start at [`crucible/README.md`](crucible/README.md).
+
+> [!WARNING]
+> **Alpha. Not ready for production.** CrucibleVM changes how the compiler optimizes your program. It is measured and
+> checked for identical output on a small set of benchmarks, not yet on the breadth of code a production compiler has
+> to get right. Options, the profile format and behaviour may all change without notice. Use it to experiment and to
+> measure, keep a build without it to compare against, and please report anything that miscompiles.
+
+What follows is the upstream GraalVM README.
 
 [![GraalVM downloads][badge-dl]][downloads] [![GraalVM docs][badge-docs]][docs] [![GraalVM on Slack][badge-slack]][slack] [![GraalVM Gate][badge-gate]][gate] [![License][badge-license]](#license) [![GraalVM on LinkedIn][badge-linkedin]][social-linkedin] [![GraalVM on X][badge-x]][social-x] [![GraalVM on Bluesky][badge-bluesky]][social-bluesky] [![GraalVM on Medium][badge-medium]][social-medium] [![GraalVM on YouTube][badge-yt]][social-youtube]
 
