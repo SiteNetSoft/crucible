@@ -83,6 +83,13 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private Map<String, AnalysisType> typesByName = Map.of();
     /** Total recorded method executions, used to express one method's share of the whole run. */
     private final long totalCalls;
+    /**
+     * Branches taken plus calls made while each method was the one being compiled, which with the
+     * code inlined into it is a fair measure of how much of the run happened there. A call count
+     * is not: a method entered once that loops a billion times counts for nothing by it.
+     */
+    private final Map<String, Long> workByRoot = new HashMap<>();
+    private final long totalWork;
     /** Method id to its position in the order the run first entered methods. */
     private Map<String, Integer> firstCallOrder;
 
@@ -115,7 +122,9 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         this.firstCallOrder = new HashMap<>();
 
         long calls = 0;
+        long totalWorkSeen = 0;
         for (CrucibleProfile.Method method : profile.methods()) {
+            long work = 0;
             calls += method.calls();
             callCounts.merge(method.id(), method.calls(), Long::sum);
             if (method.firstCall() != 0) {
@@ -130,10 +139,11 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 byContext.put(String.join(ProfileKey.CTX_SEP, ctx), records);
                 /*
                  * The innermost frame doubles as the context-insensitive key. A method inlined into
-                 * several callers yields several contexts for the same point; keeping the first is
-                 * enough for a fallback, so only absent keys are filled in.
+                 * several callers yields several records for the same point, and the fallback, which
+                 * is what nearly every lookup ends up using, has to speak for all of them: whichever
+                 * record happened to come first may be from a caller that hardly ran.
                  */
-                byPoint.putIfAbsent(ctx.get(0), records);
+                byPoint.merge(ctx.get(0), records, CrucibleProfilesLookup::sumRecords);
 
                 String innermost = methodIdOf(ctx.get(0));
                 long total = 0;
@@ -141,24 +151,29 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                     total += s.count();
                 }
                 conditionalTotals.merge(innermost, total, Long::sum);
+                work += total;
             }
+            work += method.calls();
+            workByRoot.merge(method.id(), work, Long::sum);
+            totalWorkSeen += work;
             for (CrucibleProfile.VirtualInvoke invoke : method.virtualInvokes()) {
                 List<String> ctx = invoke.ctx();
                 if (ctx.isEmpty() || invoke.types().isEmpty()) {
                     continue;
                 }
                 invokesByContext.put(String.join(ProfileKey.CTX_SEP, ctx), invoke.types());
-                invokesByPoint.putIfAbsent(ctx.get(0), invoke.types());
+                invokesByPoint.merge(ctx.get(0), invoke.types(), CrucibleProfilesLookup::sumTypes);
             }
             for (CrucibleProfile.InstanceOfSite test : method.instanceOfs()) {
                 if (test.ctx().isEmpty() || test.types().isEmpty()) {
                     continue;
                 }
                 testsByContext.put(String.join(ProfileKey.CTX_SEP, test.ctx()), test.types());
-                testsByPoint.putIfAbsent(test.ctx().get(0), test.types());
+                testsByPoint.merge(test.ctx().get(0), test.types(), CrucibleProfilesLookup::sumTypes);
             }
         }
         this.totalCalls = calls;
+        this.totalWork = totalWorkSeen;
     }
 
     /**
@@ -195,6 +210,52 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
             index.putIfAbsent(type.getName(), type.getWrapped());
         }
         typesByName = index;
+    }
+
+    /** Share of all recorded work that happened in this method and what was inlined into it. */
+    public double workShare(HostedMethod method) {
+        if (totalWork <= 0) {
+            return 0;
+        }
+        Long work = workByRoot.get(ProfileKey.methodId(method));
+        return work == null ? 0 : (double) work / totalWork;
+    }
+
+    /** Adds up two records of the same control split, or keeps the busier if they disagree on its shape. */
+    private static long[] sumRecords(long[] a, long[] b) {
+        boolean sameShape = a.length == b.length;
+        for (int i = 0; sameShape && i < a.length; i += RECORD_SIZE) {
+            sameShape = a[i] == b[i] && a[i + 1] == b[i + 1];
+        }
+        if (!sameShape) {
+            return total(a) >= total(b) ? a : b;
+        }
+        long[] sum = a.clone();
+        for (int i = 2; i < sum.length; i += RECORD_SIZE) {
+            sum[i] += b[i];
+        }
+        return sum;
+    }
+
+    private static long total(long[] records) {
+        long total = 0;
+        for (int i = 2; i < records.length; i += RECORD_SIZE) {
+            total += records[i];
+        }
+        return total;
+    }
+
+    private static List<CrucibleProfile.ObservedType> sumTypes(List<CrucibleProfile.ObservedType> a, List<CrucibleProfile.ObservedType> b) {
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        for (CrucibleProfile.ObservedType type : a) {
+            counts.merge(type.name(), type.count(), Long::sum);
+        }
+        for (CrucibleProfile.ObservedType type : b) {
+            counts.merge(type.name(), type.count(), Long::sum);
+        }
+        List<CrucibleProfile.ObservedType> sum = new java.util.ArrayList<>(counts.size());
+        counts.forEach((name, count) -> sum.add(new CrucibleProfile.ObservedType(name, count)));
+        return sum;
     }
 
     private static long[] toRecords(CrucibleProfile.Conditional conditional) {

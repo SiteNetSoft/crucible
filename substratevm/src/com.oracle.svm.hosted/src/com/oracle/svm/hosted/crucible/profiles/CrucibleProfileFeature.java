@@ -120,6 +120,12 @@ public final class CrucibleProfileFeature implements InternalFeature {
     private static volatile CrucibleCallTree callTree;
 
     /** The calling context for a compilation root, built from the profile on first use. */
+    /** The calling-context tree, built on first use once the hosted universe exists. */
+    static CrucibleCallTree callTree(HostedUniverse universe) {
+        cursorFor(universe, null);
+        return callTree;
+    }
+
     static PrefixTree.Cursor cursorFor(HostedUniverse universe, HostedMethod compilationRoot) {
         CrucibleCallTree tree = callTree;
         if (tree == null) {
@@ -132,7 +138,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
                 }
             }
         }
-        return tree == null ? null : tree.cursorFor(compilationRoot);
+        return tree == null || compilationRoot == null ? null : tree.cursorFor(compilationRoot);
     }
 
     private CrucibleCodeSectionLayouter layouter;
@@ -221,6 +227,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            System.out.println("Crucible: calling contexts -- " + CrucibleCallTree.CONTEXT_HITS.get() + " of " + CrucibleCallTree.CONTEXT_LOOKUPS.get() +
+                            " inlining paths found in the tree; " + CrucibleCallTree.TARGET_HITS.get() + " of " + CrucibleCallTree.TARGET_LOOKUPS.get() +
+                            " calls had their targets in context, " + CrucibleCallTree.TARGET_HITS_SINGLE.get() + " of them a single target.");
             System.out.println("Crucible: loop range split considered " + CrucibleLoopRangeSplitPhase.LOOPS_CONSIDERED.get() + " hot counted loops, split " +
                             CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks.");
             if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
@@ -230,7 +239,8 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (layouter != null) {
                 System.out.println(layouter.summary());
             }
-            System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused.");
+            System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused, " +
+                            CruciblePolicyFactory.HOT_ROOT_INLINES.get() + " more for being in a method the run spent its time in.");
             System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
             System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
                             CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");

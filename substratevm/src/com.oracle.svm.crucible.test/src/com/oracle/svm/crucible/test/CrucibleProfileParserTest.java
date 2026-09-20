@@ -157,4 +157,18 @@ public class CrucibleProfileParserTest {
                         "\"categories\": [], \"methods\": [] } trailing";
         CrucibleProfileParser.parse(new StringReader(json));
     }
+
+    /** Sampled stacks are optional, keep their order, and a profile without any has none. */
+    @Test
+    public void readsSampledStacks() throws IOException {
+        String json = "{ \"schemaVersion\": 3, \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"x\", \"imageBuildId\": \"b\" }, " +
+                        "\"categories\": [\"sampledStacks\"], \"methods\": [], " +
+                        "\"samples\": [ { \"stack\": [\"LA;.main()V:3\", \"LB;.run()V:17\"], \"count\": 41 }, { \"stack\": [\"LA;.main()V:9\"], \"count\": 2 } ] }";
+        CrucibleProfile profile = CrucibleProfileParser.parse(new StringReader(json));
+        Assert.assertEquals(2, profile.samples().size());
+        Assert.assertEquals(List.of("LA;.main()V:3", "LB;.run()V:17"), profile.samples().get(0).stack());
+        Assert.assertEquals(41, profile.samples().get(0).count());
+        CrucibleProfile without = CrucibleProfileParser.parse(new StringReader(json.substring(0, json.indexOf(", \"samples\"")) + " }"));
+        Assert.assertTrue(without.samples().isEmpty());
+    }
 }

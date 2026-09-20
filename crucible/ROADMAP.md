@@ -26,15 +26,24 @@ is put to more use; where theirs starts ahead, matching their gain is not enough
 
 | | What | State | Why it might matter |
 | --- | --- | --- | --- |
-| A | Sum the context-insensitive fallback profile over every caller a method was inlined into, instead of keeping whichever was seen first | written, unmeasured | nearly all applied branch data goes through the fallback |
-| B | Inline more inside the methods the run spent its time in, judged by branches and calls executed rather than by call count | written, off by default, unmeasured | the lever for stream and lambda code; scrabble had 9 profile-justified inlines in the whole image |
-| C | The community edition's optimizer is behind Oracle's before any profile is involved | found on scrabble | the profile has to pay for that as well; B and E are the first attempts |
-| D | A separate copy of a hot method for each hot calling context, which is what Oracle's `%%H1` variants are | not built; the community edition has the consumers and no producer | matters when a method behaves differently depending on who calls it |
-| E | Let the inliner explore deeper in hot methods, not only accept more of what it explored | not started | pairs with B |
-| F | Time sampling in the recording image | not built; work share stands in for it | a better idea of what is hot, for B, D and E |
+| C | The community edition is behind Oracle's before any profile is involved: 30% on scrabble | measured, and mostly not the optimizer: a third more allocation, and a collector that takes twice as long over it | decides what "ahead of Oracle" can mean on allocation-heavy code |
+| D | A separate copy of a hot method for each hot calling context, which is what Oracle's `%%H1` variants are | half done: sampled stacks now give the inliner call targets per inlining context, without copies | matters when a method behaves differently depending on who calls it; did not on scrabble |
 | G | The last 7% on BenchPGO, which is a loop Oracle unrolls twice | blocked: upstream's early-exit merging cannot take an exception exit | small, and risky to force |
-| H | More of Renaissance: the Scala and actor benchmarks, then the Spark ones | running | breadth; the Spark ones may not build closed-world at all |
+| H | More of Renaissance: the Scala and actor benchmarks, then the Spark ones | scrabble done, mnemonics measured once (Oracle 3.8 s, us 7.0 s an iteration), the rest queued | breadth; the Spark ones may not build closed-world at all |
 | I | Reading Oracle's `.iprof`, reporting profile quality, warning about stale profiles, an `mx` gate for the end-to-end check | not started | needed before this stops being alpha |
+| J | Allocation: we allocate a third more than Oracle on scrabble | found | escape analysis is where a profile could plausibly help, by saying which allocation sites are hot |
+| K | Compile what the profile calls cold for size. Oracle's scrabble image has 5.9 MB of code, ours 17.4 MB | found; `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size, and possibly instruction-cache behaviour |
+| L | At the default `-O2` the compile queue turns off escape analysis in the inliner and narrows its search, for every method alike | found; same way in as K | a profile could give the hot methods the `-O3` settings and leave the rest cheap |
+| M | Which collection policy suits a profiled image | `BySpaceAndTime` was 12% better than the default on scrabble | one benchmark; needs the rest of Renaissance before anything is recommended |
+
+## Done since the list was started
+
+| | What | Outcome |
+| --- | --- | --- |
+| A | Fallback profile summed over every caller a method was inlined into | about 2% on scrabble, within the spread; kept because it is the right answer to give |
+| B | Lower inliner threshold in the methods the run spent its time in, judged by branches and calls executed | 10 to 89 more inlines on scrabble at 4 to 64 times, no speed; kept as an option, off |
+| E | More inliner exploration in hot methods | tried globally first, `-H:TuneInlinerExploration=1`: 7 MB larger, no speed; not built |
+| F | Time sampling as a profile source | done by way of JFR: `jfr-to-samples.py` puts sampled stacks in the profile, and with them self time and hotness are measured rather than inferred |
 
 ## Tried and dropped
 
@@ -45,3 +54,5 @@ is put to more use; where theirs starts ahead, matching their gain is not enough
 | Unrolling small hot loops that have branches in them | upstream's `mergeEarlyLoopExits` fails on an exception exit, and an inline cache always leaves one |
 | Keeping no fallback call where static analysis lists every receiver | builds and runs correctly, no speed |
 | A second unswitching pass after lowering | no effect |
+| Profiling the garbage collector's own code | 94 collector methods profiled, collection no faster; the rest of the package cannot be counted without crashing at start-up |
+| A 2 GB young generation on Renaissance | reported time drops below Oracle's, wall time gets worse: it moves collection outside the timed region |

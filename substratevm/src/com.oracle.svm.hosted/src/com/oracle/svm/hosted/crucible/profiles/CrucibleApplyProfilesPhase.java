@@ -25,6 +25,7 @@
 package com.oracle.svm.hosted.crucible.profiles;
 
 import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.hosted.cai.PrefixTree;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.phases.PGOApplyProfilesPhase;
@@ -82,6 +83,31 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
             return;
         }
         MARKED.incrementAndGet();
+        CrucibleCallTree tree = CrucibleProfileFeature.callTree(universe);
+        if (tree != null && tree.isSampled()) {
+            /*
+             * With sampled stacks both answers are measured rather than inferred: the time spent
+             * in the method itself, and whether it and what it calls took enough of the run for
+             * its calls to be worth resolving context by context.
+             */
+            double self = Math.max(0, tree.selfShare(method));
+            boolean hotRoot = tree.inclusiveShare(method) >= CrucibleOptions.CrucibleHotContextShare.getValue();
+            if (hotRoot) {
+                MARKED_HOT.incrementAndGet();
+            }
+            graph.setGlobalProfileProvider(new StructuredGraph.GlobalProfileProvider() {
+                @Override
+                public double getGlobalSelfTimePercent() {
+                    return self;
+                }
+
+                @Override
+                public boolean hotCaller() {
+                    return hotRoot;
+                }
+            });
+            return;
+        }
         double share = lookup.selfTimeShare(method);
         /*
          * hotCaller gates exactly one thing upstream: applying receiver-type profiles to invokes,
@@ -130,7 +156,13 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
         }
         GRAPHS.incrementAndGet();
         installGlobalProfile(graph);
-        PGOApplyProfilesPhase.createContextInsensitive(universe, profiles).apply(graph, context);
+        PrefixTree.Cursor cursor = graph.globalProfileProvider().hotCaller() && graph.method() instanceof HostedMethod root ? CrucibleProfileFeature.cursorFor(universe, root) : null;
+        if (cursor != null) {
+            /* Also gives the root's own calls the targets the samples saw them reach. */
+            PGOApplyProfilesPhase.createForBeforeHotCompilationPhase(universe, cursor, profiles).apply(graph, context);
+        } else {
+            PGOApplyProfilesPhase.createContextInsensitive(universe, profiles).apply(graph, context);
+        }
         countDynamicProfiles(graph);
     }
 }

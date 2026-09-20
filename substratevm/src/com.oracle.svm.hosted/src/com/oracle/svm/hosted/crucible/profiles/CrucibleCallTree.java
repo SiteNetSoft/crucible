@@ -58,12 +58,21 @@ import jdk.vm.ci.meta.ResolvedJavaMethod;
  */
 public final class CrucibleCallTree {
 
+    /** How often the compiler asked where a call goes in some context, and how often the tree knew. */
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_LOOKUPS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_HITS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_HITS_SINGLE = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong CONTEXT_LOOKUPS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong CONTEXT_HITS = new java.util.concurrent.atomic.AtomicLong();
+
     private final Map<AnalysisMethod, Node> roots = new HashMap<>();
     private final HostedUniverse universe;
     private long totalCount;
     private int resolved;
     private int unresolvedType;
     private int unresolvedTarget;
+    private boolean sampled;
+    private int sampledStacks;
 
     public CrucibleCallTree(CrucibleProfile profile, HostedUniverse universe) {
         this.universe = universe;
@@ -75,11 +84,77 @@ public final class CrucibleCallTree {
         for (HostedMethod method : universe.getMethods()) {
             methodsById.putIfAbsent(ProfileKey.methodId(method), method.wrapped);
         }
+        sampled = !profile.samples().isEmpty();
+        if (sampled) {
+            /*
+             * Stacks say everything the receiver counters do about where calls go, in every calling
+             * context rather than one, and in units of time rather than of calls. The two do not
+             * add up, so where there are stacks the tree is built from them alone.
+             */
+            for (CrucibleProfile.Sample sample : profile.samples()) {
+                add(sample, methodsById);
+            }
+            return;
+        }
         for (CrucibleProfile.Method method : profile.methods()) {
             for (CrucibleProfile.VirtualInvoke invoke : method.virtualInvokes()) {
                 add(invoke, typesByName, methodsById);
             }
         }
+    }
+
+    /** How far below a compilation root a calling context is followed. */
+    private static final int MAX_DEPTH_BELOW_ROOT = 24;
+
+    /**
+     * Files a sampled stack under every method on it. Any of them may be what the compiler is
+     * compiling when it asks, and what it then wants is what happened below that method: its
+     * callees, theirs, and so on down, each in the context of the ones above it up to the root.
+     */
+    private void add(CrucibleProfile.Sample sample, Map<String, AnalysisMethod> methodsById) {
+        List<String> stack = sample.stack();
+        AnalysisMethod[] methods = new AnalysisMethod[stack.size()];
+        int[] bcis = new int[stack.size()];
+        for (int i = 0; i < methods.length; i++) {
+            methods[i] = methodsById.get(methodIdOf(stack.get(i)));
+            bcis[i] = bciOf(stack.get(i));
+            if (methods[i] == null) {
+                unresolvedTarget++;
+            }
+        }
+        totalCount += sample.count();
+        sampledStacks++;
+        for (int start = 0; start < methods.length; start++) {
+            if (methods[start] == null) {
+                continue;
+            }
+            Node node = roots.computeIfAbsent(methods[start], Node::new);
+            for (int i = start; i + 1 < methods.length && i - start < MAX_DEPTH_BELOW_ROOT && methods[i + 1] != null; i++) {
+                node = node.childFor(bcis[i], methods[i + 1]);
+                resolved++;
+            }
+            node.count += sample.count();
+            if (node.parent == null) {
+                node.selfCount += sample.count();
+            }
+        }
+    }
+
+    /** Whether the tree was built from sampled stacks rather than from receiver counters. */
+    public boolean isSampled() {
+        return sampled;
+    }
+
+    /** Share of the samples that landed in this method itself, or -1 if the tree knows nothing of it. */
+    public double selfShare(HostedMethod method) {
+        Node node = roots.get(method.wrapped);
+        return node == null || totalCount == 0 ? -1 : (double) node.selfCount / totalCount;
+    }
+
+    /** Share of the samples that landed in this method or anything it called. */
+    public double inclusiveShare(HostedMethod method) {
+        Node node = roots.get(method.wrapped);
+        return node == null || totalCount == 0 ? 0 : (double) node.subtreeCount() / totalCount;
     }
 
     private void add(CrucibleProfile.VirtualInvoke invoke, Map<String, AnalysisType> typesByName, Map<String, AnalysisMethod> methodsById) {
@@ -142,7 +217,7 @@ public final class CrucibleCallTree {
     }
 
     public String summary() {
-        return "Crucible: call tree has " + roots.size() + " roots and " + resolved + " resolved call edges (" +
+        return "Crucible: call tree" + (sampled ? " from " + sampledStacks + " sampled stacks" : "") + " has " + roots.size() + " roots and " + resolved + " resolved call edges (" +
                         totalCount + " observations); " + unresolvedType + " receiver types and " +
                         unresolvedTarget + " call targets could not be resolved.";
     }
@@ -154,6 +229,8 @@ public final class CrucibleCallTree {
         private final Node parent;
         private final Map<Integer, List<Node>> children = new HashMap<>();
         private long count;
+        /** Samples that ended in a root method itself; a root's own count also holds truncated chains. */
+        private long selfCount;
 
         Node(AnalysisMethod method) {
             this(method, null);
@@ -213,9 +290,14 @@ public final class CrucibleCallTree {
 
         @Override
         public JavaMethodProfile profileFor(HostedUniverse hostedUniverse, BytecodePosition position) {
+            TARGET_LOOKUPS.incrementAndGet();
             List<Node> candidates = find(position);
             if (candidates == null || candidates.isEmpty()) {
                 return null;
+            }
+            TARGET_HITS.incrementAndGet();
+            if (candidates.size() == 1) {
+                TARGET_HITS_SINGLE.incrementAndGet();
             }
             Map<HostedMethod, Long> occurrences = new HashMap<>();
             for (Node candidate : candidates) {
@@ -226,8 +308,13 @@ public final class CrucibleCallTree {
 
         @Override
         public PrefixTree.Cursor findForMethod(BytecodePosition position, ResolvedJavaMethod target) {
+            CONTEXT_LOOKUPS.incrementAndGet();
             List<Node> nodes = find(position);
-            return nodes == null ? null : match(nodes, target);
+            Node found = nodes == null ? null : match(nodes, target);
+            if (found != null) {
+                CONTEXT_HITS.incrementAndGet();
+            }
+            return found;
         }
 
         @Override

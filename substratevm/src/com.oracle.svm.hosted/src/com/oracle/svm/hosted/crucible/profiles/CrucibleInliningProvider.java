@@ -67,7 +67,19 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
     @Override
     public PGOApplyProfilesPhase createPGOApplyProfilesPhase(ResolvedJavaMethod compilationRoot, NodeSourcePosition nodeSourcePosition, ResolvedJavaMethod callee,
                     NodeSourcePosition methodContext) {
-        return PGOApplyProfilesPhase.createForExpandingHotCutoffs(methodContext, hostedUniverse, null, PGOProfilesLookup.singleton());
+        /*
+         * With sampled stacks there is such a tree. The callee's place in it is found by walking
+         * from the compilation root down the inlining path to the call being expanded, and the
+         * targets of the callee's own calls are then the ones seen in exactly that context.
+         */
+        PrefixTree.Cursor calleeContext = null;
+        if (compilationRoot instanceof HostedMethod root) {
+            PrefixTree.Cursor rootContext = CrucibleProfileFeature.cursorFor(hostedUniverse, root);
+            if (rootContext != null && methodContext != null) {
+                calleeContext = rootContext.findForMethod(methodContext, callee);
+            }
+        }
+        return PGOApplyProfilesPhase.createForExpandingHotCutoffs(methodContext, hostedUniverse, calleeContext, PGOProfilesLookup.singleton());
     }
 
     @Override

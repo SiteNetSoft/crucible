@@ -128,7 +128,16 @@ public final class CrucibleProfileParser {
                             (int) asLong(mo.getOrDefault("firstCall", Long.valueOf(0)), "methods[].firstCall"),
                             List.copyOf(conditionals), List.copyOf(invokes), List.copyOf(tests)));
         }
-        return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods));
+        List<CrucibleProfile.Sample> samples = new ArrayList<>();
+        for (Object s : asArray(map.getOrDefault("samples", List.of()), "samples")) {
+            Map<String, Object> sample = asObject(s, "sample");
+            List<String> stack = new ArrayList<>();
+            for (Object frame : asArray(sample.getOrDefault("stack", List.of()), "stack")) {
+                stack.add(asString(frame, "stack frame"));
+            }
+            samples.add(new CrucibleProfile.Sample(List.copyOf(stack), asLong(sample.get("count"), "count")));
+        }
+        return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods), List.copyOf(samples));
     }
 
     @SuppressWarnings("unchecked")

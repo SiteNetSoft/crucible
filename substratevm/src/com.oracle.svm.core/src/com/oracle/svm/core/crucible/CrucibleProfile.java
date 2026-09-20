@@ -30,7 +30,26 @@ import java.util.List;
  * In-memory form of a {@code schemaVersion} 3 profile, as produced by {@link CrucibleProfileWriter}
  * and consumed by the pass 2 profile lookup.
  */
-public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods) {
+public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods, List<Sample> samples) {
+
+    /** A profile with counters only, as the recording image writes it. */
+    public CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods) {
+        this(schemaVersion, producer, categories, methods, List.of());
+    }
+
+    /**
+     * A call stack a time sampler caught the program in, and how often it caught it there.
+     * <p>
+     * Counters say how often each thing happened but not under whom. A stack does: the frame
+     * above a call is the method that call reached on that occasion, so a set of stacks holds, for
+     * every call site, which method it reached in which calling context. That is what resolves a
+     * call deep inside shared library code that goes to a different place for every caller.
+     *
+     * @param stack outermost frame first, each element {@code <methodId>:<bci>}, where the bci is
+     *            that of the call to the next frame, or for the last frame where the sample landed.
+     */
+    public record Sample(List<String> stack, long count) {
+    }
 
     public static final int SCHEMA_VERSION = 3;
 

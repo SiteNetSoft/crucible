@@ -99,6 +99,15 @@ public final class CrucibleOptions {
     @Option(help = "Smallest share of the calls at a site that a receiver type needs for the inliner to test for it and inline its method.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleMinimumReceiverShare = new HostedOptionKey<>(0.01);
 
+    @Option(help = "How many times lower the inliner's threshold is inside the methods the run spent its time in. 1 leaves it alone.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleHotRootInlineBoost = new HostedOptionKey<>(1.0);
+
+    @Option(help = "Share of the recorded work a method needs for the inliner to spend more on it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleHotRootShare = new HostedOptionKey<>(0.01);
+
+    @Option(help = "Share of the sampled time a method and what it calls need for its calls to be resolved context by context.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleHotContextShare = new HostedOptionKey<>(0.01);
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);

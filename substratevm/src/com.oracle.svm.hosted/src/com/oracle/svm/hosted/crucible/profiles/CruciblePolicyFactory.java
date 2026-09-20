@@ -32,6 +32,7 @@ import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstratePolicyFactory;
 
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.phases.common.priorityinline.InliningMath;
 import jdk.graal.compiler.phases.common.priorityinline.Inliner;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
@@ -57,6 +58,8 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
     public static final AtomicLong COLD_INLINES_ALREADY_DECLINED = new AtomicLong();
     /** Inlines allowed because the profile shows the callee running often, that the budget refused. */
     public static final AtomicLong HOT_INLINES_ALLOWED = new AtomicLong();
+    /** Inlines allowed because the method being compiled is where the run spent its time. */
+    public static final AtomicLong HOT_ROOT_INLINES = new AtomicLong();
 
     @Override
     public SubstrateInlinerPolicy createInlinerPolicy(OptionValues options) {
@@ -104,11 +107,32 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
             if (super.isWithinBudget(node, expansionRound)) {
                 return true;
             }
+            if (isWorthMoreInHotRoot(node, expansionRound)) {
+                HOT_ROOT_INLINES.incrementAndGet();
+                return true;
+            }
             if (isHotCallee(node)) {
                 HOT_INLINES_ALLOWED.incrementAndGet();
                 return true;
             }
             return false;
+        }
+
+        /**
+         * Spends more on a method where the run spent its time. The threshold a call has to clear
+         * rises with what has already been inlined into the root, the same for every root, and
+         * that is the right caution for the thousands of methods a run barely touches. In the few
+         * it lives in, a larger body is cheap next to what deeper inlining there returns.
+         */
+        private static boolean isWorthMoreInHotRoot(CallTreeNode node, int expansionRound) {
+            double boost = CrucibleOptions.CrucibleHotRootInlineBoost.getValue();
+            if (boost <= 1.0 || !(PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles)) {
+                return false;
+            }
+            if (!(node.callTree().root().getReadonlySubgraph().method() instanceof HostedMethod root) || profiles.workShare(root) < CrucibleOptions.CrucibleHotRootShare.getValue()) {
+                return false;
+            }
+            return node.getCostBenefit().relativeBenefit() > InliningMath.defaultInliningThreshold(node, expansionRound) / boost;
         }
 
         /** Whether the profile saw this callee take a meaningful share of the recorded run. */
