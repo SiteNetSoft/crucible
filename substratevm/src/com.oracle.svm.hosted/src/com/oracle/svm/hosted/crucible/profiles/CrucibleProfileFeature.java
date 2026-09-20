@@ -241,7 +241,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
             System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused, " +
                             CruciblePolicyFactory.HOT_ROOT_INLINES.get() + " more for being in a method the run spent its time in.");
-            System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
+            System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_EXPANSIONS_REFUSED.get() + " callees never looked into, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
             System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
                             CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");
             System.out.println("Crucible: " + CrucibleDevirtualizationPhase.SITES_SEEN.get() + " indirect call sites, " +

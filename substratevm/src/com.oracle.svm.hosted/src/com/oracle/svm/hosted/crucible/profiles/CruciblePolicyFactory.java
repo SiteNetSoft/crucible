@@ -27,14 +27,18 @@ package com.oracle.svm.hosted.crucible.profiles;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstratePolicyFactory;
 
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.phases.tiers.HighTierContext;
+import jdk.graal.compiler.phases.common.priorityinline.Expander;
 import jdk.graal.compiler.phases.common.priorityinline.InliningMath;
 import jdk.graal.compiler.phases.common.priorityinline.Inliner;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
+import jdk.graal.compiler.phases.common.priorityinline.nodes.CutoffNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
@@ -60,6 +64,64 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
     public static final AtomicLong HOT_INLINES_ALLOWED = new AtomicLong();
     /** Inlines allowed because the method being compiled is where the run spent its time. */
     public static final AtomicLong HOT_ROOT_INLINES = new AtomicLong();
+
+    /** Callees a cold method was not allowed to look into at all. */
+    public static final AtomicLong COLD_EXPANSIONS_REFUSED = new AtomicLong();
+
+    @Override
+    public Expander.Policy createExpanderPolicy(OptionValues options, HighTierContext context) {
+        return new ColdAwareExpanderPolicy();
+    }
+
+    /**
+     * Keeps a cold method from exploring its callees in the first place.
+     * <p>
+     * Declining to inline into cold methods turned out not to be enough. The inliner's cost and
+     * benefit analysis marks whole subtrees as inlined without asking the policy call by call, so
+     * that a method the run never entered still came out at 26 KB with a collection library
+     * inlined into it, where a compiler that treats it as cold emits a 40 byte call. What is never
+     * expanded cannot be inlined. Callees of a few bytecodes are still looked at: a getter inlined
+     * is smaller than the call to it.
+     */
+    private static final class ColdAwareExpanderPolicy extends SubstrateExpanderPolicy {
+        @Override
+        public boolean shouldExpand(CutoffNode node) {
+            if (!node.isForceInlined() && isCold(node.callTree().root().getReadonlySubgraph().method()) &&
+                            node.targetMethod().getCodeSize() > CrucibleOptions.CrucibleColdInlineMaximumBytecodes.getValue()) {
+                COLD_EXPANSIONS_REFUSED.incrementAndGet();
+                return false;
+            }
+            return super.shouldExpand(node);
+        }
+    }
+
+    /**
+     * Cold is not only never entered. What ran a few times and did next to nothing, which is most
+     * of what runs while a program starts, gains nothing from being compiled for speed either.
+     */
+    static boolean isCold(ResolvedJavaMethod method) {
+        if (!(PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles) || !(method instanceof HostedMethod hosted)) {
+            return false;
+        }
+        /*
+         * How much the garbage collector runs depends on how long the program does, not on what the
+         * program is. A short recording never compacts the heap, a long run does all the time, and
+         * compiling the compaction cold cost 4% of a benchmark that spends half its time collecting.
+         */
+        if (hosted.getDeclaringClass().toJavaName().startsWith("com.oracle.svm.core.genscavenge.")) {
+            return false;
+        }
+        long calls = profiles.getCallCountOrZero(hosted);
+        if (calls == 0) {
+            /*
+             * Uninterruptible code is not counted, so for it no count means no information. It
+             * includes the garbage collector and the memory copying, some of the hottest code
+             * there is, and was 4% of a benchmark when this treated it as cold.
+             */
+            return !UninterruptibleAnnotationUtils.isUninterruptible(hosted) && !profiles.ranAnywhere(hosted);
+        }
+        return calls <= CrucibleOptions.CrucibleColdMaximumCalls.getValue() && profiles.workShare(hosted) < CrucibleOptions.CrucibleColdMaximumWorkShare.getValue();
+    }
 
     @Override
     public SubstrateInlinerPolicy createInlinerPolicy(OptionValues options) {
@@ -160,7 +222,7 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
              * Only suppress where the profile is informative. A method absent from the profile
              * because the workload never reached it is cold; one that ran is left alone.
              */
-            return profiles.getCallCountOrZero(hostedRoot) == 0;
+            return isCold(hostedRoot);
         }
     }
 }

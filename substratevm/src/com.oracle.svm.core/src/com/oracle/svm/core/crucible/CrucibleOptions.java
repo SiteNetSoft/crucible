@@ -108,6 +108,15 @@ public final class CrucibleOptions {
     @Option(help = "Share of the sampled time a method and what it calls need for its calls to be resolved context by context.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleHotContextShare = new HostedOptionKey<>(0.01);
 
+    @Option(help = "A method entered at most this often, and doing next to none of the recorded work, is compiled as cold.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleColdMaximumCalls = new HostedOptionKey<>(3);
+
+    @Option(help = "Share of the recorded work below which a method entered only a few times counts as cold.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleColdMaximumWorkShare = new HostedOptionKey<>(0.00001);
+
+    @Option(help = "Largest callee, in bytes of bytecode, that a cold method still inlines.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleColdInlineMaximumBytecodes = new HostedOptionKey<>(12);
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);

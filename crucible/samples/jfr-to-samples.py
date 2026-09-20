@@ -15,9 +15,18 @@ import json
 import sys
 
 
+def type_id(name):
+    # JFR writes a hidden class as Outer$$Lambda/0x1234, the image names it Outer$$Lambda.0x1234,
+    # and lambdas are the frames a calling context is most wanted for.
+    head, slash, tail = name.rpartition("/0x")
+    if slash and "$$" in head:
+        return head.replace(".", "/") + ".0x" + tail
+    return name.replace(".", "/")
+
+
 def frame_id(frame):
     method = frame["method"]
-    return "L%s;.%s%s:%d" % (method["type"]["name"].replace(".", "/"), method["name"], method["descriptor"], frame.get("bytecodeIndex", -1))
+    return "L%s;.%s%s:%d" % (type_id(method["type"]["name"]), method["name"], method["descriptor"], frame.get("bytecodeIndex", -1))
 
 
 def main():

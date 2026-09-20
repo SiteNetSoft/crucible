@@ -82,6 +82,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     /** Type name to analysis type, built once the hosted universe exists. */
     private Map<String, AnalysisType> typesByName = Map.of();
     /** Total recorded method executions, used to express one method's share of the whole run. */
+    /** Methods seen as a frame of some receiver-type site, which also means they ran. */
+    private java.util.Set<String> inlinedSomewhere = new java.util.HashSet<>();
     private final long totalCalls;
     /**
      * Branches taken plus calls made while each method was the one being compiled, which with the
@@ -162,6 +164,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                     continue;
                 }
                 invokesByContext.put(String.join(ProfileKey.CTX_SEP, ctx), invoke.types());
+                inlinedSomewhere.add(methodIdOf(ctx.get(0)));
                 invokesByPoint.merge(ctx.get(0), invoke.types(), CrucibleProfilesLookup::sumTypes);
             }
             for (CrucibleProfile.InstanceOfSite test : method.instanceOfs()) {
@@ -210,6 +213,22 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
             index.putIfAbsent(type.getName(), type.getWrapped());
         }
         typesByName = index;
+    }
+
+    /**
+     * Whether any code of this method ran, on its own or inlined into something else. An entry
+     * count alone does not say: a method the recording image always inlined has none, and the
+     * optimized image, which inlines differently, may well compile it on its own and call it.
+     */
+    public boolean ranAnywhere(HostedMethod method) {
+        String id = ProfileKey.methodId(method);
+        if (callCounts != null && callCounts.getOrDefault(id, 0L) > 0) {
+            return true;
+        }
+        if (conditionalTotals != null && conditionalTotals.getOrDefault(id, 0L) > 0) {
+            return true;
+        }
+        return inlinedSomewhere != null && inlinedSomewhere.contains(id);
     }
 
     /** Share of all recorded work that happened in this method and what was inlined into it. */

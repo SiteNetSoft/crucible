@@ -32,7 +32,7 @@ is put to more use; where theirs starts ahead, matching their gain is not enough
 | H | More of Renaissance: the Scala and actor benchmarks, then the Spark ones | scrabble done, mnemonics measured once (Oracle 3.8 s, us 7.0 s an iteration), the rest queued | breadth; the Spark ones may not build closed-world at all |
 | I | Reading Oracle's `.iprof`, reporting profile quality, warning about stale profiles, an `mx` gate for the end-to-end check | not started | needed before this stops being alpha |
 | J | Allocation: we allocate a third more than Oracle on scrabble | found | escape analysis is where a profile could plausibly help, by saying which allocation sites are hot |
-| K | Compile what the profile calls cold for size. Oracle's scrabble image has 5.9 MB of code, ours 17.4 MB | found; `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size, and possibly instruction-cache behaviour |
+| K | Compile what the profile calls cold for size. Oracle's scrabble image has 5.9 MB of code, ours had 17.4 MB | first step done: cold methods no longer look into their callees, which brought scrabble to 8.5 MB of code and the image from 38.5 MB to 29.0 MB at the same speed. Left: turning off loop optimizations and escape analysis in cold code, for which `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size |
 | L | At the default `-O2` the compile queue turns off escape analysis in the inliner and narrows its search, for every method alike | found; same way in as K | a profile could give the hot methods the `-O3` settings and leave the rest cheap |
 | M | Which collection policy suits a profiled image | `BySpaceAndTime` was 12% better than the default on scrabble | one benchmark; needs the rest of Renaissance before anything is recommended |
 
@@ -43,7 +43,7 @@ is put to more use; where theirs starts ahead, matching their gain is not enough
 | A | Fallback profile summed over every caller a method was inlined into | about 2% on scrabble, within the spread; kept because it is the right answer to give |
 | B | Lower inliner threshold in the methods the run spent its time in, judged by branches and calls executed | 10 to 89 more inlines on scrabble at 4 to 64 times, no speed; kept as an option, off |
 | E | More inliner exploration in hot methods | tried globally first, `-H:TuneInlinerExploration=1`: 7 MB larger, no speed; not built |
-| F | Time sampling as a profile source | done by way of JFR: `jfr-to-samples.py` puts sampled stacks in the profile, and with them self time and hotness are measured rather than inferred |
+| F | Time sampling as a profile source | done by way of JFR (it names lambda classes `Outer$$Lambda/0x…` where the image has `Outer$$Lambda.0x…`, and until the converter allowed for that every sampled chain broke at a lambda): `jfr-to-samples.py` puts sampled stacks in the profile, and with them self time and hotness are measured rather than inferred |
 
 ## Tried and dropped
 

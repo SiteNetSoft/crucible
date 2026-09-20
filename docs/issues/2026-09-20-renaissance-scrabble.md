@@ -120,3 +120,35 @@ makes theirs faster is not something a profile reaches. The change was dropped.
 | more inliner exploration | no change, 7 MB larger |
 | `BySpaceAndTime` collection policy, at run time | 582, and 14% less wall time |
 | collector code profiled | no change |
+
+## Cold code that was not cold, and a policy that did not bite
+
+The image with its symbols showed methods the run never entered carrying whole libraries:
+`AbstractSeq.clone` 26 KB with 33 array allocations inlined, against a 40 byte call in
+Oracle's image. Our policy of not inlining into cold methods was in force and had changed
+26 000 decisions. It made the image 1% smaller. The inliner's cost and benefit analysis marks
+whole subtrees inlined without asking the policy call by call, so declining calls one at a
+time stops very little. What is never expanded cannot be inlined, so cold methods now do not
+look into their callees at all, apart from ones of a few bytecodes, where the body is smaller
+than the call.
+
+That halved the code, and cost 4 to 5%. Three things were being called cold that were not.
+
+- Uninterruptible code, which the recording image does not count, so that no count means
+  no information.
+- Methods the recording image always inlined. They have no entry count of their own, and
+  the optimized image, which inlines differently, may compile them standing alone. Branch
+  counts are kept by innermost method, inlined or not, and say whether any of a method ran.
+- The garbage collector's compaction. A recording of four iterations never compacts the
+  heap; a run of thirty does so constantly. How much the collector runs depends on how long
+  the program runs and not on what it is, so an application profile is no guide to it, and
+  it is left out of the cold policy altogether. This was most of the loss.
+
+Sampled stacks found the third: methods the rule called cold were holding 23% of the
+samples, every one of them in the collector. With all three allowed for, scrabble runs at
+the speed it did, in an image of 29.0 MB where it was 38.5 MB, with 8.5 MB of code where it
+had 17.4 MB. Oracle's is 25.5 MB and 5.9 MB.
+
+A method entered three times or fewer that did next to none of the recorded work is also
+cold now, as in Oracle's `CAIColdCodeMaxInvocations=3`: most of what runs while a program
+starts.
