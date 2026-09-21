@@ -25,13 +25,17 @@
 package com.oracle.svm.hosted.crucible.instrument;
 
 import com.oracle.svm.core.UninterruptibleAnnotationUtils;
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.hosted.code.CompileQueue;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 
+import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeSourcePosition;
+import jdk.graal.compiler.nodes.IfNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
+import jdk.graal.compiler.nodes.java.InstanceOfNode;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
 
@@ -50,7 +54,7 @@ public final class CrucibleProbePolicy extends CompileQueue.Policy {
         if (method.isDeoptTarget() || !graph.trackNodeSourcePosition() || isExcluded(method, context)) {
             return;
         }
-        CrucibleProbeNode entry = graph.add(new CrucibleProbeNode());
+        CrucibleProbeNode entry = graph.add(new CrucibleProbeNode(CrucibleProbeNode.Kind.ENTRY, null, null));
         entry.setNodeSourcePosition(new NodeSourcePosition(null, method, 0));
         graph.addAfterFixed(graph.start(), entry);
 
@@ -62,9 +66,35 @@ public final class CrucibleProbePolicy extends CompileQueue.Policy {
             if (position == null) {
                 continue;
             }
-            CrucibleProbeNode probe = graph.add(new CrucibleProbeNode(call.arguments().get(0), call.targetMethod()));
+            CrucibleProbeNode probe = graph.add(new CrucibleProbeNode(CrucibleProbeNode.Kind.RECEIVER, call.arguments().get(0), call.targetMethod()));
             probe.setNodeSourcePosition(position);
             graph.addBeforeFixed(call.invoke().asFixedNode(), probe);
+        }
+        if (CrucibleOptions.CrucibleRecordTestsWithProbes.getValue()) {
+            probeTests(graph);
+        }
+    }
+
+    /**
+     * An {@code instanceof} floats, so its probe goes ahead of the branch that uses it; a test
+     * nothing branches on is not worth counting. Inlined where the compiler can see what is being
+     * tested, the test folds away and the branch with it, and the probe is what is left to say
+     * that the value came through.
+     */
+    private static void probeTests(StructuredGraph graph) {
+        for (InstanceOfNode test : graph.getNodes().filter(InstanceOfNode.class).snapshot()) {
+            NodeSourcePosition position = test.getNodeSourcePosition();
+            if (position == null) {
+                continue;
+            }
+            for (Node usage : test.usages().snapshot()) {
+                if (usage instanceof IfNode branch) {
+                    CrucibleProbeNode probe = graph.add(new CrucibleProbeNode(CrucibleProbeNode.Kind.TESTED_VALUE, test.getValue(), null));
+                    probe.setNodeSourcePosition(position);
+                    graph.addBeforeFixed(branch, probe);
+                    break;
+                }
+            }
         }
     }
 

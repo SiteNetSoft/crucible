@@ -67,17 +67,19 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
      */
     private final boolean inlinedSitesOnly;
 
-    /** Whether calls are sampled here. They are not when probes put in at parsing do it; see {@link CrucibleProbeNode}. */
+    /** What is sampled here. What probes put in at parsing count is not; see {@link CrucibleProbeNode}. */
     private final boolean sampleCalls;
+    private final boolean sampleTests;
 
     public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly) {
-        this(typeSiteAllocator, inlinedSitesOnly, true);
+        this(typeSiteAllocator, inlinedSitesOnly, true, true);
     }
 
-    public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly, boolean sampleCalls) {
+    public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly, boolean sampleCalls, boolean sampleTests) {
         this.typeSiteAllocator = typeSiteAllocator;
         this.inlinedSitesOnly = inlinedSitesOnly;
         this.sampleCalls = sampleCalls;
+        this.sampleTests = sampleTests;
     }
 
     @Override
@@ -86,7 +88,10 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             return;
         }
         /* Hosted compilation uses a MethodCallTargetNode subclass, so filter by class. */
-        for (MethodCallTargetNode call : sampleCalls ? graph.getNodes().filter(MethodCallTargetNode.class).snapshot() : java.util.List.<MethodCallTargetNode> of()) {
+        for (MethodCallTargetNode call : graph.getNodes().filter(MethodCallTargetNode.class).snapshot()) {
+            if (!sampleCalls) {
+                break;
+            }
             CALL_TARGETS_SEEN.incrementAndGet();
             if (!call.invokeKind().isIndirect() || call.invoke() == null) {
                 continue;
@@ -105,7 +110,9 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             graph.addBeforeFixed(call.invoke().asFixedNode(), record);
             SITES_INSTRUMENTED.incrementAndGet();
         }
-        sampleInstanceOfs(graph);
+        if (sampleTests) {
+            sampleInstanceOfs(graph);
+        }
     }
 
     /**

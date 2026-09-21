@@ -150,6 +150,10 @@ public final class CrucibleOptions {
                     "including the ones the compiler could simplify because of where they were inlined.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordWithProbes = new HostedOptionKey<>(true);
 
+    @Option(help = "Count what instanceof tests the same way, in every copy of a method. The counts are fuller and recording was slower for it " +
+                    "on the one benchmark measured, with no gain in the image built from them.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordTestsWithProbes = new HostedOptionKey<>(false);
+
     @Option(help = "In a recording image, leave a call with several possible receivers a call, so that the receivers can be counted at it. " +
                     "Turned off, the image inlines as an optimized one does and records contexts more like the ones that will be looked up, at the price of those counts.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordKeepsCallsVirtual = new HostedOptionKey<>(true);

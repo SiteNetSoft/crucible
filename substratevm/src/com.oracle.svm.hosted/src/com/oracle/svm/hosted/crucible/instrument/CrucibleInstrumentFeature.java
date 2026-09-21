@@ -124,10 +124,11 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
                 universe = hUniverse;
             }
             boolean probes = CrucibleOptions.CrucibleRecordWithProbes.getValue();
-            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator, false, !probes));
+            boolean testProbes = probes && CrucibleOptions.CrucibleRecordTestsWithProbes.getValue();
+            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator, false, !probes, !testProbes));
             var inliner = suites.getHighTier().findPhase(SubstratePriorityInliningPhase.class);
             if (inliner != null) {
-                inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true, !probes));
+                inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true, !probes, !testProbes));
                 if (probes) {
                     /* After inlining, when a probe is where it is going to be. */
                     inliner.add(new CrucibleProbePhase(allocator, typeSiteAllocator, branchCounters));

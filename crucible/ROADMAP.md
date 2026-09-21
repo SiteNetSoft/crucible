@@ -15,20 +15,22 @@ Absolute time of the profile-guided binary from each compiler.
 | BranchBench | 1001 ms | **859 ms** | ahead |
 | JsonBench | 2526 ms | 2512 ms | level |
 | BenchPGO | **541 ms** | 578 ms | behind by 7% |
-| Renaissance philosophers | 2152 ms | **1902 ms** | ahead |
-| Renaissance akka-uct | 28040 ms | **27029 ms** | ahead |
-| Renaissance scala-doku | 2086 ms | **1999 ms** | ahead |
+| Renaissance philosophers | 2148 ms | **1874 ms** | ahead |
+| Renaissance akka-uct | 29496 ms | **26704 ms** | ahead |
+| Renaissance scala-doku | 2075 ms | **2030 ms** | ahead |
 | Renaissance scala-kmeans | 308 ms | **300 ms** | ahead |
-| Renaissance rx-scrabble | **121 ms** | 136 ms | behind by 12% |
-| Renaissance fj-kmeans | **6507 ms** | 7521 ms | behind by 16% |
-| Renaissance scala-stm-bench7 | **1612 ms** | 1866 ms | behind by 16% |
-| Renaissance future-genetic | **1718 ms** | 2019 ms | behind by 18% |
-| Renaissance scrabble | **517 ms** | 655 ms | behind by 27% |
-| Renaissance reactors | **15611 ms** | 20312 ms | behind by 30% |
-| Renaissance par-mnemonics | **3488 ms** | 4886 ms | behind by 40% |
-| Renaissance mnemonics | **3561 ms** | 5718 ms | behind by 61% |
+| Renaissance rx-scrabble | **119 ms** | 134 ms | behind by 13% |
+| Renaissance fj-kmeans | **6666 ms** | 7680 ms | behind by 15% |
+| Renaissance scala-stm-bench7 | **1601 ms** | 1940 ms | behind by 21% |
+| Renaissance future-genetic | **1730 ms** | 2026 ms | behind by 17% |
+| Renaissance scrabble | **514 ms** | 653 ms | behind by 27% |
+| Renaissance reactors | **15848 ms** | 18458 ms | behind by 16% |
+| Renaissance par-mnemonics | **3670 ms** | 4798 ms | behind by 31% |
+| Renaissance mnemonics | **3598 ms** | 5813 ms | behind by 62% |
 
-Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
+Recorded again on 2026-09-21 with counting marked before inlining, which moved future-genetic
+(2386 to 2026), reactors (20722 to 18458) and scrabble (688 to 653) and left the rest where they
+were. Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
 benchmarks. What separates the binaries is what is underneath: where the two controls are
 level we are ahead, and where Oracle's starts ahead we stay behind by about that much. On the
 benchmarks that allocate most, the difference is a third more allocation and a slower
@@ -46,11 +48,10 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | K | Compile what the profile calls cold for size (cold methods also skip the loop optimizations that copy code now, another 3%). Oracle's scrabble image has 5.9 MB of code, ours had 17.4 MB | first step done: cold methods no longer look into their callees, which brought scrabble to 8.5 MB of code and the image from 38.5 MB to 29.0 MB at the same speed. Left: turning off loop optimizations and escape analysis in cold code, for which `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size |
 | L | At the default `-O2` the compile queue narrows the inliner, turns off its escape analysis and takes partial unrolling and vectorization out of the suites, for every method alike | done: hot methods get the `-O3` options and suites. At `-O2` a profile was worth a quarter to a third of what it is at `-O3`; now BenchPGO 1593 to 580 ms, BranchBench 1474 to 859, ArrayBench 1571 to 660, JsonBench 3818 to 2521, each the `-O3` figure or close, in an image of `-O2` size | most builds are at the default level |
 | M | Which collection policy suits a profiled image | settled: none as a default. `BySpaceAndTime` is worth 20% on mnemonics and par-mnemonics and 10% on scrabble, and costs 25% on akka-uct; a fixed young generation is neutral to far worse (akka-uct 2.6 times slower at 128 MB) | the README says to measure it and nothing more |
+| M2 | The slow iterations of a Renaissance run are the ones with a major collection in them, and this tree's default policy, `Adaptive2`, has them twice as often as `Adaptive`, the default of Oracle's 25.0.4 | measured across the suite with `-XX:InitialCollectionPolicy=Adaptive`: mnemonics 5813 to 4715, par-mnemonics 4798 to 4015, fj-kmeans 7680 to 7340, and scrabble 653 to 761, scala-stm-bench7 1940 to 2168, akka-uct 26704 to 33974. Not a default either | what is left of the losses on the mnemonics pair is mostly this |
 
 | P | One run in four of our future-genetic binaries is 13% slower than the rest, all iterations of it; Oracle's never is | seen in every build of ours, not looked into. Heap layout or the collection policy are the first things to rule out | a quarter of all runs |
 | Q | Our compiler is 4% faster on Oracle's recording of future-genetic than on ours | their recording counts branches in the collector and other uninterruptible code, ours cannot; and they record up to fifteen frames of context, we record one | the rest of the gap in what a profile is worth |
-| R | Oracle's settings for a hot compilation unit are listed by `--expert-options-all`: three times the inliner's budget, its size penalties at zero, eight to ten times the duplication budgets | `-H:CrucibleHotMethodOptions` can give hot methods and copies the same; not yet measured as a set | the rest of what "hot" means to them |
-| S | Record Renaissance again with probes | every number below the samples in the table above was recorded the old way, and streams and Scala collections are where a method is inlined into many callers | may move several of the losses |
 
 ## Done since the list was started
 
@@ -78,5 +79,7 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | Unrolling small hot loops that have branches in them | upstream's `mergeEarlyLoopExits` fails on an exception exit, and an inline cache always leaves one |
 | Keeping no fallback call where static analysis lists every receiver | builds and runs correctly, no speed |
 | A second unswitching pass after lowering | no effect |
+| Oracle's settings for a hot compilation unit, as `--expert-options-all` lists them (three times the inliner's budget, its size penalties at zero, eight to ten times the duplication budgets), given to our hot methods through `-H:CrucibleHotMethodOptions` | the images differ and run the same: future-genetic 2035 ms with and without, scrabble 630. The inliner's hotness bonus at 10 and at 100 likewise |
+| Probes for what `instanceof` tests, as for receivers | fuller counts, the same speed, and recording slower on future-genetic, 13.7 s an iteration where runs without them took 8.5 to 11.2; kept as `-H:+CrucibleRecordTestsWithProbes`, off |
 | Profiling the garbage collector's own code | 94 collector methods profiled, collection no faster; the rest of the package cannot be counted without crashing at start-up |
 | A 2 GB young generation on Renaissance | reported time drops below Oracle's, wall time gets worse: it moves collection outside the timed region |

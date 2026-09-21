@@ -76,10 +76,11 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
         for (CrucibleProbeNode probe : graph.getNodes(CrucibleProbeNode.TYPE).snapshot()) {
             NodeSourcePosition position = probe.getNodeSourcePosition();
             if (count && position != null) {
-                if (probe.countsEntries()) {
+                if (probe.kind() == CrucibleProbeNode.Kind.ENTRY) {
                     countEntry(graph, probe, position);
                 } else {
-                    int site = typeSiteAllocator.allocate(ProfileKey.virtualInvokeForPosition(position, probe.target()));
+                    boolean test = probe.kind() == CrucibleProbeNode.Kind.TESTED_VALUE;
+                    int site = typeSiteAllocator.allocate(test ? ProfileKey.instanceOfForPosition(position) : ProfileKey.virtualInvokeForPosition(position, probe.target()));
                     graph.addBeforeFixed(probe, graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), probe.receiver())));
                     RECEIVER_PROBES.incrementAndGet();
                 }

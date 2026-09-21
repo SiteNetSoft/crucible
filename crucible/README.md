@@ -105,9 +105,9 @@ programs that allocate most the difference is allocation and garbage collection 
 optimizer. The details, and everything that was tried and did not work, are in `docs/issues/` and
 `crucible/ROADMAP.md`.
 
-If your program allocates heavily, try `-XX:InitialCollectionPolicy=BySpaceAndTime` at run time. It
-was worth 20% on two Renaissance benchmarks and cost 25% on another, so measure it; it is not a
-default.
+If your program allocates heavily, try `-XX:InitialCollectionPolicy=Adaptive` or `BySpaceAndTime`
+at run time. Each was worth 15 to 20% on two Renaissance benchmarks and cost 15 to 25% on others,
+so measure; neither is a default.
 
 ## Options
 

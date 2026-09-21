@@ -56,21 +56,27 @@ public final class CrucibleProbeNode extends FixedWithNextNode implements Lowera
 
     public static final NodeClass<CrucibleProbeNode> TYPE = NodeClass.create(CrucibleProbeNode.class);
 
-    /** The receiver of the call that follows, or {@code null} for a probe that counts entries to the method. */
-    @OptionalInput ValueNode receiver;
-    /** The method the call names, which the receivers seen are later resolved against. */
-    private final ResolvedJavaMethod target;
-
-    /** A probe for the receiver of a call to {@code target}. */
-    public CrucibleProbeNode(ValueNode receiver, ResolvedJavaMethod target) {
-        super(TYPE, StampFactory.forVoid());
-        this.receiver = receiver;
-        this.target = target;
+    /** What a probe stands for. */
+    public enum Kind {
+        /** Entries to the method the probe is in. */
+        ENTRY,
+        /** The receivers of the call that follows. */
+        RECEIVER,
+        /** The types of the value an {@code instanceof} tests. */
+        TESTED_VALUE
     }
 
-    /** A probe for entries to the method it is in. */
-    public CrucibleProbeNode() {
-        this(null, null);
+    private final Kind kind;
+    /** The receiver or the tested value; {@code null} for {@link Kind#ENTRY}. */
+    @OptionalInput ValueNode receiver;
+    /** For {@link Kind#RECEIVER}, the method the call names, which the receivers seen are later resolved against. */
+    private final ResolvedJavaMethod target;
+
+    public CrucibleProbeNode(Kind kind, ValueNode receiver, ResolvedJavaMethod target) {
+        super(TYPE, StampFactory.forVoid());
+        this.kind = kind;
+        this.receiver = receiver;
+        this.target = target;
     }
 
     public ValueNode receiver() {
@@ -81,8 +87,8 @@ public final class CrucibleProbeNode extends FixedWithNextNode implements Lowera
         return target;
     }
 
-    public boolean countsEntries() {
-        return target == null;
+    public Kind kind() {
+        return kind;
     }
 
     @Override
