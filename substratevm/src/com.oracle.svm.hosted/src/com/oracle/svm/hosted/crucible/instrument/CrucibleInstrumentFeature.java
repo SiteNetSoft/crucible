@@ -34,6 +34,10 @@ import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.util.UserError;
+import com.oracle.svm.core.crucible.CrucibleBranchCounters;
+import com.oracle.svm.core.graal.code.CGlobalDataInfo;
+import com.oracle.svm.hosted.c.CGlobalDataFeature;
 import com.oracle.svm.core.graal.GraalConfiguration;
 import com.oracle.svm.hosted.crucible.profiles.CrucibleGraalConfiguration;
 import com.oracle.svm.core.crucible.CrucibleOptions;
@@ -90,9 +94,15 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
                         "Counter increment foreign call, registered in " + CrucibleInstrumentFeature.class);
         access.getBigBang().addRootMethod((AnalysisMethod) CrucibleProfileRuntime.RECORD_TYPE.findMethod(access.getMetaAccess()), true,
                         "Receiver-type sampling foreign call, registered in " + CrucibleInstrumentFeature.class);
+        if (CrucibleOptions.CrucibleInlineCounters.getValue()) {
+            branchCounters = CGlobalDataFeature.singleton().registerAsAccessedOrGet(CrucibleBranchCounters.BLOCK);
+        }
         RuntimeSupport.getRuntimeSupport().addTearDownHook(CrucibleProfileWriter.teardownHook());
         RuntimeSupport.getRuntimeSupport().addStartupHook(CrucibleProfileWriter.periodicDumpHook());
     }
+
+    /** The data-section block the inline branch counters are in; {@code null} if they go through the call. */
+    private CGlobalDataInfo branchCounters;
 
     @Override
     public void registerForeignCalls(SubstrateForeignCallsProvider foreignCalls) {
@@ -111,20 +121,24 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
             if (inliner != null) {
                 inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true));
             }
-            suites.getHighTier().appendPhase(new CrucibleInstrumentationPhase(allocator));
+            suites.getHighTier().appendPhase(new CrucibleInstrumentationPhase(allocator, branchCounters));
         }
     }
 
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
         String[] keys = allocator.freeze();
+        if (branchCounters != null && keys.length > CrucibleBranchCounters.stripeSlots()) {
+            throw UserError.abort("This program needs %d profile counters and -H:CrucibleMaximumCounters allows %d. Build again with a larger value.", keys.length,
+                            CrucibleBranchCounters.stripeSlots());
+        }
         String[] typeKeys = typeSiteAllocator.freeze();
         /* Frozen only once both allocators are done, so every index they handed out resolves. */
         String[] keyPool = methodIds.freeze();
         CrucibleProfileRuntime runtime = CrucibleProfileRuntime.singleton();
         runtime.install(new long[keys.length], keys, keyPool, SubstrateOptions.ImageBuildID.getValue());
 
-        int[] typeIds = new int[typeKeys.length * CrucibleProfileRuntime.TYPE_ROW_WIDTH];
+        int[] typeIds = new int[typeKeys.length * CrucibleProfileRuntime.TYPE_ROW_WIDTH * CrucibleBranchCounters.STRIPES];
         Arrays.fill(typeIds, CrucibleProfileRuntime.NO_TYPE);
         int[] idTable = typeIdTable();
         runtime.installTypeTables(typeIds, new long[typeIds.length], new long[typeKeys.length], typeKeys, idTable, typeNameTable());

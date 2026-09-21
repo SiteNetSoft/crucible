@@ -43,9 +43,13 @@ import com.oracle.svm.shared.singletons.traits.BuiltinTraits.NoLayeredCallbacks;
 import com.oracle.svm.shared.singletons.traits.SingletonTraits;
 
 import jdk.graal.compiler.debug.DebugContext;
+import jdk.graal.compiler.loop.phases.LoopPartialUnrollPhase;
+import jdk.graal.compiler.loop.phases.LoopPeelingPhase;
+import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.phases.tiers.Suites;
+import jdk.graal.compiler.vector.phases.LoopVectorizationPhase;
 
 /**
  * Gives the methods the run spent its time in the inliner settings of the highest optimization
@@ -62,6 +66,8 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
 
     /** Methods compiled with the full inliner settings at an optimization level that reduces them. */
     public static final AtomicLong HOT_METHODS_AT_FULL_SETTINGS = new AtomicLong();
+    /** Cold methods compiled with the loop optimizations that copy code taken out. */
+    public static final AtomicLong COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS = new AtomicLong();
 
     @Override
     public CompileQueue createCompileQueue(DebugContext debug, FeatureHandler featureHandler, HostedUniverse hostedUniverse, RuntimeConfiguration runtimeConfiguration, boolean deoptimizeAll) {
@@ -72,9 +78,18 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
              * Below the highest level the regular suites come without partial unrolling and loop
              * vectorization. A hot method is compiled with the suites that still have them.
              */
+            private volatile Suites coldSuites;
+
             @Override
             protected Suites createSuitesForRegularCompile(StructuredGraph graph, Suites originalSuites) {
-                if (SubstrateOptions.isMaximumOptimizationLevel() || !(graph.method() instanceof HostedMethod method) || !isHot(method)) {
+                if (!(graph.method() instanceof HostedMethod method)) {
+                    return originalSuites;
+                }
+                if (CrucibleOptions.CrucibleColdCodeSize.getValue() && CruciblePolicyFactory.isCold(method)) {
+                    COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS.incrementAndGet();
+                    return coldSuites(originalSuites);
+                }
+                if (SubstrateOptions.isMaximumOptimizationLevel() || !isHot(method)) {
                     return originalSuites;
                 }
                 Suites suites = fullSuites;
@@ -84,6 +99,31 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
                         if (suites == null) {
                             suites = NativeImageGenerator.createSuites(featureHandler, runtimeConfig, true);
                             fullSuites = suites;
+                        }
+                    }
+                }
+                return suites;
+            }
+
+            /**
+             * Loop optimizations trade size for speed, and in a method the run never reached there
+             * is no speed to be had: peeling, unswitching, unrolling and vectorization all copy the
+             * loop they work on.
+             */
+            private Suites coldSuites(Suites originalSuites) {
+                Suites suites = coldSuites;
+                if (suites == null) {
+                    synchronized (this) {
+                        suites = coldSuites;
+                        if (suites == null) {
+                            suites = originalSuites.copy();
+                            suites.getHighTier().removeSubTypePhases(LoopPeelingPhase.class);
+                            suites.getHighTier().removeSubTypePhases(LoopUnswitchingPhase.class);
+                            suites.getHighTier().removeSubTypePhases(CrucibleLoopRangeSplitPhase.class);
+                            suites.getMidTier().removeSubTypePhases(CrucibleLoopRangeSplitPhase.class);
+                            suites.getMidTier().removeSubTypePhases(LoopPartialUnrollPhase.class);
+                            suites.getMidTier().removeSubTypePhases(LoopVectorizationPhase.class);
+                            coldSuites = suites;
                         }
                     }
                 }

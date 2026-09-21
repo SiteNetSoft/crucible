@@ -245,6 +245,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());
+            if (CrucibleHostedConfiguration.COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS.get() > 0) {
+                System.out.println("Crucible: " + CrucibleHostedConfiguration.COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS.get() + " cold methods compiled without the loop optimizations that copy code.");
+            }
             if (CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() > 0) {
                 System.out.println("Crucible: " + CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() + " hot methods compiled with the inliner settings of -O3.");
             }

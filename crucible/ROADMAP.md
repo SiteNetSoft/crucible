@@ -44,11 +44,17 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | H | More of Renaissance | twelve measured; dotty fails the harness's validation under both compilers; the Spark, Neo4j and Finagle ones not attempted | breadth; the Spark ones may not build closed-world at all |
 | I | Usability | done: `iprof-to-crucible.py` reads Oracle's `.iprof` (a converted profile drives the build as well as our own recording), the build says how much of a profile fits the program and warns when it does not, `mx crucible-e2e` is the gate. Left: documentation for users | needed before this stops being alpha |
 | J | Allocation: a third more than Oracle on scrabble, three quarters more on mnemonics, where collection is the entire 61% loss | measured; raising the limits of escape analysis changes nothing, so it is not being cut short. Both images allocate the same things, the machinery of a stream, and Oracle's removes a larger share | the largest single thing between us and Oracle on Renaissance, and not something a profile feeds |
-| K | Compile what the profile calls cold for size. Oracle's scrabble image has 5.9 MB of code, ours had 17.4 MB | first step done: cold methods no longer look into their callees, which brought scrabble to 8.5 MB of code and the image from 38.5 MB to 29.0 MB at the same speed. Left: turning off loop optimizations and escape analysis in cold code, for which `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size |
+| K | Compile what the profile calls cold for size (cold methods also skip the loop optimizations that copy code now, another 3%). Oracle's scrabble image has 5.9 MB of code, ours had 17.4 MB | first step done: cold methods no longer look into their callees, which brought scrabble to 8.5 MB of code and the image from 38.5 MB to 29.0 MB at the same speed. Left: turning off loop optimizations and escape analysis in cold code, for which `HostedConfiguration.setInstanceIfEmpty` and `CompileQueue.getCustomizedOptions(method)` are the way in | image size |
 | L | At the default `-O2` the compile queue narrows the inliner, turns off its escape analysis and takes partial unrolling and vectorization out of the suites, for every method alike | done: hot methods get the `-O3` options and suites. At `-O2` a profile was worth a quarter to a third of what it is at `-O3`; now BenchPGO 1593 to 580 ms, BranchBench 1474 to 859, ArrayBench 1571 to 660, JsonBench 3818 to 2521, each the `-O3` figure or close, in an image of `-O2` size | most builds are at the default level |
 | M | Which collection policy suits a profiled image | settled: none as a default. `BySpaceAndTime` is worth 20% on mnemonics and par-mnemonics and 10% on scrabble, and costs 25% on akka-uct; a fixed young generation is neutral to far worse (akka-uct 2.6 times slower at 128 MB) | the README says to measure it and nothing more |
 
 ## Done since the list was started
+
+| | What | Outcome |
+| --- | --- | --- |
+| N | Cost of recording, which had never been measured against Oracle's | it was two to four times theirs and fifteen times on a parallel benchmark, because every thread wrote the same counters. Inline counters in a data-section block, eight stripes picked by the thread register, receiver tables striped likewise: philosophers 14.3 s to 3.0 s an iteration (Oracle 3.3), fj-kmeans 239 s to 31 s (Oracle 15), scrabble 8.5 s to 4.8 s (Oracle 2.2) |
+
+## Done earlier
 
 | | What | Outcome |
 | --- | --- | --- |

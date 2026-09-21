@@ -120,6 +120,15 @@ public final class CrucibleOptions {
     @Option(help = "Below -O3, compile the methods the run spent its time in with the inliner settings of -O3.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleHotMethodsAtFullSettings = new HostedOptionKey<>(true);
 
+    @Option(help = "In a recording image, bump branch counters inline rather than through a call.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleInlineCounters = new HostedOptionKey<>(true);
+
+    @Option(help = "Most profile counters a recording image can have. The block they are in is eight times this many 64-bit words in the image file, 32 MB at the default.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleMaximumCounters = new HostedOptionKey<>(1 << 19);
+
+    @Option(help = "In a recording image, also note the order in which methods were first entered, for -H:+CrucibleCodeLayoutByStartup. Costs a call at every method entry.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordStartupOrder = new HostedOptionKey<>(false);
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);

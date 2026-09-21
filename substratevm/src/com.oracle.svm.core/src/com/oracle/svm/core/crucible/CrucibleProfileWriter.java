@@ -90,13 +90,29 @@ public final class CrucibleProfileWriter {
          */
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), rt.counters(), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool());
+            write(w, rt.keys(), allCounters(rt), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool());
             w.flush();
             w.close();
             Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             Log.log().string("CrucibleVM: could not write profile to ").string(path.toString()).string(": ").string(e.toString()).newline();
         }
+    }
+
+    /**
+     * Counters bumped through the call are in the runtime's array and the ones bumped inline in the
+     * data-section block, under the same slot numbers, each slot using one or the other.
+     */
+    private static long[] allCounters(CrucibleProfileRuntime rt) {
+        long[] viaCall = rt.counters();
+        if (!CrucibleOptions.CrucibleInlineCounters.getValue()) {
+            return viaCall;
+        }
+        long[] all = new long[viaCall.length];
+        for (int i = 0; i < all.length; i++) {
+            all[i] = viaCall[i] + CrucibleBranchCounters.read(i);
+        }
+        return all;
     }
 
     /** One successor of a control split: its own bci and the accumulated execution count. */
@@ -175,8 +191,11 @@ public final class CrucibleProfileWriter {
         for (int site = 0; site < typeKeys.length; site++) {
             ProfileKey decoded = ProfileKey.decode(typeKeys[site], keyPool);
             TypeSiteData data = null;
-            for (int i = 0; i < CrucibleProfileRuntime.TYPE_ROW_WIDTH; i++) {
-                int entry = site * CrucibleProfileRuntime.TYPE_ROW_WIDTH + i;
+            /* The table may come in several copies, one per stripe; a site's types are those of all of them. */
+            int copies = Math.max(1, typeIds.length / Math.max(1, typeKeys.length * CrucibleProfileRuntime.TYPE_ROW_WIDTH));
+            for (int i = 0; i < copies * CrucibleProfileRuntime.TYPE_ROW_WIDTH; i++) {
+                int copy = i / CrucibleProfileRuntime.TYPE_ROW_WIDTH;
+                int entry = (copy * typeKeys.length + site) * CrucibleProfileRuntime.TYPE_ROW_WIDTH + i % CrucibleProfileRuntime.TYPE_ROW_WIDTH;
                 if (entry >= typeIds.length || typeIds[entry] == CrucibleProfileRuntime.NO_TYPE || typeCounts[entry] == 0) {
                     continue;
                 }

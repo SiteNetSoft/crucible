@@ -27,7 +27,9 @@ package com.oracle.svm.hosted.crucible.instrument;
 import java.util.List;
 
 import com.oracle.svm.core.UninterruptibleAnnotationUtils;
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import com.oracle.svm.core.graal.code.CGlobalDataInfo;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.code.SubstrateCompilationDirectives;
 import com.oracle.svm.hosted.pgo.ProfilingUtilities;
@@ -52,8 +54,12 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
 
     private final CounterSlotAllocator allocator;
 
-    public CrucibleInstrumentationPhase(CounterSlotAllocator allocator) {
+    /** Where branch counters are bumped inline, or {@code null} to bump them through a call like method entries. */
+    private final CGlobalDataInfo branchCounters;
+
+    public CrucibleInstrumentationPhase(CounterSlotAllocator allocator, CGlobalDataInfo branchCounters) {
         this.allocator = allocator;
+        this.branchCounters = branchCounters;
     }
 
     @Override
@@ -65,7 +71,16 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
             return;
         }
         String rootId = ProfileKey.methodId(graph.method());
-        insertIncrement(graph, graph.start(), allocator.allocate(new ProfileKey.MethodEntry(rootId)));
+        int entrySlot = allocator.allocate(new ProfileKey.MethodEntry(rootId));
+        if (branchCounters != null && !CrucibleOptions.CrucibleRecordStartupOrder.getValue()) {
+            /*
+             * A program makes method entries by the hundred million. The call is only needed to
+             * note the order in which methods were first entered, which one layout mode uses.
+             */
+            graph.addAfterFixed(graph.start(), graph.add(new CrucibleCounterNode(branchCounters, entrySlot)));
+        } else {
+            insertIncrement(graph, graph.start(), entrySlot);
+        }
 
         for (ControlSplitNode split : graph.getNodes().filter(ControlSplitNode.class).snapshot()) {
             NodeSourcePosition pos = split.getNodeSourcePosition();
@@ -82,7 +97,13 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
             }
             int index = 0;
             for (AbstractBeginNode successor : successors) {
-                insertIncrement(graph, successor, allocator.allocate(ProfileKey.forPosition(pos, index, successor.getNodeSourcePosition().getBCI())));
+                int slot = allocator.allocate(ProfileKey.forPosition(pos, index, successor.getNodeSourcePosition().getBCI()));
+                if (branchCounters != null) {
+                    /* Branches are where the counting is: inline, one add to memory each. */
+                    graph.addAfterFixed(successor, graph.add(new CrucibleCounterNode(branchCounters, slot)));
+                } else {
+                    insertIncrement(graph, successor, slot);
+                }
                 index++;
             }
         }

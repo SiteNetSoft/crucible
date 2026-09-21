@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.core.crucible;
 
+import org.graalvm.nativeimage.CurrentIsolate;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
@@ -80,7 +81,7 @@ public final class CrucibleProfileRuntime {
     @UnknownObjectField(availability = AfterCompilation.class) private String[] keyPool = new String[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String imageBuildId = "";
 
-    /* Receiver-type sampling: TYPE_ROW_WIDTH (typeId, count) pairs per site, flattened. */
+    /* Receiver-type sampling: TYPE_ROW_WIDTH (typeId, count) pairs per site, flattened, one copy per stripe. */
     @UnknownObjectField(availability = AfterCompilation.class) private int[] typeIds = new int[0];
     @UnknownObjectField(availability = AfterCompilation.class) private long[] typeCounts = new long[0];
     /** Times a site saw a receiver type that no longer fit in its row. */
@@ -125,7 +126,7 @@ public final class CrucibleProfileRuntime {
      */
     @Platforms(Platform.HOSTED_ONLY.class)
     public void installTypeTables(int[] newTypeIds, long[] newTypeCounts, long[] newOverflow, String[] newTypeKeys, int[] newIdTable, String[] newTypeNames) {
-        assert newTypeIds.length == newTypeKeys.length * TYPE_ROW_WIDTH;
+        assert newTypeIds.length == newTypeKeys.length * TYPE_ROW_WIDTH * CrucibleBranchCounters.STRIPES;
         assert newIdTable.length == newTypeNames.length;
         this.typeIds = newTypeIds;
         this.typeCounts = newTypeCounts;
@@ -230,8 +231,20 @@ public final class CrucibleProfileRuntime {
         CrucibleProfileRuntime runtime = singleton();
         int[] ids = runtime.typeIds;
         long[] counts = runtime.typeCounts;
-        int base = site * TYPE_ROW_WIDTH;
-        if (site < 0 || base + TYPE_ROW_WIDTH > ids.length) {
+        int sites = runtime.typeKeys.length;
+        if (site < 0 || site >= sites) {
+            return;
+        }
+        /*
+         * Each thread writes to one of several copies of the table, picked by its own address, for
+         * the reason the counters are striped: every thread writing the same row at every virtual
+         * call keeps that row's cache line travelling between cores. Stripes are laid out one after
+         * another, not interleaved, so that two of them never share a line.
+         */
+        long thread = CurrentIsolate.getCurrentThread().rawValue();
+        int stripe = (int) (((thread >>> 7) ^ (thread >>> 15)) & (CrucibleBranchCounters.STRIPES - 1));
+        int base = (stripe * sites + site) * TYPE_ROW_WIDTH;
+        if (base + TYPE_ROW_WIDTH > ids.length) {
             return;
         }
         int typeId = DynamicHubIntrinsics.readHub(receiver).getTypeID();
