@@ -67,9 +67,17 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
      */
     private final boolean inlinedSitesOnly;
 
+    /** Whether calls are sampled here. They are not when probes put in at parsing do it; see {@link CrucibleProbeNode}. */
+    private final boolean sampleCalls;
+
     public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly) {
+        this(typeSiteAllocator, inlinedSitesOnly, true);
+    }
+
+    public CrucibleTypeSamplingPhase(CounterSlotAllocator typeSiteAllocator, boolean inlinedSitesOnly, boolean sampleCalls) {
         this.typeSiteAllocator = typeSiteAllocator;
         this.inlinedSitesOnly = inlinedSitesOnly;
+        this.sampleCalls = sampleCalls;
     }
 
     @Override
@@ -78,7 +86,7 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             return;
         }
         /* Hosted compilation uses a MethodCallTargetNode subclass, so filter by class. */
-        for (MethodCallTargetNode call : graph.getNodes().filter(MethodCallTargetNode.class).snapshot()) {
+        for (MethodCallTargetNode call : sampleCalls ? graph.getNodes().filter(MethodCallTargetNode.class).snapshot() : java.util.List.<MethodCallTargetNode> of()) {
             CALL_TARGETS_SEEN.incrementAndGet();
             if (!call.invokeKind().isIndirect() || call.invoke() == null) {
                 continue;

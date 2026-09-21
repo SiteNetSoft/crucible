@@ -146,6 +146,14 @@ public final class CrucibleOptions {
     @Option(help = "Fewest samples under a call for the sampled stacks to be believed about where it goes, in place of the counted receivers.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleMinimumSamplesAtCall = new HostedOptionKey<>(32);
 
+    @Option(help = "In a recording image, mark what is to be counted in each method before inlining, so that every copy of a method counts, " +
+                    "including the ones the compiler could simplify because of where they were inlined.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordWithProbes = new HostedOptionKey<>(true);
+
+    @Option(help = "In a recording image, leave a call with several possible receivers a call, so that the receivers can be counted at it. " +
+                    "Turned off, the image inlines as an optimized one does and records contexts more like the ones that will be looked up, at the price of those counts.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordKeepsCallsVirtual = new HostedOptionKey<>(true);
+
     @Option(help = "Compiler options for the methods the run spent its time in only, as Name=value:Name=value. For trying a setting out.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleHotMethodOptions = new HostedOptionKey<>("");
 

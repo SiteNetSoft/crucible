@@ -219,7 +219,8 @@ public final class CrucibleProfileRuntime {
 
     /**
      * Records the receiver's type at one call site. Scans the site's row for the type, claims a
-     * free entry if the type is new, and counts an overflow when the row is full. Racy by design:
+     * free entry if the type is new, and displaces the rarest entry when the row is full, counting
+     * that as an overflow. Racy by design:
      * a lost update costs precision, not correctness.
      */
     @Uninterruptible(reason = "Called from compiled code without a frame state; must not safepoint.")
@@ -260,6 +261,24 @@ public final class CrucibleProfileRuntime {
                 return;
             }
         }
+        /*
+         * The row is full of other types. Dropping the newcomer, as this used to, keeps whatever
+         * came first, and what comes first is start-up: four lambdas of the harness took the row
+         * of a call in a stream's loop, and the lambda the run then spent its time in, fifty
+         * million calls of it, was counted as overflow. So the newcomer takes the place of the
+         * entry with the lowest count and carries on from that count, which is how a fixed number
+         * of counters keeps the frequent items of a stream whatever order they arrive in. A count
+         * can come out too high by what the displaced entry had, which for an entry that was the
+         * smallest of four is little.
+         */
+        int lowest = base;
+        for (int i = 1; i < TYPE_ROW_WIDTH; i++) {
+            if (counts[base + i] < counts[lowest]) {
+                lowest = base + i;
+            }
+        }
+        ids[lowest] = typeId;
+        counts[lowest]++;
         long[] overflow = runtime.typeOverflow;
         if (site < overflow.length) {
             overflow[site]++;

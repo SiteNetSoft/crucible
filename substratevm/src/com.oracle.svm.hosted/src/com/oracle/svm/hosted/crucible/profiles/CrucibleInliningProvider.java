@@ -95,7 +95,7 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
      */
     @Override
     public int getMaxPolymorphicDispatches(OptionValues options) {
-        return CrucibleOptions.CrucibleInstrument.getValue() ? 0 : super.getMaxPolymorphicDispatches(options);
+        return CrucibleOptions.CrucibleInstrument.getValue() && CrucibleOptions.CrucibleRecordKeepsCallsVirtual.getValue() ? 0 : super.getMaxPolymorphicDispatches(options);
     }
 
     /**

@@ -25,6 +25,7 @@
 package com.oracle.svm.hosted.crucible.profiles;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.graalvm.collections.EconomicMap;
@@ -36,6 +37,7 @@ import com.oracle.svm.hosted.FeatureHandler;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.hosted.NativeImageGenerator;
 import com.oracle.svm.hosted.code.CompileQueue;
+import com.oracle.svm.hosted.crucible.instrument.CrucibleProbePolicy;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
@@ -75,7 +77,11 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
 
     @Override
     public CompileQueue createCompileQueue(DebugContext debug, FeatureHandler featureHandler, HostedUniverse hostedUniverse, RuntimeConfiguration runtimeConfiguration, boolean deoptimizeAll) {
-        return new CompileQueue(debug, featureHandler, hostedUniverse, runtimeConfiguration, deoptimizeAll, Collections.emptyList()) {
+        /* A recording build puts its probes in as each graph leaves parsing. */
+        List<CompileQueue.Policy> policies = CrucibleOptions.CrucibleInstrument.getValue() && CrucibleOptions.CrucibleRecordWithProbes.getValue()
+                        ? List.of(new CrucibleProbePolicy(hostedUniverse))
+                        : Collections.emptyList();
+        return new CompileQueue(debug, featureHandler, hostedUniverse, runtimeConfiguration, deoptimizeAll, policies) {
             private volatile Suites fullSuites;
 
             /**

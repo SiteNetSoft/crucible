@@ -72,7 +72,9 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
         }
         String rootId = ProfileKey.methodId(graph.method());
         int entrySlot = allocator.allocate(new ProfileKey.MethodEntry(rootId));
-        if (branchCounters != null && !CrucibleOptions.CrucibleRecordStartupOrder.getValue()) {
+        if (CrucibleProbePhase.entryCounted(graph.method())) {
+            /* A probe put in at parsing has counted this entry, as it has the entries of what was inlined here. */
+        } else if (branchCounters != null && !CrucibleOptions.CrucibleRecordStartupOrder.getValue()) {
             /*
              * A program makes method entries by the hundred million. The call is only needed to
              * note the order in which methods were first entered, which one layout mode uses.

@@ -62,8 +62,9 @@ stacks can be added to a profile:
 
 Sample an ordinary optimized image, not the recording one. Both flags matter: the default sampler's
 stacks stop at the safepoint, and `jfr print` cuts stacks to five frames unless told otherwise. With
-stacks in the profile, which methods are hot is measured rather than inferred, and the inliner is
-told where each call goes in each calling context.
+stacks in the profile, which methods are hot is measured rather than inferred, the inliner is
+told where each call goes in each calling context, and a method that takes a real share of the run
+under one caller is compiled again for that caller (`CrucibleContextClones`).
 
 ### A profile recorded by Oracle GraalVM
 
@@ -78,7 +79,8 @@ converted profile drives the build as well as one of our own.
 | --- | --- |
 | Branch probabilities | applied before inlining, so layout, inlining and the loop optimizations all see them |
 | Loop range splitting | a hot counted loop whose checks the profile saw go one way nearly always is run in three parts, the middle one without the checks; this is also what lets the vectorizer take it |
-| Receiver types | sampled at call sites, including those that only exist once a small method has been inlined; the inliner tests for the common receiver first and inlines its method |
+| Receiver types | counted at every virtual call in every place its method is inlined, including the places where the compiler could work the receiver out and the call is no longer virtual, so that what is recorded for a call is everything that came through it; the inliner tests for the common receivers first and inlines their methods |
+| Call counts | of every method, inlined or not |
 | Cold code | a method the run never reached does not look into its callees, which roughly halves the machine code of an image |
 | Code layout | the code section is ordered by how often each method ran |
 | Hot methods below `-O3` | are compiled the way `-O3` would compile them: its inliner settings, partial unrolling and loop vectorization, which the default level otherwise holds back for every method alike. On the samples a profiled `-O2` image runs as fast as a profiled `-O3` one and stays the size of an `-O2` one |
@@ -117,6 +119,9 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleProfile=<file>` | | build with a profile |
 | `CrucibleRecordStartupOrder` | off | also record the order methods were first entered in, for `CrucibleCodeLayoutByStartup`; costs a call at every method entry |
 | `CrucibleMaxContextDepth` | 1 | inlining frames recorded per counter; more is more precise and a larger recording image |
+| `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
+| `CrucibleContextClones` | on | with sampled stacks, compile a method again for a caller it spends time under |
+| `CrucibleMinimumSamplesAtCall` | 32 | fewest samples under a call for the sampled stacks to be believed about where it goes |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
 | `CrucibleColdCodeSize` | on | keep cold methods from inlining |
 | `CrucibleCodeLayout` | on | order the code section by call count |

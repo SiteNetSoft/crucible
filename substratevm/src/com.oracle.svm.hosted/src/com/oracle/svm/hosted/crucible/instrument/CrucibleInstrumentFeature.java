@@ -40,6 +40,8 @@ import com.oracle.svm.core.graal.code.CGlobalDataInfo;
 import com.oracle.svm.hosted.c.CGlobalDataFeature;
 import com.oracle.svm.core.graal.GraalConfiguration;
 import com.oracle.svm.hosted.crucible.profiles.CrucibleGraalConfiguration;
+import com.oracle.svm.hosted.crucible.profiles.CrucibleHostedConfiguration;
+import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.CrucibleProfileWriter;
@@ -78,12 +80,17 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
     public void afterRegistration(AfterRegistrationAccess access) {
         ImageSingletons.add(CrucibleProfileRuntime.class, new CrucibleProfileRuntime());
         /*
-         * The same hosted configuration a profiled build uses, for its inlining provider, which in
-         * a recording build keeps polymorphic calls as calls so that their receivers can be seen.
-         * Registered here for the reason given there: the first configuration registered wins.
+         * The same configurations a profiled build uses: the compiler configuration for its inlining
+         * provider, which can keep polymorphic calls as calls in a recording build, and the hosted
+         * one for its compile queue. Registered here for the reason given there: the first
+         * configuration registered wins.
          */
         if (!SubstrateOptions.useEconomyCompilerConfig()) {
             GraalConfiguration.setHostedInstanceIfEmpty(new CrucibleGraalConfiguration());
+            if (CrucibleOptions.CrucibleRecordWithProbes.getValue()) {
+                /* For its compile queue, which is where the probes are put in. */
+                HostedConfiguration.setInstanceIfEmpty(new CrucibleHostedConfiguration());
+            }
         }
     }
 
@@ -116,10 +123,15 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
             if (providers.getMetaAccess() instanceof UniverseMetaAccess metaAccess && metaAccess.getUniverse() instanceof HostedUniverse hUniverse) {
                 universe = hUniverse;
             }
-            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator, false));
+            boolean probes = CrucibleOptions.CrucibleRecordWithProbes.getValue();
+            suites.getHighTier().prependPhase(new CrucibleTypeSamplingPhase(typeSiteAllocator, false, !probes));
             var inliner = suites.getHighTier().findPhase(SubstratePriorityInliningPhase.class);
             if (inliner != null) {
-                inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true));
+                inliner.add(new CrucibleTypeSamplingPhase(typeSiteAllocator, true, !probes));
+                if (probes) {
+                    /* After inlining, when a probe is where it is going to be. */
+                    inliner.add(new CrucibleProbePhase(allocator, typeSiteAllocator, branchCounters));
+                }
             }
             suites.getHighTier().appendPhase(new CrucibleInstrumentationPhase(allocator, branchCounters));
         }
@@ -161,9 +173,14 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
                         (typeKeyChars / 1024) + " KiB of type-site keys, " + (poolChars / 1024) + " KiB of pooled method ids (" +
                         keyPool.length + " distinct) and " + (nameChars / 1024) +
                         " KiB of type names, all carried in the instrumented image.");
-        System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
-                        CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +
-                        CrucibleTypeSamplingPhase.SITES_INSTRUMENTED.get() + " sampled.");
+        if (CrucibleOptions.CrucibleRecordWithProbes.getValue()) {
+            System.out.println("Crucible: " + CrucibleProbePhase.RECEIVER_PROBES.get() + " receiver probes and " + CrucibleProbePhase.ENTRY_PROBES.get() +
+                            " entry probes became counters, " + CrucibleProbePhase.ENTRY_PROBES_INLINED.get() + " of the latter in methods that had been inlined.");
+        } else {
+            System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
+                            CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +
+                            CrucibleTypeSamplingPhase.SITES_INSTRUMENTED.get() + " sampled.");
+        }
     }
 
     /*

@@ -22,7 +22,7 @@ Absolute time of the profile-guided binary from each compiler.
 | Renaissance rx-scrabble | **121 ms** | 136 ms | behind by 12% |
 | Renaissance fj-kmeans | **6507 ms** | 7521 ms | behind by 16% |
 | Renaissance scala-stm-bench7 | **1612 ms** | 1866 ms | behind by 16% |
-| Renaissance future-genetic | **1720 ms** | 2159 ms | behind by 26% |
+| Renaissance future-genetic | **1718 ms** | 2019 ms | behind by 18% |
 | Renaissance scrabble | **517 ms** | 655 ms | behind by 27% |
 | Renaissance reactors | **15611 ms** | 20312 ms | behind by 30% |
 | Renaissance par-mnemonics | **3488 ms** | 4886 ms | behind by 40% |
@@ -39,7 +39,6 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | | What | State | Why it might matter |
 | --- | --- | --- | --- |
 | C | The community edition is behind Oracle's before any profile is involved: 30% on scrabble | measured, and mostly not the optimizer: a third more allocation, and a collector that takes twice as long over it | decides what "ahead of Oracle" can mean on allocation-heavy code |
-| D | A separate copy of a hot method for each hot calling context, which is what Oracle's `%%H1` variants are | half done: sampled stacks now give the inliner call targets per inlining context, without copies | matters when a method behaves differently depending on who calls it; did not on scrabble |
 | G | The last 7% on BenchPGO, which is a loop Oracle unrolls twice | blocked: upstream's early-exit merging cannot take an exception exit | small, and risky to force |
 | H | More of Renaissance | twelve measured; dotty fails the harness's validation under both compilers; the Spark, Neo4j and Finagle ones not attempted | breadth; the Spark ones may not build closed-world at all |
 | I | Usability | done: `iprof-to-crucible.py` reads Oracle's `.iprof` (a converted profile drives the build as well as our own recording), the build says how much of a profile fits the program and warns when it does not, `mx crucible-e2e` is the gate. Left: documentation for users | needed before this stops being alpha |
@@ -48,10 +47,17 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | L | At the default `-O2` the compile queue narrows the inliner, turns off its escape analysis and takes partial unrolling and vectorization out of the suites, for every method alike | done: hot methods get the `-O3` options and suites. At `-O2` a profile was worth a quarter to a third of what it is at `-O3`; now BenchPGO 1593 to 580 ms, BranchBench 1474 to 859, ArrayBench 1571 to 660, JsonBench 3818 to 2521, each the `-O3` figure or close, in an image of `-O2` size | most builds are at the default level |
 | M | Which collection policy suits a profiled image | settled: none as a default. `BySpaceAndTime` is worth 20% on mnemonics and par-mnemonics and 10% on scrabble, and costs 25% on akka-uct; a fixed young generation is neutral to far worse (akka-uct 2.6 times slower at 128 MB) | the README says to measure it and nothing more |
 
+| P | One run in four of our future-genetic binaries is 13% slower than the rest, all iterations of it; Oracle's never is | seen in every build of ours, not looked into. Heap layout or the collection policy are the first things to rule out | a quarter of all runs |
+| Q | Our compiler is 4% faster on Oracle's recording of future-genetic than on ours | their recording counts branches in the collector and other uninterruptible code, ours cannot; and they record up to fifteen frames of context, we record one | the rest of the gap in what a profile is worth |
+| R | Oracle's settings for a hot compilation unit are listed by `--expert-options-all`: three times the inliner's budget, its size penalties at zero, eight to ten times the duplication budgets | `-H:CrucibleHotMethodOptions` can give hot methods and copies the same; not yet measured as a set | the rest of what "hot" means to them |
+| S | Record Renaissance again with probes | every number below the samples in the table above was recorded the old way, and streams and Scala collections are where a method is inlined into many callers | may move several of the losses |
+
 ## Done since the list was started
 
 | | What | Outcome |
 | --- | --- | --- |
+| O | What a recording leaves out. future-genetic is the one Renaissance benchmark where Oracle's profile is worth more than ours (24% against 10%), and Oracle's own switches show that none of it is their sampling machinery: it is receiver types and branch counts | receivers were counted after inlining, so a call the compiler had made direct in one caller was not counted there, and the profile of the call, added up, held only the receivers the compiler could not work out: `DoubleChromosome` 99% where the truth is `ArrayISeq` 57%. Probes now go in as each method leaves parsing and are turned into counters after inlining. Receiver counts agree with Oracle's to a part in ten thousand, 4382 methods have a call count where 1626 had, and future-genetic goes from 2208 ms to 2019 (our compiler on Oracle's profile: 1936). A row of receivers also keeps the frequent ones now and not the first four. See `docs/issues/2026-09-21-the-profile-left-out-what-the-compiler-worked-out.md` |
+| D | A separate copy of a hot method for each hot calling context, Oracle's `%%H` variants | built, without an upstream change: `HostedMethod.getOrCreateMethodVariant` and the original's encoded graph are enough. With sampled stacks in the profile it makes the copies Oracle makes on future-genetic, with the same things inlined into them, and the time does not move; Oracle's does not either with theirs turned off. Kept, on when there are samples |
 | N | Cost of recording, which had never been measured against Oracle's | it was two to four times theirs and fifteen times on a parallel benchmark, because every thread wrote the same counters. Inline counters in a data-section block, eight stripes picked by the thread register, receiver tables striped likewise: philosophers 14.3 s to 3.0 s an iteration (Oracle 3.3), fj-kmeans 239 s to 31 s (Oracle 15), scrabble 8.5 s to 4.8 s (Oracle 2.2) |
 
 ## Done earlier
