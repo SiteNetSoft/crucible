@@ -58,6 +58,10 @@ public final class SerialGCOptions {
     @Option(help = "Percentage of total collection time that should be spent on young generation collections. Serial GC with collection policy 'BySpaceAndTime' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> PercentTimeInIncrementalCollection = new RuntimeOptionKey<>(50, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Ratio of time spent running to time spent collecting that the young generation is grown to reach: 1 accepts half the time in collection, " +
+                    "19 a twentieth. A higher ratio trades memory for throughput. 0 for the policy's own value. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> SerialGCTimeRatio = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "The maximum free bytes reserved for allocations, in bytes (0 for automatic according to GC policy). Serial GC only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Long> MaxHeapFree = new RuntimeOptionKey<>(0L, SerialGCOptions::validateSerialRuntimeOption);
 

@@ -372,16 +372,23 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return 1.0 - (1.0 / (1.0 + gcCostRatio));
     }
 
+    /** {@link #GC_TIME_RATIO} unless {@link SerialGCOptions#SerialGCTimeRatio} says otherwise. */
+    private static int gcTimeRatio() {
+        int requested = SerialGCOptions.SerialGCTimeRatio.getValue();
+        return requested > 0 ? requested : GC_TIME_RATIO;
+    }
+
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
         // Guard against divide-by-zero; 0.001ms
         double gcDistance = Math.max(gcDistanceSecondsSeq.last(), 0.000001);
         double minGcDistance = MIN_GC_DISTANCE_SECOND;
 
-        double throughputGoal = calculateThroughputGoal(GC_TIME_RATIO);
+        int gcTimeRatio = gcTimeRatio();
+        double throughputGoal = calculateThroughputGoal(gcTimeRatio);
 
         if (mutatorTimePercent() < throughputGoal) {
             UnsignedWord newEden;
-            double expectedGcDistance = trimmedMinorGcTimeSeconds.last() * GC_TIME_RATIO;
+            double expectedGcDistance = trimmedMinorGcTimeSeconds.last() * gcTimeRatio;
             if (gcDistance >= expectedGcDistance) {
                 // The latest sample already satisfies throughput goal; keep the current size
                 newEden = curEden;
@@ -417,7 +424,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             // promotedBytesEstimate() / (gcDistance + gcTimeLowerEstimate) < 1M/s
             // ==> promotedBytesEstimate() / 1M - gcTimeLowerEstimate < gcDistance
             double gcDistanceTarget = Math.max(Math.max(
-                            minorGcTimeConservativeEstimate() * GC_TIME_RATIO,
+                            minorGcTimeConservativeEstimate() * gcTimeRatio,
                             promotedBytesEstimate() / (1024 * 1024) - gcTimeLowerEstimate),
                             minGcDistance);
             double predictedGcDistance = gcDistance * (1 - deltaFactor) - gcDistanceSecondsSeq.dsd();
