@@ -93,12 +93,15 @@ from each compiler; lower is better.
 
 | workload | Oracle GraalVM | CrucibleVM |
 | --- | --- | --- |
-| GameOfLife (Oracle's own example) | 5.6 s | **4.8 s** |
-| ArrayBench | 0.78 s | **0.68 s** |
+| GameOfLife (Oracle's own example) | 5.6 s | **4.9 s** |
+| ArrayBench | 0.78 s | **0.66 s** |
 | BranchBench | 1.00 s | **0.86 s** |
-| JsonBench | 2.49 s | **2.41 s** |
+| JsonBench | 2.48 s | **2.32 s** |
 | BenchPGO | **0.54 s** | 0.58 s |
-| Renaissance, twelve benchmarks | ahead on eight | ahead on four |
+| Renaissance, twelve benchmarks | ahead on seven | ahead on five |
+
+By default CrucibleVM is ahead on four of the twelve. With the collector's ratio set (below) it is
+ahead on five, two of them, reactors and akka-uct, by 23%, and within 5 to 7% on two more.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the
@@ -109,9 +112,9 @@ optimizer. The details, and everything that was tried and did not work, are in `
 If your program spends its time collecting, try `-XX:SerialGCTimeRatio=6` at run time (4 to 9 is
 the useful range). The serial collector's default policy accepts half of the time going to
 collection before it grows the young generation; this asks for a seventh. It took two Renaissance
-benchmarks from 31% and 60% behind Oracle's binary to level and 24% behind, in no more memory than
-Oracle's uses, and it cost another four times its memory for little, so measure it; the default is
-unchanged. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
+benchmarks from level with Oracle's binary to 23% ahead of it and two from 32% and 62% behind to 5%
+and 27%, the latter in less memory than Oracle's uses. It cost another four times its memory for
+little and made one slower, so measure it; the default is unchanged. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
 same end and are as mixed. See `docs/issues/2026-09-21-the-collector-was-told-half-the-time-is-fine.md`.
 
 ## Options
