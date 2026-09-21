@@ -128,10 +128,7 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
         String[] keys = allocator.freeze();
-        if (branchCounters != null && keys.length > CrucibleBranchCounters.stripeSlots()) {
-            throw UserError.abort("This program needs %d profile counters and -H:CrucibleMaximumCounters allows %d. Build again with a larger value.", keys.length,
-                            CrucibleBranchCounters.stripeSlots());
-        }
+        CrucibleBranchCounters.setSlots(keys.length);
         String[] typeKeys = typeSiteAllocator.freeze();
         /* Frozen only once both allocators are done, so every index they handed out resolves. */
         String[] keyPool = methodIds.freeze();

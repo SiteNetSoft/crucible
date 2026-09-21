@@ -51,7 +51,13 @@ scale with the number of iterations recorded.
 
 ## What it costs
 
-The block is zero-filled and is written into the image file all the same, 32 MB at the
-default of 2^19 counters and eight stripes, so a recording image is about 100 MB where
-Oracle's is 55 to 60. `-H:CrucibleMaximumCounters` sets it, and a program that needs more
-counters than that stops the build with a message saying so.
+The block is zero-filled and is written into the image file all the same: eight stripes of
+one 64-bit word per counter, 17 MB for a program with 268 000 counters, so a recording image
+is 85 to 120 MB where Oracle's is 55 to 60.
+
+At first the size of a stripe was a constant compiled into every bump, which meant choosing
+it before compilation had handed the counters out, as a limit the build then enforced. The
+first larger program, Renaissance's db-shootout with 844 458 counters, ran into it. The
+block now says how large a stripe is in its own first word, filled in when the image is
+written, and a bump reads it from there: one load that is always in cache, no limit, and a
+block exactly as large as the program needs.

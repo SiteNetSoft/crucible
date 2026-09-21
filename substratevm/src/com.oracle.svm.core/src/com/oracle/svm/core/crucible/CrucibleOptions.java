@@ -123,9 +123,6 @@ public final class CrucibleOptions {
     @Option(help = "In a recording image, bump branch counters inline rather than through a call.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleInlineCounters = new HostedOptionKey<>(true);
 
-    @Option(help = "Most profile counters a recording image can have. The block they are in is eight times this many 64-bit words in the image file, 32 MB at the default.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Integer> CrucibleMaximumCounters = new HostedOptionKey<>(1 << 19);
-
     @Option(help = "In a recording image, also note the order in which methods were first entered, for -H:+CrucibleCodeLayoutByStartup. Costs a call at every method entry.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleRecordStartupOrder = new HostedOptionKey<>(false);
 

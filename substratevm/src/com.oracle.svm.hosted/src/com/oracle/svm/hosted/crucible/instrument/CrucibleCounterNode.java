@@ -40,6 +40,7 @@ import jdk.graal.compiler.nodeinfo.NodeCycles;
 import jdk.graal.compiler.nodeinfo.NodeInfo;
 import jdk.graal.compiler.nodeinfo.NodeSize;
 import jdk.graal.compiler.nodes.ConstantNode;
+import jdk.graal.compiler.nodes.NamedLocationIdentity;
 import jdk.graal.compiler.nodes.FixedWithNextNode;
 import jdk.graal.compiler.nodes.NodeView;
 import jdk.graal.compiler.nodes.StructuredGraph;
@@ -110,9 +111,12 @@ public final class CrucibleCounterNode extends FixedWithNextNode implements Lowe
         }
         ValueNode mixed = graph.addOrUnique(XorNode.create(shifted(graph, thread, 7), shifted(graph, thread, 15), NodeView.DEFAULT));
         ValueNode stripe = graph.addOrUnique(AndNode.create(mixed, ConstantNode.forLong(CrucibleBranchCounters.STRIPES - 1, graph), NodeView.DEFAULT));
-        long stripeBytes = (long) CrucibleBranchCounters.stripeSlots() * Long.BYTES;
-        ValueNode offset = graph.addOrUnique(AddNode.create(graph.addOrUnique(MulNode.create(stripe, ConstantNode.forLong(stripeBytes, graph), NodeView.DEFAULT)),
-                        ConstantNode.forLong((long) slot * Long.BYTES, graph), NodeView.DEFAULT));
+        /* The size of a stripe is in the block's first word; see CrucibleBranchCounters. */
+        ReadNode stripeBytes = graph.add(new ReadNode(graph.unique(new OffsetAddressNode(base, ConstantNode.forLong(0, graph))), NamedLocationIdentity.FINAL_LOCATION,
+                        StampFactory.forKind(JavaKind.Long), BarrierType.NONE, MemoryOrderMode.PLAIN));
+        graph.addBeforeFixed(this, stripeBytes);
+        ValueNode offset = graph.addOrUnique(AddNode.create(graph.addOrUnique(MulNode.create(stripe, stripeBytes, NodeView.DEFAULT)),
+                        ConstantNode.forLong(CrucibleBranchCounters.HEADER_BYTES + (long) slot * Long.BYTES, graph), NodeView.DEFAULT));
         AddressNode address = graph.unique(new OffsetAddressNode(base, offset));
         ReadNode read = graph.add(new ReadNode(address, CrucibleProfileRuntime.COUNTERS_LOCATION, StampFactory.forKind(JavaKind.Long), BarrierType.NONE, MemoryOrderMode.PLAIN));
         graph.addBeforeFixed(this, read);

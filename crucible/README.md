@@ -115,7 +115,6 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | --- | --- | --- |
 | `CrucibleInstrument` | off | build an image that records a profile |
 | `CrucibleProfile=<file>` | | build with a profile |
-| `CrucibleMaximumCounters` | 2^19 | most counters a recording image can have; the build says so if a program needs more |
 | `CrucibleRecordStartupOrder` | off | also record the order methods were first entered in, for `CrucibleCodeLayoutByStartup`; costs a call at every method entry |
 | `CrucibleMaxContextDepth` | 1 | inlining frames recorded per counter; more is more precise and a larger recording image |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |

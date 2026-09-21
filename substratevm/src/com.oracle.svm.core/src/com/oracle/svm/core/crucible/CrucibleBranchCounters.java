@@ -24,6 +24,8 @@
  */
 package com.oracle.svm.core.crucible;
 
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.c.type.CLongPointer;
 
 import com.oracle.svm.guest.staging.c.CGlobalData;
@@ -49,13 +51,32 @@ public final class CrucibleBranchCounters {
      */
     public static final int STRIPES = 8;
 
-    /** Words per stripe; fixed when code is compiled, which is before the counters have all been handed out. */
-    public static int stripeSlots() {
-        return CrucibleOptions.CrucibleMaximumCounters.getValue();
+    /** Bytes ahead of the first stripe: one word, holding the size of a stripe in bytes. */
+    public static final int HEADER_BYTES = Long.BYTES;
+
+    private static int slots;
+
+    /**
+     * How large a stripe is cannot be known while code is being compiled, since compiling is what
+     * hands the counters out. So the block says it itself, in its first word, which is filled in
+     * when the image is written; a bump reads it from there. That costs a load that is always in
+     * cache, and in exchange the block is exactly as large as the program needs and there is no
+     * limit to build against.
+     */
+    public static final CGlobalData<CLongPointer> BLOCK = CGlobalDataFactory.createBytes(CrucibleBranchCounters::initialContents);
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    private static byte[] initialContents() {
+        long stripeBytes = (long) Math.max(1, slots) * Long.BYTES;
+        byte[] contents = new byte[Math.toIntExact(HEADER_BYTES + STRIPES * stripeBytes)];
+        java.nio.ByteBuffer.wrap(contents).order(java.nio.ByteOrder.nativeOrder()).putLong(0, stripeBytes);
+        return contents;
     }
 
-    /** Zero-filled, and written to the image file all the same. */
-    public static final CGlobalData<CLongPointer> BLOCK = CGlobalDataFactory.createBytes(() -> STRIPES * stripeSlots() * Long.BYTES);
+    @Platforms(Platform.HOSTED_ONLY.class)
+    public static void setSlots(int count) {
+        slots = count;
+    }
 
     private CrucibleBranchCounters() {
     }
@@ -63,10 +84,10 @@ public final class CrucibleBranchCounters {
     /** What slot {@code slot} was bumped to, over all stripes. Racy like the bumps themselves. */
     public static long read(int slot) {
         CLongPointer block = BLOCK.get();
-        int stride = stripeSlots();
+        int stripeWords = (int) (block.read(0) / Long.BYTES);
         long sum = 0;
         for (int stripe = 0; stripe < STRIPES; stripe++) {
-            sum += block.read(stripe * stride + slot);
+            sum += block.read(1 + stripe * stripeWords + slot);
         }
         return sum;
     }
