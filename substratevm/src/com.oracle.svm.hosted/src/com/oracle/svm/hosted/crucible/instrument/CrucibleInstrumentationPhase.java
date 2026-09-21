@@ -70,9 +70,20 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
         if (isExcluded(graph.method(), context)) {
             return;
         }
+        /*
+         * Uninterruptible code, the collector above all, may not make the call a counter used to
+         * be. An inline counter is a few register operations and an add to memory that is always
+         * there, which such code may do.
+         */
+        boolean uninterruptible = UninterruptibleAnnotationUtils.isUninterruptible(graph.method());
+        if (uninterruptible && (branchCounters == null || !CrucibleOptions.CrucibleRecordUninterruptible.getValue())) {
+            return;
+        }
         String rootId = ProfileKey.methodId(graph.method());
         int entrySlot = allocator.allocate(new ProfileKey.MethodEntry(rootId));
-        if (CrucibleProbePhase.entryCounted(graph.method())) {
+        if (uninterruptible && CrucibleOptions.CrucibleRecordStartupOrder.getValue()) {
+            /* Noting the order of first entry takes the call. */
+        } else if (CrucibleProbePhase.entryCounted(graph.method())) {
             /* A probe put in at parsing has counted this entry, as it has the entries of what was inlined here. */
         } else if (branchCounters != null && !CrucibleOptions.CrucibleRecordStartupOrder.getValue()) {
             /*
@@ -122,7 +133,7 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
         if (method.getDeclaringClass().equals(context.getMetaAccess().lookupJavaType(CrucibleProfileRuntime.class))) {
             return true;
         }
-        return UninterruptibleAnnotationUtils.isUninterruptible(method);
+        return false;
     }
 
 

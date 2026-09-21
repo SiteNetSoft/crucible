@@ -150,6 +150,9 @@ public final class CrucibleOptions {
                     "including the ones the compiler could simplify because of where they were inlined.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordWithProbes = new HostedOptionKey<>(true);
 
+    @Option(help = "In a recording image, count branches in uninterruptible code as well, which is where the garbage collector is. Needs the inline counters.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordUninterruptible = new HostedOptionKey<>(true);
+
     @Option(help = "Count what instanceof tests the same way, in every copy of a method. The counts are fuller and recording was slower for it " +
                     "on the one benchmark measured, with no gain in the image built from them.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordTestsWithProbes = new HostedOptionKey<>(false);
