@@ -51,7 +51,7 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | M2 | The slow iterations of a Renaissance run are the ones with a major collection in them, and this tree's default policy, `Adaptive2`, has them twice as often as `Adaptive`, the default of Oracle's 25.0.4 | measured across the suite with `-XX:InitialCollectionPolicy=Adaptive`: mnemonics 5813 to 4715, par-mnemonics 4798 to 4015, fj-kmeans 7680 to 7340, and scrabble 653 to 761, scala-stm-bench7 1940 to 2168, akka-uct 26704 to 33974. Not a default either | what is left of the losses on the mnemonics pair is mostly this |
 
 | P | One run in four of our future-genetic binaries is 13% slower than the rest, all iterations of it; Oracle's never is | seen in every build of ours, not looked into. Heap layout or the collection policy are the first things to rule out | a quarter of all runs |
-| Q | Our compiler is 4% faster on Oracle's recording of future-genetic than on ours | their recording counts branches in the collector and other uninterruptible code, ours cannot; and they record up to fifteen frames of context, we record one | the rest of the gap in what a profile is worth |
+| Q | Our compiler is 4% faster on Oracle's recording of future-genetic than on ours | not the calling context: recorded four and eight frames deep, with the recording image inlining as an optimized one does, 12 500 lookups are answered from a context and the image runs at 2011 ms against 2026, within the spread, for a recording image 18% larger. What is left is that their recording counts branches in the collector and other uninterruptible code and ours cannot | the rest of the gap in what a profile is worth |
 
 ## Done since the list was started
 
