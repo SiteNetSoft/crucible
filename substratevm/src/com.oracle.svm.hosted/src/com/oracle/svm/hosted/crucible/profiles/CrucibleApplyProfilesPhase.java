@@ -91,7 +91,8 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
              * its calls to be worth resolving context by context.
              */
             double self = Math.max(0, tree.selfShare(method));
-            boolean hotRoot = tree.inclusiveShare(method) >= CrucibleOptions.CrucibleHotContextShare.getValue();
+            /* A copy made for a caller was made because the path to it is hot. */
+            boolean hotRoot = CrucibleContextClonePhase.contextOf(method) != null || tree.inclusiveShare(method) >= CrucibleOptions.CrucibleHotContextShare.getValue();
             if (hotRoot) {
                 MARKED_HOT.incrementAndGet();
             }

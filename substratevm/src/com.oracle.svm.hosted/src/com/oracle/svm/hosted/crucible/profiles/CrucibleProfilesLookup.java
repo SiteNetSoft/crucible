@@ -103,7 +103,6 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
      */
     private final AtomicLong conditionalHits = new AtomicLong();
     private final AtomicLong conditionalMisses = new AtomicLong();
-    private final AtomicLong contextInsensitiveHits = new AtomicLong();
     private final AtomicLong typeHits = new AtomicLong();
     private final AtomicLong typeMisses = new AtomicLong();
     private final Queue<String> sampleMisses = new ConcurrentLinkedQueue<>();
@@ -138,7 +137,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 if (ctx.isEmpty()) {
                     continue;
                 }
-                byContext.put(String.join(ProfileKey.CTX_SEP, ctx), records);
+                mergeUnderEveryInnerPart(byContext, ctx, records, CrucibleProfilesLookup::sumRecords);
                 /*
                  * The innermost frame doubles as the context-insensitive key. A method inlined into
                  * several callers yields several records for the same point, and the fallback, which
@@ -163,7 +162,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 if (ctx.isEmpty() || invoke.types().isEmpty()) {
                     continue;
                 }
-                invokesByContext.put(String.join(ProfileKey.CTX_SEP, ctx), invoke.types());
+                mergeUnderEveryInnerPart(invokesByContext, ctx, invoke.types(), CrucibleProfilesLookup::sumTypes);
                 inlinedSomewhere.add(methodIdOf(ctx.get(0)));
                 invokesByPoint.merge(ctx.get(0), invoke.types(), CrucibleProfilesLookup::sumTypes);
             }
@@ -171,7 +170,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                 if (test.ctx().isEmpty() || test.types().isEmpty()) {
                     continue;
                 }
-                testsByContext.put(String.join(ProfileKey.CTX_SEP, test.ctx()), test.types());
+                mergeUnderEveryInnerPart(testsByContext, test.ctx(), test.types(), CrucibleProfilesLookup::sumTypes);
                 testsByPoint.merge(test.ctx().get(0), test.types(), CrucibleProfilesLookup::sumTypes);
             }
         }
@@ -366,6 +365,42 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         return String.join(ProfileKey.CTX_SEP, elements);
     }
 
+    /**
+     * Files a record under its context and under every shorter one that ends at the same point:
+     * the point in its caller, in its caller's caller, and so on out.
+     * <p>
+     * The build that recorded and the build that reads do not inline alike, so the whole context
+     * of a lookup is seldom one that was recorded. Its inner part usually is, and the two callers
+     * nearest a call say most of what the whole chain would about what the call does there.
+     * Records that share an inner part are added up, which is what that part saw.
+     */
+    private static <T> void mergeUnderEveryInnerPart(Map<String, T> map, List<String> ctx, T value, java.util.function.BinaryOperator<T> sum) {
+        /* The bare point is kept in a map of its own. */
+        StringBuilder key = new StringBuilder(ctx.get(0));
+        for (int i = 1; i < ctx.size(); i++) {
+            key.append(ProfileKey.CTX_SEP).append(ctx.get(i));
+            map.merge(key.toString(), value, sum);
+        }
+    }
+
+    /** The record for the longest inner part of {@code position}'s context that has one, down to the bare point. */
+    private static <T> T longestMatch(Map<String, T> byInnerPart, Map<String, T> byBarePoint, BytecodePosition position) {
+        String key = contextKey(position);
+        String point = ProfileKey.methodId(position.getMethod()) + ":" + position.getBCI();
+        while (key.length() > point.length()) {
+            T found = byInnerPart.get(key);
+            if (found != null) {
+                CONTEXT_MATCHES.incrementAndGet();
+                return found;
+            }
+            key = key.substring(0, key.lastIndexOf(ProfileKey.CTX_SEP));
+        }
+        return byBarePoint.get(point);
+    }
+
+    /** Lookups answered from a recorded context of two frames or more. */
+    public static final AtomicLong CONTEXT_MATCHES = new AtomicLong();
+
     @Override
     public Optional<ProfiledValue<Long>> getCallCountProfile(HostedMethod method) {
         if (callCounts == null) {
@@ -391,14 +426,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
             return Optional.empty();
         }
         String key = contextKey(callingContext);
-        long[] records = byContext.get(key);
-        if (records == null) {
-            /* No match for this exact inlining context: fall back to the point on its own. */
-            records = byPoint.get(ProfileKey.methodId(callingContext.getMethod()) + ":" + callingContext.getBCI());
-            if (records != null) {
-                contextInsensitiveHits.incrementAndGet();
-            }
-        }
+        long[] records = longestMatch(byContext, byPoint, callingContext);
         if (records == null) {
             conditionalMisses.incrementAndGet();
             if (sampleMisses.size() < MAX_SAMPLES) {
@@ -431,10 +459,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         if (invokesByContext == null) {
             return Optional.empty();
         }
-        List<CrucibleProfile.ObservedType> observed = invokesByContext.get(contextKey(callingContext));
-        if (observed == null) {
-            observed = invokesByPoint.get(ProfileKey.methodId(callingContext.getMethod()) + ":" + callingContext.getBCI());
-        }
+        List<CrucibleProfile.ObservedType> observed = longestMatch(invokesByContext, invokesByPoint, callingContext);
         if (observed == null) {
             typeMisses.incrementAndGet();
             return Optional.empty();
@@ -466,10 +491,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         if (testsByContext == null) {
             return Optional.empty();
         }
-        List<CrucibleProfile.ObservedType> observed = testsByContext.get(contextKey(callingContext));
-        if (observed == null) {
-            observed = testsByPoint.get(ProfileKey.methodId(callingContext.getMethod()) + ":" + callingContext.getBCI());
-        }
+        List<CrucibleProfile.ObservedType> observed = longestMatch(testsByContext, testsByPoint, callingContext);
         if (observed == null) {
             return Optional.empty();
         }
@@ -502,7 +524,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         long typeTotal = typeHits.get() + typeMisses.get();
         String typeRate = typeTotal == 0 ? "n/a" : String.format("%.1f%%", 100.0 * typeHits.get() / typeTotal);
         return "Crucible: applied " + hits + " of " + total + " conditional profile lookups (" + rate + "), " +
-                        contextInsensitiveHits.get() + " via the context-insensitive fallback; " +
+                        CONTEXT_MATCHES.get() + " lookups of all kinds answered from a recorded calling context, the rest from the point alone; " +
                         typeHits.get() + " of " + typeTotal + " receiver-type lookups (" + typeRate + ").";
     }
 

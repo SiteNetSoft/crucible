@@ -27,6 +27,8 @@ package com.oracle.svm.hosted.crucible.profiles;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.graalvm.collections.EconomicMap;
+
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
@@ -47,7 +49,9 @@ import jdk.graal.compiler.loop.phases.LoopPartialUnrollPhase;
 import jdk.graal.compiler.loop.phases.LoopPeelingPhase;
 import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.nodes.StructuredGraph;
+import jdk.graal.compiler.options.OptionKey;
 import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.options.OptionsParser;
 import jdk.graal.compiler.phases.tiers.Suites;
 import jdk.graal.compiler.vector.phases.LoopVectorizationPhase;
 
@@ -132,16 +136,51 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
 
             @Override
             protected OptionValues getCustomizedOptions(HostedMethod method, DebugContext methodDebug) {
-                if (!omitPriorityInliningTuning() && isHot(method)) {
-                    HOT_METHODS_AT_FULL_SETTINGS.incrementAndGet();
-                    return methodDebug.getOptions();
+                if (!isHot(method)) {
+                    return super.getCustomizedOptions(method, methodDebug);
                 }
-                return super.getCustomizedOptions(method, methodDebug);
+                OptionValues options = methodDebug.getOptions();
+                if (omitPriorityInliningTuning()) {
+                    options = super.getCustomizedOptions(method, methodDebug);
+                } else {
+                    HOT_METHODS_AT_FULL_SETTINGS.incrementAndGet();
+                }
+                EconomicMap<OptionKey<?>, Object> extra = hotMethodOptions();
+                return extra.isEmpty() ? options : new OptionValues(options, extra);
             }
         };
     }
 
+    private static volatile EconomicMap<OptionKey<?>, Object> hotMethodOptions;
+
+    /**
+     * Compiler options given on top of everything else to the methods the run spent its time in,
+     * from {@code -H:CrucibleHotMethodOptions=Name=value:Name=value}. Many of the compiler's limits
+     * are read as each method is compiled, so they can be different for the few methods where a
+     * larger budget pays. This is how a setting is tried before it is made a default.
+     */
+    private static EconomicMap<OptionKey<?>, Object> hotMethodOptions() {
+        EconomicMap<OptionKey<?>, Object> parsed = hotMethodOptions;
+        if (parsed == null) {
+            parsed = OptionValues.newOptionMap();
+            String spec = CrucibleOptions.CrucibleHotMethodOptions.getValue();
+            if (!spec.isEmpty()) {
+                EconomicMap<String, String> settings = EconomicMap.create();
+                for (String setting : spec.split(":")) {
+                    OptionsParser.parseOptionSettingTo(setting.trim(), settings);
+                }
+                OptionsParser.parseOptions(settings, parsed, OptionsParser.getOptionsLoader());
+            }
+            hotMethodOptions = parsed;
+        }
+        return parsed;
+    }
+
     private static boolean isHot(HostedMethod method) {
+        if (CrucibleContextClonePhase.contextOf(method) != null) {
+            /* A copy made for a caller exists because the run spent its time there. */
+            return true;
+        }
         return PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles && profiles.workShare(method) >= CrucibleOptions.CrucibleHotRootShare.getValue();
     }
 }

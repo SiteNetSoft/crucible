@@ -113,6 +113,22 @@ public final class CrucibleInliningProvider extends SubstrateInliningProvider {
         return Math.min(super.getMinPolymorphicDispatchProbability(options), CrucibleOptions.CrucibleMinimumReceiverShare.getValue());
     }
 
+    /**
+     * The inliner keeps, for every call it has yet to look into, how much of the time at that call
+     * the sampled stacks saw spent under this callee, and asks here what that is worth. Nothing in
+     * the community edition answers, so a call where the run lived waits its turn behind every
+     * call that merely looks cheap.
+     */
+    @Override
+    protected int hotBonusWhileExpanding(OptionValues options) {
+        return CrucibleOptions.CrucibleInstrument.getValue() ? 0 : CrucibleOptions.CrucibleHotBonusWhileExpanding.getValue();
+    }
+
+    @Override
+    protected int hotBonusWhileInlining(OptionValues options) {
+        return CrucibleOptions.CrucibleInstrument.getValue() ? 0 : CrucibleOptions.CrucibleHotBonusWhileInlining.getValue();
+    }
+
     @Override
     public PolicyFactory policy(OptionValues options) {
         if (CrucibleOptions.CrucibleColdCodeSize.getValue() && !CrucibleOptions.CrucibleInstrument.getValue()) {

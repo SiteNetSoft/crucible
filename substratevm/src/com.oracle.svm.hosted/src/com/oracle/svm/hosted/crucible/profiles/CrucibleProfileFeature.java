@@ -50,6 +50,7 @@ import com.oracle.svm.core.util.UserError;
 import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
+import com.oracle.svm.hosted.phases.priorityinline.SubstratePriorityInliningPhase;
 
 import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.phases.common.IterativeConditionalEliminationPhase;
@@ -215,6 +216,13 @@ public final class CrucibleProfileFeature implements InternalFeature {
             suites.getHighTier().appendPhase(new CrucibleDevirtualizationPhase(universe, lookup,
                             CrucibleOptions.CrucibleDevirtualizeMinimumBias.getValue(), CrucibleOptions.CrucibleDevirtualizeMaxTargets.getValue()));
         }
+        if (CrucibleOptions.CrucibleContextClones.getValue()) {
+            /* After inlining: a call that was inlined already has its caller's view. */
+            var inliner = suites.getHighTier().findPhase(SubstratePriorityInliningPhase.class);
+            if (inliner != null) {
+                inliner.add(new CrucibleContextClonePhase(universe));
+            }
+        }
         if (CrucibleOptions.CrucibleLoopRangeSplit.getValue()) {
             /*
              * After unswitching, which has by then moved out the checks that do not depend on the
@@ -272,6 +280,11 @@ public final class CrucibleProfileFeature implements InternalFeature {
                             CrucibleDevirtualizationPhase.SITES_UNSUPPORTED.get() + " not guardable, " +
                             CrucibleDevirtualizationPhase.SITES_PROFILED.get() + " with a receiver profile, " +
                             CrucibleDevirtualizationPhase.SITES_DEVIRTUALIZED.get() + " devirtualised.");
+            if (CrucibleContextClonePhase.copies() > 0 || CrucibleContextClonePhase.CALLS_IN_CONTEXT.get() > 0) {
+                System.out.println("Crucible: " + CrucibleContextClonePhase.CALLS_SEEN.get() + " direct calls left after inlining, " + CrucibleContextClonePhase.CALLS_IN_CONTEXT.get() +
+                                " on a sampled path, " + CrucibleContextClonePhase.SAME_AS_ORIGINAL.get() + " hot but no different there, " + CrucibleContextClonePhase.CALLS_REDIRECTED.get() + " pointed at one of " + CrucibleContextClonePhase.copies() +
+                                " copies compiled for their caller.");
+            }
             System.out.println("Crucible: " + CrucibleApplyProfilesPhase.INDIRECT_TARGETS.get() + " indirect call targets after applying, " +
                             CrucibleApplyProfilesPhase.DYNAMIC_TYPE_PROFILES.get() + " carrying a dynamic type profile (what makes the inliner build an inline cache).");
             System.out.println("Crucible: " + CrucibleApplyProfilesPhase.GRAPHS.get() + " graphs seen by the apply phase, " +

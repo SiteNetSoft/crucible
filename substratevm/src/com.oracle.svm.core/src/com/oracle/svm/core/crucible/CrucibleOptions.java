@@ -126,6 +126,29 @@ public final class CrucibleOptions {
     @Option(help = "In a recording image, also note the order in which methods were first entered, for -H:+CrucibleCodeLayoutByStartup. Costs a call at every method entry.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleRecordStartupOrder = new HostedOptionKey<>(false);
 
+    @Option(help = "Compile a method again for a caller the sampled stacks show it spending time under, so that what it calls can be resolved " +
+                    "for that caller alone. Needs a profile with sampled stacks.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleContextClones = new HostedOptionKey<>(true);
+
+    @Option(help = "Least share of the samples a method must account for under one caller to be compiled again for it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleContextCloneMinimumShare = new HostedOptionKey<>(0.01);
+
+    @Option(help = "Most copies made of methods for their callers.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleContextCloneLimit = new HostedOptionKey<>(200);
+
+    @Option(help = "How much sooner the inliner looks into a call the sampled stacks saw time spent under, in units of its own priorities. " +
+                    "Needs a profile with sampled stacks.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleHotBonusWhileExpanding = new HostedOptionKey<>(0);
+
+    @Option(help = "How many times over the benefit of inlining a call counts when the sampled stacks saw all of the time at that call spent under it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleHotBonusWhileInlining = new HostedOptionKey<>(0);
+
+    @Option(help = "Fewest samples under a call for the sampled stacks to be believed about where it goes, in place of the counted receivers.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleMinimumSamplesAtCall = new HostedOptionKey<>(32);
+
+    @Option(help = "Compiler options for the methods the run spent its time in only, as Name=value:Name=value. For trying a setting out.", type = OptionType.Debug)//
+    public static final HostedOptionKey<String> CrucibleHotMethodOptions = new HostedOptionKey<>("");
+
     @Option(help = "Split the iteration range of a hot counted loop so that its middle part runs without the checks " +
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);

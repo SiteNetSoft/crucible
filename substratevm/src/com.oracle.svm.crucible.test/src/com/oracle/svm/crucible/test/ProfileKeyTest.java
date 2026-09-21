@@ -101,4 +101,11 @@ public class ProfileKeyTest {
     public void rejectsUnknownKind() {
         ProfileKey.decode("X|foo");
     }
+
+    @Test
+    public void aCopyOfAMethodIsLookedUpUnderTheMethodsName() {
+        Assert.assertEquals("forEachRemaining", ProfileKey.nameWithoutVariant("forEachRemaining%%C1f3a"));
+        Assert.assertEquals("forEachRemaining", ProfileKey.nameWithoutVariant("forEachRemaining"));
+        Assert.assertEquals("%%odd", ProfileKey.nameWithoutVariant("%%odd"));
+    }
 }

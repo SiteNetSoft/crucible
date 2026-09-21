@@ -31,6 +31,7 @@ import java.util.Map;
 
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 import com.oracle.graal.pointsto.meta.AnalysisType;
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfile;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.cai.PrefixTree;
@@ -60,6 +61,7 @@ public final class CrucibleCallTree {
 
     /** How often the compiler asked where a call goes in some context, and how often the tree knew. */
     public static final java.util.concurrent.atomic.AtomicLong TARGET_LOOKUPS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_TOO_FEW = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong TARGET_HITS = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong TARGET_HITS_SINGLE = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong CONTEXT_LOOKUPS = new java.util.concurrent.atomic.AtomicLong();
@@ -124,6 +126,7 @@ public final class CrucibleCallTree {
         }
         totalCount += sample.count();
         sampledStacks++;
+        stacks.add(new Stack(methods, bcis, sample.count()));
         for (int start = 0; start < methods.length; start++) {
             if (methods[start] == null) {
                 continue;
@@ -138,6 +141,105 @@ public final class CrucibleCallTree {
                 node.selfCount += sample.count();
             }
         }
+    }
+
+    /** A sampled stack with its methods looked up, outermost first; {@code null} where one is not in the image. */
+    private record Stack(AnalysisMethod[] methods, int[] bcis, long count) {
+    }
+
+    private final List<Stack> stacks = new ArrayList<>();
+
+    /** How many calls down a copy is compared with the method it was copied from. */
+    private static final int NARROWING_HORIZON = 8;
+
+    /**
+     * The tree below {@code reached} as it would be had the samples been filed under the whole
+     * path to it, from the outermost method the compiler got there from.
+     * <p>
+     * The tree under a method pools every way the method was reached, which is right for compiling
+     * it once. {@code reached} is that method on one path, but it sits in a tree that is cut off a
+     * fixed number of calls below its root, and a hot path through shared code is a chain of
+     * copies, each made from inside the one before and so ever nearer the cut. Filing the samples
+     * again under the path gives the copy the full depth below itself.
+     */
+    public Node contextFor(Node reached) {
+        List<Node> down = new ArrayList<>();
+        Node top = reached;
+        for (; top.parent != null; top = top.parent) {
+            down.add(0, top);
+        }
+        int prefix = top.contextMethods == null ? 1 : top.contextMethods.length;
+        AnalysisMethod[] methods = new AnalysisMethod[prefix + down.size()];
+        int[] bcis = new int[methods.length - 1];
+        if (top.contextMethods == null) {
+            methods[0] = top.method;
+        } else {
+            System.arraycopy(top.contextMethods, 0, methods, 0, prefix);
+            System.arraycopy(top.contextBcis, 0, bcis, 0, prefix - 1);
+        }
+        for (int i = 0; i < down.size(); i++) {
+            methods[prefix + i] = down.get(i).method;
+            bcis[prefix + i - 1] = down.get(i).bci;
+        }
+        Node context = new Node(reached.method);
+        context.contextMethods = methods;
+        context.contextBcis = bcis;
+        for (Stack stack : stacks) {
+            for (int start = 0; start + methods.length <= stack.methods.length; start++) {
+                if (matches(stack, start, methods, bcis)) {
+                    Node node = context;
+                    int from = start + methods.length - 1;
+                    for (int i = from; i + 1 < stack.methods.length && i - from < MAX_DEPTH_BELOW_ROOT && stack.methods[i + 1] != null; i++) {
+                        node = node.childFor(stack.bcis[i], stack.methods[i + 1]);
+                    }
+                    node.count += stack.count;
+                    if (node == context) {
+                        node.selfCount += stack.count;
+                    }
+                }
+            }
+        }
+        return context;
+    }
+
+    private static boolean matches(Stack stack, int start, AnalysisMethod[] methods, int[] bcis) {
+        for (int i = 0; i < methods.length; i++) {
+            if (!methods[i].equals(stack.methods[start + i]) || (i < bcis.length && bcis[i] != stack.bcis[start + i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether some call within reach of inlining goes to fewer places in {@code context} than it
+     * does in the method compiled for everyone. Where none does the copy would come out the same.
+     */
+    public boolean narrows(Node context) {
+        Node pooled = roots.get(context.method);
+        return pooled != null && narrows(context, pooled, NARROWING_HORIZON);
+    }
+
+    private static boolean narrows(Node context, Node pooled, int horizon) {
+        if (horizon == 0) {
+            return false;
+        }
+        for (Map.Entry<Integer, List<Node>> calls : context.children.entrySet()) {
+            List<Node> everywhere = pooled.children.get(calls.getKey());
+            if (everywhere == null) {
+                continue;
+            }
+            if (calls.getValue().size() < everywhere.size()) {
+                return true;
+            }
+            for (Node callee : calls.getValue()) {
+                Node same = Node.match(everywhere, callee.method);
+                if (same != null && narrows(callee, same, horizon - 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Whether the tree was built from sampled stacks rather than from receiver counters. */
@@ -213,7 +315,8 @@ public final class CrucibleCallTree {
 
     /** The cursor for a compilation root, or {@code null} when the profile says nothing about it. */
     public PrefixTree.Cursor cursorFor(HostedMethod compilationRoot) {
-        return roots.get(compilationRoot.wrapped);
+        Node context = CrucibleContextClonePhase.contextOf(compilationRoot);
+        return context != null ? context : roots.get(compilationRoot.wrapped);
     }
 
     public String summary() {
@@ -227,18 +330,60 @@ public final class CrucibleCallTree {
 
         private final AnalysisMethod method;
         private final Node parent;
+        /** Where in the parent the call to this method is; -1 for a root. */
+        private final int bci;
         private final Map<Integer, List<Node>> children = new HashMap<>();
+        /** Filled in on first use. The tree does not change once the compiler starts asking. */
+        private long subtreeTotal = -1;
+        /** For the root of a tree made by {@link #contextFor}: the path it was made for, ending in this method. */
+        private AnalysisMethod[] contextMethods;
+        private int[] contextBcis;
         private long count;
         /** Samples that ended in a root method itself; a root's own count also holds truncated chains. */
         private long selfCount;
 
         Node(AnalysisMethod method) {
-            this(method, null);
+            this(method, null, -1);
         }
 
-        Node(AnalysisMethod method, Node parent) {
+        Node(AnalysisMethod method, Node parent, int bci) {
             this.method = method;
             this.parent = parent;
+            this.bci = bci;
+        }
+
+        /** Share of all samples that were in this method, or below it, when reached this way. */
+        public double share() {
+            return totalCount == 0 ? 0 : (double) subtreeCount() / totalCount;
+        }
+
+        /** Whether the method is already one of its own callers on this path. */
+        public boolean isRecursive() {
+            Node top = this;
+            for (Node node = parent; node != null; node = node.parent) {
+                if (node.method.equals(method)) {
+                    return true;
+                }
+                top = node;
+            }
+            if (top.contextMethods != null) {
+                /* The last of them is the top itself, which the loop above has looked at unless it is this. */
+                for (int i = 0; i < top.contextMethods.length - (top == this ? 1 : 0); i++) {
+                    if (top.contextMethods[i].equals(method)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /** Names the path a tree made by {@link #contextFor} was made for, the same from one build to the next. */
+        public String pathName() {
+            StringBuilder path = new StringBuilder();
+            for (int i = 0; i < contextMethods.length; i++) {
+                path.append(contextMethods[i].getQualifiedName()).append('@').append(i < contextBcis.length ? contextBcis[i] : -1).append('>');
+            }
+            return path.toString();
         }
 
         Node childFor(int bci, AnalysisMethod callee) {
@@ -248,7 +393,7 @@ public final class CrucibleCallTree {
                     return child;
                 }
             }
-            Node child = new Node(callee, this);
+            Node child = new Node(callee, this, bci);
             atBci.add(child);
             return child;
         }
@@ -273,7 +418,7 @@ public final class CrucibleCallTree {
             return node == null ? null : node.childrenAt(position.getBCI());
         }
 
-        private static Node match(List<Node> nodes, ResolvedJavaMethod target) {
+        static Node match(List<Node> nodes, ResolvedJavaMethod target) {
             AnalysisMethod wanted = target instanceof HostedMethod hosted ? hosted.wrapped : (AnalysisMethod) target;
             for (Node node : nodes) {
                 if (node.method.equals(wanted)) {
@@ -294,6 +439,21 @@ public final class CrucibleCallTree {
             List<Node> candidates = find(position);
             if (candidates == null || candidates.isEmpty()) {
                 return null;
+            }
+            if (sampled) {
+                /*
+                 * A handful of samples says that time was spent here and little about where else
+                 * the call goes. Two receivers seen three times and once may be two of five, and
+                 * the counted receivers, which the compiler turns to next, know that.
+                 */
+                long seen = 0;
+                for (Node candidate : candidates) {
+                    seen += candidate.subtreeCount();
+                }
+                if (seen < CrucibleOptions.CrucibleMinimumSamplesAtCall.getValue()) {
+                    TARGET_TOO_FEW.incrementAndGet();
+                    return null;
+                }
             }
             TARGET_HITS.incrementAndGet();
             if (candidates.size() == 1) {
@@ -356,12 +516,16 @@ public final class CrucibleCallTree {
         }
 
         private long subtreeCount() {
+            if (subtreeTotal >= 0) {
+                return subtreeTotal;
+            }
             long total = count;
             for (List<Node> atBci : children.values()) {
                 for (Node child : atBci) {
                     total += child.subtreeCount();
                 }
             }
+            subtreeTotal = total;
             return total;
         }
 

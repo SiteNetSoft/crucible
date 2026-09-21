@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.function.ToIntFunction;
 
 import jdk.graal.compiler.graph.NodeSourcePosition;
+import jdk.graal.compiler.java.StableMethodNameFormatter;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 
 /**
@@ -197,7 +198,16 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
 
     /** JVM-style descriptor {@code L<class>;.<name><signature>} of a method. */
     static String methodId(ResolvedJavaMethod method) {
-        return method.getDeclaringClass().getName() + "." + method.getName() + method.getSignature().toMethodDescriptor();
+        return method.getDeclaringClass().getName() + "." + nameWithoutVariant(method.getName()) + method.getSignature().toMethodDescriptor();
+    }
+
+    /**
+     * A variant of a method, a copy compiled for one of its callers say, carries a suffix on its
+     * name. What was recorded was recorded for the method, whichever copy is asking.
+     */
+    static String nameWithoutVariant(String name) {
+        int variant = name.indexOf(StableMethodNameFormatter.METHOD_VARIANT_KEY_SEPARATOR);
+        return variant > 0 ? name.substring(0, variant) : name;
     }
 
     /** Builds the key for the {@code instanceof} sampling site at {@code pos}. */
