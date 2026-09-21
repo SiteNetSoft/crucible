@@ -81,6 +81,7 @@ converted profile drives the build as well as one of our own.
 | Loop range splitting | a hot counted loop whose checks the profile saw go one way nearly always is run in three parts, the middle one without the checks; this is also what lets the vectorizer take it |
 | Receiver types | counted at every virtual call in every place its method is inlined, including the places where the compiler could work the receiver out and the call is no longer virtual, so that what is recorded for a call is everything that came through it; the inliner tests for the common receivers first and inlines their methods |
 | Call counts | of every method, inlined or not |
+| The collector | its branches are counted as the program's are, so a program that spends its time collecting gets a collector laid out for what its heap looks like |
 | Cold code | a method the run never reached does not look into its callees, which roughly halves the machine code of an image |
 | Code layout | the code section is ordered by how often each method ran |
 | Hot methods below `-O3` | are compiled the way `-O3` would compile them: its inliner settings, partial unrolling and loop vectorization, which the default level otherwise holds back for every method alike. On the samples a profiled `-O2` image runs as fast as a profiled `-O3` one and stays the size of an `-O2` one |
@@ -105,9 +106,13 @@ programs that allocate most the difference is allocation and garbage collection 
 optimizer. The details, and everything that was tried and did not work, are in `docs/issues/` and
 `crucible/ROADMAP.md`.
 
-If your program allocates heavily, try `-XX:InitialCollectionPolicy=Adaptive` or `BySpaceAndTime`
-at run time. Each was worth 15 to 20% on two Renaissance benchmarks and cost 15 to 25% on others,
-so measure; neither is a default.
+If your program spends its time collecting, try `-XX:SerialGCTimeRatio=6` at run time (4 to 9 is
+the useful range). The serial collector's default policy accepts half of the time going to
+collection before it grows the young generation; this asks for a seventh. It took two Renaissance
+benchmarks from 31% and 60% behind Oracle's binary to level and 24% behind, in no more memory than
+Oracle's uses, and it cost another four times its memory for little, so measure it; the default is
+unchanged. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
+same end and are as mixed. See `docs/issues/2026-09-21-the-collector-was-told-half-the-time-is-fine.md`.
 
 ## Options
 
@@ -119,6 +124,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleProfile=<file>` | | build with a profile |
 | `CrucibleRecordStartupOrder` | off | also record the order methods were first entered in, for `CrucibleCodeLayoutByStartup`; costs a call at every method entry |
 | `CrucibleMaxContextDepth` | 1 | inlining frames recorded per counter; more is more precise and a larger recording image |
+| `CrucibleRecordUninterruptible` | on | count branches in uninterruptible code too, which is where the garbage collector is |
 | `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
 | `CrucibleContextClones` | on | with sampled stacks, compile a method again for a caller it spends time under |
 | `CrucibleMinimumSamplesAtCall` | 32 | fewest samples under a call for the sampled stacks to be believed about where it goes |
