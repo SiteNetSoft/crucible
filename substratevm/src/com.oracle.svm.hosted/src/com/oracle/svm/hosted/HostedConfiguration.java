@@ -115,7 +115,13 @@ public class HostedConfiguration {
         }
 
         if (!ImageSingletons.contains(ObjectLayout.class)) {
-            ObjectLayout objectLayout = createObjectLayout(IdentityHashMode.TYPE_SPECIFIC);
+            /*
+             * The layout with the identity hash code added to an object only once it is asked for
+             * has its runtime here already; this is the switch that had been left out. Every array
+             * and some instances come out 8 bytes smaller, which is what Oracle GraalVM ships.
+             */
+            IdentityHashMode identityHashMode = SubstrateOptions.OptionalIdentityHashCodes.getValue() && SubstrateOptions.useSerialGC() ? IdentityHashMode.OPTIONAL : IdentityHashMode.TYPE_SPECIFIC;
+            ObjectLayout objectLayout = createObjectLayout(identityHashMode);
             ImageSingletons.add(ObjectLayout.class, objectLayout);
         }
     }

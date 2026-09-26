@@ -891,6 +891,11 @@ public class SubstrateOptions {
     @Option(help = "Add additional header bytes to each object, for diagnostic purposes.", type = OptionType.Debug) //
     public static final HostedOptionKey<Integer> AdditionalHeaderBytes = new HostedOptionKey<>(0, SubstrateOptions::validateAdditionalHeaderBytes);
 
+    @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
+    @Option(help = "Allocate memory for identity hash codes only for those objects that need it. Every array and some instances are 8 bytes smaller " +
+                    "and the collector has less to copy; the first identityHashCode() of an object costs a little more. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> OptionalIdentityHashCodes = new HostedOptionKey<>(true);
+
     private static void validateAdditionalHeaderBytes(HostedOptionKey<Integer> optionKey) {
         int value = optionKey.getValue();
         if (value < 0 || value % 4 != 0) {
