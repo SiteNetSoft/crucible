@@ -225,8 +225,9 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
      * <p>
      * Truncated to {@link CrucibleOptions#CrucibleMaxContextDepth} frames. Carrying the whole
      * context is what makes an instrumented image large -- it was 65 MiB of key strings in a
-     * GameOfLife image -- while about nine in ten applied profiles are matched by the innermost
-     * frame alone, through the context-insensitive fallback.
+     * GameOfLife image before the keys were pooled -- and for most sites the innermost frame says
+     * all there is to say. It does not for a call inside shared code: what a stream's sink calls
+     * depends entirely on which stream it is in, and the frames above the call are what say so.
      */
     static List<String> contextOf(NodeSourcePosition pos) {
         int limit = CrucibleOptions.CrucibleMaxContextDepth.getValue();

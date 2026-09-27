@@ -383,20 +383,45 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         }
     }
 
-    /** The record for the longest inner part of {@code position}'s context that has one, down to the bare point. */
-    private static <T> T longestMatch(Map<String, T> byInnerPart, Map<String, T> byBarePoint, BytecodePosition position) {
+    /**
+     * The record for the longest inner part of {@code position}'s context that has one and that
+     * was seen often enough to be believed, down to the bare point.
+     * <p>
+     * A context seen a few hundred times says less about a call than the point seen a hundred
+     * million times: two receivers out of five in so few calls is chance, and a build that
+     * believes it guards for the wrong one. So a context's record stands in for the point's only
+     * where it holds a share of the point's observations worth the name.
+     */
+    private static <T> T longestMatch(Map<String, T> byInnerPart, Map<String, T> byBarePoint, BytecodePosition position, java.util.function.ToLongFunction<T> total) {
         String key = contextKey(position);
         String point = ProfileKey.methodId(position.getMethod()) + ":" + position.getBCI();
+        T pooled = byBarePoint.get(point);
+        long atPoint = pooled == null ? 0 : total.applyAsLong(pooled);
+        long enough = Math.max(CrucibleOptions.CrucibleContextMinimumCount.getValue(), (long) (atPoint * CrucibleOptions.CrucibleContextMinimumShare.getValue()));
         while (key.length() > point.length()) {
             T found = byInnerPart.get(key);
             if (found != null) {
-                CONTEXT_MATCHES.incrementAndGet();
-                return found;
+                if (total.applyAsLong(found) >= enough) {
+                    CONTEXT_MATCHES.incrementAndGet();
+                    return found;
+                }
+                CONTEXT_TOO_RARE.incrementAndGet();
             }
             key = key.substring(0, key.lastIndexOf(ProfileKey.CTX_SEP));
         }
-        return byBarePoint.get(point);
+        return pooled;
     }
+
+    private static long totalTypes(List<CrucibleProfile.ObservedType> types) {
+        long sum = 0;
+        for (CrucibleProfile.ObservedType type : types) {
+            sum += type.count();
+        }
+        return sum;
+    }
+
+    /** Contexts passed over for having too few observations next to their point. */
+    public static final AtomicLong CONTEXT_TOO_RARE = new AtomicLong();
 
     /** Lookups answered from a recorded context of two frames or more. */
     public static final AtomicLong CONTEXT_MATCHES = new AtomicLong();
@@ -426,7 +451,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
             return Optional.empty();
         }
         String key = contextKey(callingContext);
-        long[] records = longestMatch(byContext, byPoint, callingContext);
+        long[] records = longestMatch(byContext, byPoint, callingContext, CrucibleProfilesLookup::total);
         if (records == null) {
             conditionalMisses.incrementAndGet();
             if (sampleMisses.size() < MAX_SAMPLES) {
@@ -459,7 +484,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         if (invokesByContext == null) {
             return Optional.empty();
         }
-        List<CrucibleProfile.ObservedType> observed = longestMatch(invokesByContext, invokesByPoint, callingContext);
+        List<CrucibleProfile.ObservedType> observed = longestMatch(invokesByContext, invokesByPoint, callingContext, CrucibleProfilesLookup::totalTypes);
         if (observed == null) {
             typeMisses.incrementAndGet();
             return Optional.empty();
@@ -491,7 +516,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         if (testsByContext == null) {
             return Optional.empty();
         }
-        List<CrucibleProfile.ObservedType> observed = longestMatch(testsByContext, testsByPoint, callingContext);
+        List<CrucibleProfile.ObservedType> observed = longestMatch(testsByContext, testsByPoint, callingContext, CrucibleProfilesLookup::totalTypes);
         if (observed == null) {
             return Optional.empty();
         }
@@ -524,7 +549,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         long typeTotal = typeHits.get() + typeMisses.get();
         String typeRate = typeTotal == 0 ? "n/a" : String.format("%.1f%%", 100.0 * typeHits.get() / typeTotal);
         return "Crucible: applied " + hits + " of " + total + " conditional profile lookups (" + rate + "), " +
-                        CONTEXT_MATCHES.get() + " lookups of all kinds answered from a recorded calling context, the rest from the point alone; " +
+                        CONTEXT_MATCHES.get() + " lookups of all kinds answered from a recorded calling context, " + CONTEXT_TOO_RARE.get() + " contexts passed over as too rarely seen, the rest from the point alone; " +
                         typeHits.get() + " of " + typeTotal + " receiver-type lookups (" + typeRate + ").";
     }
 

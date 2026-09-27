@@ -37,6 +37,9 @@ import jdk.graal.compiler.phases.tiers.HighTierContext;
 import jdk.graal.compiler.phases.common.priorityinline.Expander;
 import jdk.graal.compiler.phases.common.priorityinline.InliningMath;
 import jdk.graal.compiler.phases.common.priorityinline.Inliner;
+import jdk.graal.compiler.nodes.spi.CoreProviders;
+import jdk.graal.compiler.debug.TimerKey;
+import jdk.graal.compiler.phases.common.priorityinline.CallTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CutoffNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
@@ -84,6 +87,37 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
      * is smaller than the call to it.
      */
     private static final class ColdAwareExpanderPolicy extends SubstrateExpanderPolicy {
+        /**
+         * What the inliner made of a method named by {@code -H:CrucibleProfileTrace}, once it has
+         * finished with it: every call it looked at, inlined or not, and why not.
+         */
+        @Override
+        public void afterExpansionPhase(CallTree callTree, CoreProviders coreProviders, int expansionRound, TimerKey expanderExtraAnalysisDuration) {
+            super.afterExpansionPhase(callTree, coreProviders, expansionRound, expanderExtraAnalysisDuration);
+            String trace = CrucibleOptions.CrucibleProfileTrace.getValue();
+            if (!trace.isEmpty() && callTree.root().getReadonlySubgraph().method().format("%H.%n").contains(trace)) {
+                StringBuilder sb = new StringBuilder("Crucible: call tree after round " + expansionRound + " of " + callTree.root().getReadonlySubgraph().method().format("%H.%n(%p)") + "\n");
+                describe(callTree.root(), 1, sb);
+                System.out.print(sb);
+            }
+        }
+
+        private static void describe(CallTreeNode node, int depth, StringBuilder sb) {
+            for (CallTreeNode child : node.children()) {
+                String kind = child.getClass().getSimpleName().replace("Node", "");
+                sb.append("  ".repeat(depth)).append(kind).append(' ').append(child.targetMethod() == null ? "?" : child.targetMethod().format("%H.%n(%p)"));
+                sb.append(String.format(" freq=%.1f benefit=%.3g", child.getFrequency(), child.getLocalBenefit()));
+                if (child instanceof CutoffNode cutoff) {
+                    sb.append(" bytecodes=").append(cutoff.targetMethod().getCodeSize()).append(cutoff.isMonomorphic() ? " monomorphic" : " polymorphic");
+                }
+                if (child.getDontInlineCause() != null) {
+                    sb.append(" not inlined: ").append(child.getDontInlineCause());
+                }
+                sb.append('\n');
+                describe(child, depth + 1, sb);
+            }
+        }
+
         @Override
         public boolean shouldExpand(CutoffNode node) {
             if (!node.isForceInlined() && isCold(node.callTree().root().getReadonlySubgraph().method()) &&

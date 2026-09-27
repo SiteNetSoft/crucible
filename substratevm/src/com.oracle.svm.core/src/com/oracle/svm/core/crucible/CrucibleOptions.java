@@ -161,6 +161,12 @@ public final class CrucibleOptions {
                     "Turned off, the image inlines as an optimized one does and records contexts more like the ones that will be looked up, at the price of those counts.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordKeepsCallsVirtual = new HostedOptionKey<>(true);
 
+    @Option(help = "Fewest observations a recorded calling context needs before its record is used in place of the call site's own.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Long> CrucibleContextMinimumCount = new HostedOptionKey<>(1000L);
+
+    @Option(help = "Least share of a call site's observations a recorded calling context needs before its record is used in place of the site's own.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleContextMinimumShare = new HostedOptionKey<>(0.001);
+
     @Option(help = "Compiler options for the methods the run spent its time in only, as Name=value:Name=value. For trying a setting out.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleHotMethodOptions = new HostedOptionKey<>("");
 
@@ -203,10 +209,11 @@ public final class CrucibleOptions {
                     "static budget refuses. Nothing in the community edition uses profiled call counts to decide inlining.", type = OptionType.User)//
     public static final HostedOptionKey<Double> CrucibleHotInlineShare = new HostedOptionKey<>(0.005);
 
-    @Option(help = "How many inlining frames to record with each profile site. The full context is what makes the " +
-                    "instrumented image large, and about nine in ten applied profiles are matched by the innermost " +
-                    "frame alone; 0 records the whole context.", type = OptionType.User)//
-    public static final HostedOptionKey<Integer> CrucibleMaxContextDepth = new HostedOptionKey<>(1);
+    @Option(help = "How many inlining frames to record with each profile site. A call inside a stream's machinery goes to one place " +
+                    "from each of its callers and to a dozen over all of them, and only the frames above it tell those apart; eight " +
+                    "was worth 7 to 10% on the stream-heavy benchmarks for a recording image a fifth larger. 1 records the innermost " +
+                    "frame alone; 0 the whole context.", type = OptionType.User)//
+    public static final HostedOptionKey<Integer> CrucibleMaxContextDepth = new HostedOptionKey<>(8);
 
     private CrucibleOptions() {
     }
