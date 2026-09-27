@@ -15,20 +15,20 @@ Absolute time of the profile-guided binary from each compiler.
 | BranchBench | 1002 ms | **857 ms** | | ahead |
 | JsonBench | 2477 ms | **2319 ms** | | ahead |
 | BenchPGO | **543 ms** | 579 ms | | behind by 7% |
-| Renaissance reactors | 16804 ms, 1144 MB | 17856 ms, 1706 MB | **12865 ms**, 1956 MB | ahead by 23% with the ratio, behind by 6% without |
-| Renaissance akka-uct | 28677 ms, 507 MB | 27759 ms, 1884 MB | **21976 ms**, 2839 MB | ahead, by 23% with the ratio |
-| Renaissance philosophers | 2168 ms | 1909 ms | **1837 ms** | ahead |
-| Renaissance scala-doku | 2085 ms | **2025 ms** | 2040 ms | ahead |
-| Renaissance scala-kmeans | 309 ms | **305 ms** | 316 ms | ahead |
-| Renaissance par-mnemonics | **3571 ms**, 472 MB | 4707 ms, 187 MB | 3743 ms, 350 MB | behind by 5% with the ratio, 32% without |
-| Renaissance fj-kmeans | **6739 ms**, 549 MB | 7901 ms, 137 MB | 7207 ms, 189 MB | behind by 7% with the ratio, 17% without |
-| Renaissance rx-scrabble | **119 ms** | 134 ms | 133 ms | behind by 12% |
-| Renaissance scala-stm-bench7 | **1623 ms**, 316 MB | 1884 ms, 693 MB | 2034 ms, 893 MB | behind by 16%; the ratio makes it worse |
-| Renaissance future-genetic | **1721 ms** | 2040 ms | no different | behind by 18% |
-| Renaissance scrabble | **521 ms**, 166 MB | 651 ms, 421 MB | 593 ms, 1669 MB | behind by 25%, or 14% for ten times Oracle's memory |
-| Renaissance mnemonics | **3526 ms**, 629 MB | 5714 ms, 143 MB | 4482 ms, 347 MB | behind by 27% with the ratio, 62% without |
+| Renaissance reactors | **15399 ms** | 17868 ms | **17296 ms** | behind by 16%, bimodal between whole runs whichever binary |
+| Renaissance akka-uct | 27288 ms, 507 MB | **27119 ms** | 37989 ms | level; the ratio costs it a third |
+| Renaissance philosophers | 2157 ms | **1874 ms** | 1866 ms | ahead |
+| Renaissance scala-doku | 2088 ms | **1916 ms** | 1882 ms | ahead |
+| Renaissance scala-kmeans | 308 ms | 306 ms | 304 ms | level |
+| Renaissance par-mnemonics | **3607 ms**, 472 MB | 4482 ms | **3685 ms**, 350 MB | behind by 24%, level with the ratio |
+| Renaissance fj-kmeans | **6397 ms**, 549 MB | 7885 ms | 7713 ms | behind by 23% |
+| Renaissance rx-scrabble | **120 ms** | 129 ms | 127 ms | behind by 8% |
+| Renaissance scala-stm-bench7 | **1619 ms**, 316 MB | 1994 ms | 1887 ms | behind by 23% |
+| Renaissance future-genetic | **1715 ms** | 1949 ms | 1931 ms | behind by 14% |
+| Renaissance scrabble | **501 ms**, 166 MB | 611 ms, 349 MB | 693 ms | behind by 22%; the ratio costs it |
+| Renaissance mnemonics | **3534 ms**, 629 MB | 5561 ms | 4452 ms, 347 MB | behind by 57%, 26% with the ratio |
 
-Every Renaissance image built again from the tree as it stood on the evening of 2026-09-21, median of three runs of twelve iterations, peak resident memory beside the time where it was measured. Recorded again that day with counting marked before inlining, which moved future-genetic
+Every Renaissance image recorded and built again from the tree as it stood on the morning of 2026-09-27, median of three runs of twelve iterations, peak resident memory beside the time where it was measured. Recorded again that day with counting marked before inlining, which moved future-genetic
 (2386 to 2026), reactors (20722 to 18458) and scrabble (688 to 653) and left the rest where they
 were. Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
 benchmarks. What separates the binaries is what is underneath: where the two controls are
