@@ -41,6 +41,8 @@ import jdk.graal.compiler.nodes.spi.CoreProviders;
 import jdk.graal.compiler.debug.TimerKey;
 import jdk.graal.compiler.phases.common.priorityinline.CallTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
+import jdk.graal.compiler.graph.NodeSourcePosition;
+import com.oracle.svm.hosted.cai.PrefixTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CutoffNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
 
@@ -112,6 +114,12 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
                 }
                 if (child.targetMethod() instanceof HostedMethod hosted && PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles) {
                     sb.append(String.format(" work=%.4f", profiles.inclusiveWorkShare(hosted)));
+                    CrucibleCallTree tree = CrucibleProfileFeature.callTree(null);
+                    if (tree != null && tree.isSampled() && child.invoke() != null && child.invoke().asNode().getNodeSourcePosition() != null &&
+                                    node.callTree().root().getReadonlySubgraph().method() instanceof HostedMethod root && tree.cursorFor(root) != null &&
+                                    tree.cursorFor(root).findForMethod(child.invoke().asNode().getNodeSourcePosition(), hosted) instanceof CrucibleCallTree.Node reached) {
+                        sb.append(String.format(" samples=%.3f", reached.share()));
+                    }
                 }
                 if (child instanceof CutoffNode cutoff) {
                     sb.append(" bytecodes=").append(cutoff.targetMethod().getCodeSize()).append(cutoff.isMonomorphic() ? " monomorphic" : " polymorphic");
