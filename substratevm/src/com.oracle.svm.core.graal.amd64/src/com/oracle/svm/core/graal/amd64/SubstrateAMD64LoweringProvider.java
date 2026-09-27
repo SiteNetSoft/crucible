@@ -25,11 +25,14 @@
 package com.oracle.svm.core.graal.amd64;
 
 import static jdk.graal.compiler.nodes.extended.BranchProbabilityNode.DEOPT_PROBABILITY;
+import static jdk.graal.compiler.nodes.extended.BranchProbabilityNode.FREQUENT_PROBABILITY;
 import static jdk.graal.compiler.nodes.extended.BranchProbabilityNode.probability;
 
 import org.graalvm.word.LocationIdentity;
 
+import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.SubstrateTarget;
+import com.oracle.svm.core.graal.jdk.SubstrateArraycopySnippets;
 import com.oracle.svm.core.graal.jdk.SubstrateArraycopySnippets.SubstrateGenericArrayCopyCallNode;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
 import com.oracle.svm.core.graal.meta.SubstrateBasicLoweringProvider;
@@ -58,6 +61,7 @@ import jdk.graal.compiler.replacements.ReplacementsUtil;
 import jdk.graal.compiler.replacements.SnippetCounter;
 import jdk.graal.compiler.replacements.arraycopy.ArrayCopyNode;
 import jdk.graal.compiler.replacements.arraycopy.ArrayCopySnippets;
+import jdk.graal.compiler.replacements.arraycopy.ArrayCopyWithDelayedLoweringNode;
 import jdk.graal.compiler.vector.architecture.VectorArchitecture;
 import jdk.vm.ci.code.TargetDescription;
 import jdk.vm.ci.meta.JavaKind;
@@ -87,10 +91,12 @@ public class SubstrateAMD64LoweringProvider extends SubstrateBasicLoweringProvid
     public void lower(Node n, LoweringTool tool) {
         @SuppressWarnings("rawtypes")
         NodeLoweringProvider lowering = getLowerings().get(n.getClass());
-        if (lowering != null) {
+        if (n instanceof ArrayCopyNode arraycopy && (mayBeVectorized(arraycopy) || isExactCopy(arraycopy))) {
+            arraycopySnippets.lower(arraycopy, true, tool);
+        } else if (n instanceof ArrayCopyWithDelayedLoweringNode arraycopy) {
+            arraycopySnippets.lower(arraycopy, tool);
+        } else if (lowering != null) {
             lowering.lower(n, tool);
-        } else if (n instanceof ArrayCopyNode && mayBeVectorized((ArrayCopyNode) n)) {
-            arraycopySnippets.lower((ArrayCopyNode) n, true, tool);
         } else if (n instanceof RemNode) {
             /* No lowering necessary. */
         } else if (n instanceof CodeSynchronizationNode) {
@@ -100,6 +106,15 @@ public class SubstrateAMD64LoweringProvider extends SubstrateBasicLoweringProvid
         } else {
             super.lower(n, tool);
         }
+    }
+
+    /**
+     * A copy whose element kind the compiler knows can check types and bounds inline and then
+     * either copy inline or call a stub for that kind, instead of going through the generic call
+     * that works everything out at run time.
+     */
+    protected static boolean isExactCopy(ArrayCopyNode arraycopy) {
+        return SubstrateOptions.InlineExactArraycopy.getValue() && arraycopy.isExact() && arraycopy.getElementKind() != null;
     }
 
     protected boolean mayBeVectorized(ArrayCopyNode arraycopy) {
@@ -138,6 +153,20 @@ public class SubstrateAMD64LoweringProvider extends SubstrateBasicLoweringProvid
         @Override
         protected boolean useOriginalArraycopy() {
             return false;
+        }
+
+        /**
+         * Copies of at most this many elements run as an inline loop; longer ones call the stub.
+         */
+        private static final int INLINE_COPY_ELEMENTS = 8;
+
+        @Override
+        protected void doExactArraycopyWithExpandedLoopSnippet(Object src, int srcPos, Object dest, int destPos, int length, JavaKind elementKind, LocationIdentity arrayLocation) {
+            if (elementKind.isPrimitive() && probability(FREQUENT_PROBABILITY, length <= INLINE_COPY_ELEMENTS)) {
+                super.doExactArraycopyWithExpandedLoopSnippet(src, srcPos, dest, destPos, length, elementKind, arrayLocation);
+            } else {
+                SubstrateArraycopySnippets.exactArraycopy(src, srcPos, dest, destPos, length, elementKind);
+            }
         }
 
         @Override

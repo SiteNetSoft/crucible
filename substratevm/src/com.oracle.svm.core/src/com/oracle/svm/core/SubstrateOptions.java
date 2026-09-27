@@ -896,6 +896,10 @@ public class SubstrateOptions {
                     "and the collector has less to copy; the first identityHashCode() of an object costs a little more. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> OptionalIdentityHashCodes = new HostedOptionKey<>(true);
 
+    @Option(help = "Compile System.arraycopy calls whose array types are known with the type and bounds checks inline, copying short arrays inline " +
+                    "and longer ones through a copy routine for that element type, instead of one generic call that sorts out the types at run time.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> InlineExactArraycopy = new HostedOptionKey<>(true);
+
     private static void validateAdditionalHeaderBytes(HostedOptionKey<Integer> optionKey) {
         int value = optionKey.getValue();
         if (value < 0 || value % 4 != 0) {
