@@ -69,6 +69,14 @@ final class SubstrateIdentityHashCodeSnippets extends IdentityHashCodeSnippets {
             if (probability(LIKELY_PROBABILITY, oh.hasOptionalIdentityHashField(header))) {
                 int offset = LayoutEncoding.getIdentityHashOffset(obj);
                 identityHashCode = ObjectAccess.readInt(obj, offset, IdentityHashCodeSupport.IDENTITY_HASHCODE_LOCATION);
+            } else if (probability(LIKELY_PROBABILITY, oh.hasIdentityHashFromAddress(header))) {
+                /*
+                 * Asked for before and not moved since: the hash code is a function of the address
+                 * and the chunk's salt, as the call would compute it. Until the collector moves the
+                 * object every hash of it comes this way, and a map keyed by young objects hashes
+                 * each of them many times over.
+                 */
+                identityHashCode = IdentityHashCodeSupport.computeHashCodeFromAddress(obj);
             } else {
                 identityHashCode = foreignCall(COMPUTE_ABSENT_IDENTITY_HASH_CODE, obj);
             }

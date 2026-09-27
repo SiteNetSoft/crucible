@@ -773,7 +773,9 @@ public final class HeapImpl extends Heap {
         if (!GraalDirectives.inIntrinsic()) {
             assert !isInImageHeap(obj) : "Image heap objects have identity hash code fields";
         }
-        HeapChunk.Header<?> chunk = HeapChunk.getEnclosingHeapChunk(obj);
+        Pointer ptr = Word.objectToUntrackedPointer(obj);
+        /* Inlined into the identity hash code snippet, where the variant with assertions cannot be used. */
+        HeapChunk.Header<?> chunk = HeapChunk.getEnclosingHeapChunk(ptr, getObjectHeader().readHeaderFromPointer(ptr));
         return HeapChunk.getIdentityHashSalt(chunk).rawValue();
     }
 
