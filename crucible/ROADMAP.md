@@ -15,20 +15,20 @@ Absolute time of the profile-guided binary from each compiler.
 | BranchBench | 1002 ms | **857 ms** | | ahead |
 | JsonBench | 2477 ms | **2319 ms** | | ahead |
 | BenchPGO | **543 ms** | 579 ms | | behind by 7% |
-| Renaissance reactors | **15399 ms** | 17868 ms | **17296 ms** | behind by 16%, bimodal between whole runs whichever binary |
-| Renaissance akka-uct | 27288 ms, 507 MB | **27119 ms** | 37989 ms | level; the ratio costs it a third |
-| Renaissance philosophers | 2157 ms | **1874 ms** | 1866 ms | ahead |
-| Renaissance scala-doku | 2088 ms | **1916 ms** | 1882 ms | ahead |
-| Renaissance scala-kmeans | 308 ms | 306 ms | 304 ms | level |
-| Renaissance par-mnemonics | **3607 ms**, 472 MB | 4482 ms | **3685 ms**, 350 MB | behind by 24%, level with the ratio |
-| Renaissance fj-kmeans | **6397 ms**, 549 MB | 7885 ms | 7713 ms | behind by 23%; 3% of it is the identity hash code layout, item T. On a newer machine, level with the ratio in a third of Oracle's memory |
-| Renaissance rx-scrabble | **120 ms** | 129 ms | 127 ms | behind by 8% |
-| Renaissance scala-stm-bench7 | **1619 ms**, 316 MB | 1994 ms | 1887 ms | behind by 23% |
-| Renaissance future-genetic | **1715 ms** | 1949 ms | 1931 ms | behind by 14% |
-| Renaissance scrabble | **501 ms**, 166 MB | 611 ms, 349 MB | 693 ms | behind by 22%; the ratio costs it. On a newer machine ours runs 229 ms to Oracle's 250: which is ahead depends on the machine |
-| Renaissance mnemonics | **3534 ms**, 629 MB | 5561 ms | 4452 ms, 347 MB | behind by 57%, 26% with the ratio |
+| Renaissance reactors | **17549 ms** | 18609 ms | | behind by 6%, bimodal between whole runs whichever binary; the range of a night of runs is wider than the gap |
+| Renaissance akka-uct | 28773 ms | **26060 ms** | 37989 ms | ahead by 9% (level before the arraycopy work); the ratio costs it a third |
+| Renaissance philosophers | 2174 ms | **1880 ms** | 1866 ms | ahead |
+| Renaissance scala-doku | 2302 ms | **1941 ms** | 1882 ms | ahead |
+| Renaissance scala-kmeans | 309 ms | 304 ms | 304 ms | level |
+| Renaissance par-mnemonics | **3802 ms**, 472 MB | 3886 ms | **3685 ms**, 350 MB | behind by 2% (24% before the arraycopy work), level with the ratio |
+| Renaissance fj-kmeans | **6397 ms**, 549 MB | 7885 ms | 7713 ms | behind by 23% here, 6% on the newer machine (3350 to 3264 against 3080 with the arraycopy work); 3% of it is the identity hash code layout, item T. Level with the ratio in a third of Oracle's memory |
+| Renaissance rx-scrabble | **120 ms** | 129 ms | 127 ms | behind by 8%; 10% on the newer machine, unmoved by the arraycopy work |
+| Renaissance scala-stm-bench7 | **1619 ms**, 316 MB | 1994 ms | 1887 ms | behind by 23% here, 21% on the newer machine (1091 to 1077 against 893 with the arraycopy work) |
+| Renaissance future-genetic | **1715 ms** | 1949 ms | 1931 ms | behind by 14%; 15% on the newer machine, unmoved by the arraycopy work |
+| Renaissance scrabble | **501 ms**, 166 MB | 611 ms, 349 MB | 693 ms | behind by 22%; the ratio costs it. On a newer machine ours runs 229 ms to Oracle's 250 in most runs and 278 in some: which is ahead depends on the machine and the run |
+| Renaissance mnemonics | **3534 ms**, 629 MB | 5561 ms | 4452 ms, 347 MB | behind by 57% here before the arraycopy work; on the newer machine it took the gap from 46% to 17% (2665 to 2128 against 1820). 26% here with the ratio |
 
-Every Renaissance image recorded and built again from the tree as it stood on the morning of 2026-09-27, median of three runs of twelve iterations, peak resident memory beside the time where it was measured. Recorded again that day with counting marked before inlining, which moved future-genetic
+The akka-uct, par-mnemonics, philosophers, scala-doku, scala-kmeans and reactors rows are from the evening of 2026-09-27, after the arraycopy work (item R); the "newer machine" figures in the last column are from a second, faster machine the same evening, where each row was measured before and after that change against Oracle's binary in the same run. The rest: every Renaissance image recorded and built again from the tree as it stood on the morning of 2026-09-27, median of three runs of twelve iterations, peak resident memory beside the time where it was measured. Recorded again that day with counting marked before inlining, which moved future-genetic
 (2386 to 2026), reactors (20722 to 18458) and scrabble (688 to 653) and left the rest where they
 were. Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
 benchmarks. What separates the binaries is what is underneath: where the two controls are
@@ -57,6 +57,7 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 
 | | What | Outcome |
 | --- | --- | --- |
+| R | `System.arraycopy`: execution samples of scala-stm-bench7 put 48 ms an iteration under the runtime's copy loop, where Oracle's image has no such frame | it was three to eight times slower than Oracle's: a scalar loop moving 32 bytes an iteration, a write barrier per reference, and every copy one generic call that told the array types apart at run time, while Graal's own arraycopy snippets sat in the tree behind the enterprise vectorizer's switch. Copies go to the C library's `memmove` now, references are card-marked once per copy, and copies between arrays of a known type check their bounds inline and copy short arrays inline (`-H:InlineExactArraycopy`). Copy throughput level with Oracle from 32 bytes up and ahead on reference arrays at every size; mnemonics 2665 to 2128 ms (Oracle 1820), par-mnemonics 4482 to 3886 (Oracle 3802), akka-uct level to 9% ahead, fj-kmeans 3%, scala-stm-bench7 and future-genetic 1%, the rest unmoved. See `docs/issues/2026-09-27-arraycopy-was-a-loop-and-a-barrier-per-element.md` |
 | O | What a recording leaves out. future-genetic is the one Renaissance benchmark where Oracle's profile is worth more than ours (24% against 10%), and Oracle's own switches show that none of it is their sampling machinery: it is receiver types and branch counts | receivers were counted after inlining, so a call the compiler had made direct in one caller was not counted there, and the profile of the call, added up, held only the receivers the compiler could not work out: `DoubleChromosome` 99% where the truth is `ArrayISeq` 57%. Probes now go in as each method leaves parsing and are turned into counters after inlining. Receiver counts agree with Oracle's to a part in ten thousand, 4382 methods have a call count where 1626 had, and future-genetic goes from 2208 ms to 2019 (our compiler on Oracle's profile: 1936). A row of receivers also keeps the frequent ones now and not the first four. See `docs/issues/2026-09-21-the-profile-left-out-what-the-compiler-worked-out.md` |
 | Q | Our compiler was 4% faster on Oracle's recording of future-genetic than on ours. Not the calling context: recorded four and eight frames deep the image runs at 2011 ms against 2026, within the spread, for a recording image 18% larger | what their recording had and ours did not was the collector. Uninterruptible code could not be counted while a counter was a call; an inline counter is a few register operations and an add, which such code may do. Its branches are counted now: mnemonics 5813 to 5662, par-mnemonics 4798 to 4539, scrabble 653 to 633, fj-kmeans 7680 to 7504 by the median and no different by the mean, nothing on future-genetic or philosophers, samples unchanged |
 | D | A separate copy of a hot method for each hot calling context, Oracle's `%%H` variants | built, without an upstream change: `HostedMethod.getOrCreateMethodVariant` and the original's encoded graph are enough. With sampled stacks in the profile it makes the copies Oracle makes on future-genetic, with the same things inlined into them, and the time does not move; Oracle's does not either with theirs turned off. Kept, on when there are samples |
@@ -84,4 +85,5 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | Oracle's settings for a hot compilation unit, as `--expert-options-all` lists them (three times the inliner's budget, its size penalties at zero, eight to ten times the duplication budgets), given to our hot methods through `-H:CrucibleHotMethodOptions` | the images differ and run the same: future-genetic 2035 ms with and without, scrabble 630. The inliner's hotness bonus at 10 and at 100 likewise |
 | Probes for what `instanceof` tests, as for receivers | fuller counts, the same speed, and recording slower on future-genetic, 13.7 s an iteration where runs without them took 8.5 to 11.2; kept as `-H:+CrucibleRecordTestsWithProbes`, off |
 | Profiling the garbage collector's own code | 94 collector methods profiled, collection no faster; the rest of the package cannot be counted without crashing at start-up |
+| The collector's own object copy through `memcpy` for objects above 256 bytes, after the arraycopy work left its 32-byte loop the last copy loop in the samples | fj-kmeans and scala-stm-bench7 1% slower, mnemonics unmoved: the objects a collection copies are small and cold, and the call buys nothing |
 | A 2 GB young generation on Renaissance | reported time drops below Oracle's, wall time gets worse: it moves collection outside the timed region |

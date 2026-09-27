@@ -83,6 +83,7 @@ converted profile drives the build as well as one of our own.
 | Call counts | of every method, inlined or not |
 | The collector | its branches are counted as the program's are, so a program that spends its time collecting gets a collector laid out for what its heap looks like |
 | Cold code | a method the run never reached does not look into its callees, which roughly halves the machine code of an image |
+| `System.arraycopy` | not profile work, but found by it: the community edition copied arrays with a scalar loop and a write barrier per reference, three to eight times slower than Oracle's. Copies go to the C library's `memmove` now, references are card-marked once per copy, and a copy between arrays of a known type is checked inline; level with Oracle on primitive copies and ahead on reference copies |
 | Code layout | the code section is ordered by how often each method ran |
 | Hot methods below `-O3` | are compiled the way `-O3` would compile them: its inliner settings, partial unrolling and loop vectorization, which the default level otherwise holds back for every method alike. On the samples a profiled `-O2` image runs as fast as a profiled `-O3` one and stays the size of an `-O2` one |
 
@@ -98,10 +99,13 @@ from each compiler; lower is better.
 | BranchBench | 1.00 s | **0.86 s** |
 | JsonBench | 2.48 s | **2.32 s** |
 | BenchPGO | **0.54 s** | 0.58 s |
-| Renaissance, twelve benchmarks | ahead on seven | ahead on five |
+| Renaissance, twelve benchmarks | ahead on eight | ahead on three |
 
-By default CrucibleVM is ahead on four of the twelve. With the collector's ratio set (below) it is
-ahead on five, two of them, reactors and akka-uct, by 23%, and within 5 to 7% on two more.
+By default CrucibleVM is ahead on three of the twelve (akka-uct by 9%, philosophers and scala-doku
+by 15%), level on one, within 2 to 6% on two more, and behind by 8 to 23% on the other six, most
+of which is allocation and collection rather than the optimizer; scrabble among them is ahead on
+one machine and behind on another. With the collector's ratio set (below) two of the six come
+level.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the
@@ -129,6 +133,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleMaxContextDepth` | 8 | inlining frames recorded with each counter. A call inside shared code, a stream's machinery say, goes to one place from each caller and to many over all of them, and only the frames above it tell those apart; 1 records the innermost frame only, for a recording image a fifth smaller |
 | `CrucibleContextMinimumCount` | 1000 | a recorded context stands in for the call site's pooled record only if it was seen this often |
 | `OptionalIdentityHashCodes` | on | give an object room for its identity hash code only once it is asked for, as Oracle GraalVM does; every array is 8 bytes smaller. Not a Crucible option: it is the tree's, and it needs no unlocking |
+| `InlineExactArraycopy` | on | an `arraycopy` between arrays of a known type checks its bounds inline and copies short arrays inline, instead of going through one generic call that works the types out at run time. Also the tree's, no profile needed |
 | `CrucibleRecordUninterruptible` | on | count branches in uninterruptible code too, which is where the garbage collector is |
 | `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
 | `CrucibleContextClones` | on | with sampled stacks, compile a method again for a caller it spends time under |
