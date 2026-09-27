@@ -126,7 +126,8 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleInstrument` | off | build an image that records a profile |
 | `CrucibleProfile=<file>` | | build with a profile |
 | `CrucibleRecordStartupOrder` | off | also record the order methods were first entered in, for `CrucibleCodeLayoutByStartup`; costs a call at every method entry |
-| `CrucibleMaxContextDepth` | 1 | inlining frames recorded per counter; more is more precise and a larger recording image |
+| `CrucibleMaxContextDepth` | 8 | inlining frames recorded with each counter. A call inside shared code, a stream's machinery say, goes to one place from each caller and to many over all of them, and only the frames above it tell those apart; 1 records the innermost frame only, for a recording image a fifth smaller |
+| `CrucibleContextMinimumCount` | 1000 | a recorded context stands in for the call site's pooled record only if it was seen this often |
 | `OptionalIdentityHashCodes` | on | give an object room for its identity hash code only once it is asked for, as Oracle GraalVM does; every array is 8 bytes smaller. Not a Crucible option: it is the tree's, and it needs no unlocking |
 | `CrucibleRecordUninterruptible` | on | count branches in uninterruptible code too, which is where the garbage collector is |
 | `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
@@ -139,7 +140,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleMinimumReceiverShare` | 0.01 | least share of a call site's calls for a receiver type to get its own test and inlined body |
 | `CrucibleTypeGuard` | by level | guard a biased virtual call before inlining; on at `-O2` and below |
 | `CrucibleProfileDiagnostics` | off | say what was passed over and why |
-| `CrucibleProfileTrace=<substring>` | | report every profile lookup whose context contains the substring |
+| `CrucibleProfileTrace=<substring>` | | report every profile lookup whose context contains the substring, and print the inliner's call tree for the methods that match: every call it looked at, inlined or not, and why not |
 
 ## Building CrucibleVM
 
