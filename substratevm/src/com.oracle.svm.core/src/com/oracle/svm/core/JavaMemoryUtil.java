@@ -32,10 +32,10 @@ import org.graalvm.word.Pointer;
 import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.impl.Word;
 
+import com.oracle.svm.core.headers.LibC;
+import com.oracle.svm.core.heap.Heap;
 import com.oracle.svm.core.hub.LayoutEncoding;
 import com.oracle.svm.shared.util.VMError;
-
-import org.graalvm.word.impl.BarrieredAccess;
 
 /**
  * The methods in this class are mainly used to fill or copy Java heap memory. All methods guarantee
@@ -461,14 +461,18 @@ public final class JavaMemoryUtil {
      * read/write barriers but does *NOT* perform any array store checks (i.e., if this is used for
      * copying between arrays, it is up to the caller to ensure that the arrays are compatible).
      */
+    @Uninterruptible(reason = "The destination must not move between the copy and the card mark.")
     public static void copyReferencesForward(Object from, UnsignedWord fromOffset, Object to, UnsignedWord toOffset, UnsignedWord length) {
-        int elementSize = ObjectLayout.singleton().getReferenceSize();
-        UnsignedWord size = length.multiply(elementSize);
-        UnsignedWord copied = Word.zero();
-        while (copied.belowThan(size)) {
-            BarrieredAccess.writeObject(to, toOffset.add(copied), BarrieredAccess.readObject(from, fromOffset.add(copied)));
-            copied = copied.add(elementSize);
-        }
+        /*
+         * The card table records dirty cards per object, so one mark after the copy covers every
+         * reference written, and the references themselves can be moved as plain words. Every
+         * word copy below moves whole references, which keeps each reference store atomic.
+         */
+        UnsignedWord size = length.multiply(ObjectLayout.singleton().getReferenceSize());
+        Pointer fromPtr = Word.objectToUntrackedPointer(from).add(fromOffset);
+        Pointer toPtr = Word.objectToUntrackedPointer(to).add(toOffset);
+        copyArray(fromPtr, toPtr, size);
+        Heap.getHeap().dirtyAllReferencesOf(to);
     }
 
     /**
@@ -476,13 +480,14 @@ public final class JavaMemoryUtil {
      * read/write barriers but does *NOT* perform any array store checks (i.e., if this is used for
      * copying between arrays, it is up to the caller to ensure that the arrays are compatible).
      */
+    @Uninterruptible(reason = "The destination must not move between the copy and the card mark.")
     public static void copyReferencesBackward(Object from, UnsignedWord fromOffset, Object to, UnsignedWord toOffset, UnsignedWord length) {
-        int elementSize = ObjectLayout.singleton().getReferenceSize();
-        UnsignedWord remaining = length.multiply(elementSize);
-        while (remaining.aboveThan(0)) {
-            remaining = remaining.subtract(elementSize);
-            BarrieredAccess.writeObject(to, toOffset.add(remaining), BarrieredAccess.readObject(from, fromOffset.add(remaining)));
-        }
+        // See copyReferencesForward.
+        UnsignedWord size = length.multiply(ObjectLayout.singleton().getReferenceSize());
+        Pointer fromPtr = Word.objectToUntrackedPointer(from).add(fromOffset);
+        Pointer toPtr = Word.objectToUntrackedPointer(to).add(toOffset);
+        copyArray(fromPtr, toPtr, size);
+        Heap.getHeap().dirtyAllReferencesOf(to);
     }
 
     /**
@@ -533,7 +538,17 @@ public final class JavaMemoryUtil {
          * memory model, we are fine as long as we guarantee that we are always copying multiples of
          * element size.
          */
-        UnmanagedMemoryUtil.copyForward(fromPtr, toPtr, size);
+        copyArray(fromPtr, toPtr, size);
+    }
+
+    /**
+     * The C library's memmove moves whole vectors and is several times faster than any loop
+     * written against the word API from a few dozen bytes up; below that the call costs about as
+     * much as the loop. It handles overlap itself, so copies in either direction come here.
+     */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static void copyArray(Pointer fromPtr, Pointer toPtr, UnsignedWord size) {
+        LibC.memmove(toPtr, fromPtr, size);
     }
 
     /**
@@ -554,7 +569,7 @@ public final class JavaMemoryUtil {
 
     @IntrinsicCandidate
     @Uninterruptible(reason = "Arrays must not move")
-    private static void copyPrimitiveArrayBackward(Object fromArray, UnsignedWord fromOffset, Object toArray, UnsignedWord toOffset, UnsignedWord size) {
+    public static void copyPrimitiveArrayBackward(Object fromArray, UnsignedWord fromOffset, Object toArray, UnsignedWord toOffset, UnsignedWord size) {
         Pointer fromPtr = Word.objectToUntrackedPointer(fromArray).add(fromOffset);
         Pointer toPtr = Word.objectToUntrackedPointer(toArray).add(toOffset);
         copyPrimitiveArrayBackward(fromPtr, toPtr, size);
@@ -563,7 +578,7 @@ public final class JavaMemoryUtil {
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     public static void copyPrimitiveArrayBackward(Pointer fromPtr, Pointer toPtr, UnsignedWord size) {
         // See comment in copyPrimitiveArrayForward.
-        UnmanagedMemoryUtil.copyBackward(fromPtr, toPtr, size);
+        copyArray(fromPtr, toPtr, size);
     }
 
     private JavaMemoryUtil() {
