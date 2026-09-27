@@ -118,7 +118,13 @@ the useful range). The serial collector's default policy accepts half of the tim
 collection before it grows the young generation; this asks for a seventh. It took two Renaissance
 benchmarks from level with Oracle's binary to 23% ahead of it and two from 32% and 62% behind to 5%
 and 27%, the latter in less memory than Oracle's uses. It cost another four times its memory for
-little and made one slower, so measure it; the default is unchanged. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
+little and made one slower, so measure it; the default is unchanged. If the program's objects
+either die at once or live long, `-XX:SerialGCTenuringThreshold=0` promotes survivors straight to
+the old generation instead of copying them through survivor spaces for seven collections first,
+as Oracle's collector does on such programs: five Renaissance benchmarks gain 5 to 14%, two of
+them from behind Oracle's binary to ahead of it; a program whose objects live for a collection or
+two (fj-kmeans) loses a third, so again measure. `-XX:+VerboseGC` prints the tenuring age in use.
+See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
 same end and are as mixed. See `docs/issues/2026-09-21-the-collector-was-told-half-the-time-is-fine.md`.
 
 ## Options
