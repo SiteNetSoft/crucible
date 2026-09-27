@@ -32,6 +32,7 @@ import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.core.graal.code.CGlobalDataInfo;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import com.oracle.svm.core.crucible.CrucibleRecordTypeNode;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.code.SubstrateCompilationDirectives;
 
@@ -81,7 +82,11 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
                 } else {
                     boolean test = probe.kind() == CrucibleProbeNode.Kind.TESTED_VALUE;
                     int site = typeSiteAllocator.allocate(test ? ProfileKey.instanceOfForPosition(position) : ProfileKey.virtualInvokeForPosition(position, probe.target()));
-                    graph.addBeforeFixed(probe, graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), probe.receiver())));
+                    if (CrucibleOptions.CrucibleInlineReceiverCounts.getValue()) {
+                        graph.addBeforeFixed(probe, graph.add(new CrucibleRecordTypeNode(site, probe.receiver())));
+                    } else {
+                        graph.addBeforeFixed(probe, graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), probe.receiver())));
+                    }
                     RECEIVER_PROBES.incrementAndGet();
                 }
             }

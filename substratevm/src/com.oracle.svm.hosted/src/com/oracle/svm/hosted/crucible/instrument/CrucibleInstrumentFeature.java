@@ -44,6 +44,12 @@ import com.oracle.svm.hosted.crucible.profiles.CrucibleHostedConfiguration;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import jdk.graal.compiler.options.OptionValues;
+import jdk.graal.compiler.graph.Node;
+import com.oracle.svm.core.graal.snippets.NodeLoweringProvider;
+import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
+import com.oracle.svm.core.crucible.CrucibleRecordTypeSnippets;
+import java.util.Map;
 import com.oracle.svm.core.crucible.CrucibleProfileWriter;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.graal.meta.SubstrateForeignCallsProvider;
@@ -110,6 +116,13 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
 
     /** The data-section block the inline branch counters are in; {@code null} if they go through the call. */
     private CGlobalDataInfo branchCounters;
+
+    @Override
+    public void registerLowerings(RuntimeConfiguration runtimeConfig, OptionValues options, Providers providers, Map<Class<? extends Node>, NodeLoweringProvider<?>> lowerings, boolean hosted) {
+        if (hosted) {
+            CrucibleRecordTypeSnippets.registerLowerings(options, providers, lowerings);
+        }
+    }
 
     @Override
     public void registerForeignCalls(SubstrateForeignCallsProvider foreignCalls) {

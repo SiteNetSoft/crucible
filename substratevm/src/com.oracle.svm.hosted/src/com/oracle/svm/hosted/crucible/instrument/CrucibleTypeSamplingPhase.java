@@ -26,7 +26,9 @@ package com.oracle.svm.hosted.crucible.instrument;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import com.oracle.svm.core.crucible.CrucibleRecordTypeNode;
 import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.code.SubstrateCompilationDirectives;
 
@@ -106,8 +108,8 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             }
             ValueNode receiver = call.arguments().get(0);
             int site = typeSiteAllocator.allocate(ProfileKey.virtualInvokeForPosition(pos, call.targetMethod()));
-            ForeignCallNode record = graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), receiver));
-            graph.addBeforeFixed(call.invoke().asFixedNode(), record);
+            graph.addBeforeFixed(call.invoke().asFixedNode(), CrucibleOptions.CrucibleInlineReceiverCounts.getValue() ? graph.add(new CrucibleRecordTypeNode(site, receiver))
+                            : graph.add(new ForeignCallNode(CrucibleProfileRuntime.RECORD_TYPE, ConstantNode.forInt(site, graph), receiver)));
             SITES_INSTRUMENTED.incrementAndGet();
         }
         if (sampleTests) {
