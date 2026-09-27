@@ -127,8 +127,14 @@ public final class CrucibleCallTree {
         totalCount += sample.count();
         sampledStacks++;
         stacks.add(new Stack(methods, bcis, sample.count()));
+        java.util.Set<AnalysisMethod> filed = new java.util.HashSet<>();
         for (int start = 0; start < methods.length; start++) {
-            if (methods[start] == null) {
+            if (methods[start] == null || !filed.add(methods[start])) {
+                /*
+                 * A method that calls itself is on the stack more than once. Filed under each
+                 * occurrence, the inner ones carry the rest of the stack again and a context's
+                 * share of the run comes out above one. The outermost occurrence is its context.
+                 */
                 continue;
             }
             Node node = roots.computeIfAbsent(methods[start], Node::new);
@@ -187,6 +193,7 @@ public final class CrucibleCallTree {
         for (Stack stack : stacks) {
             for (int start = 0; start + methods.length <= stack.methods.length; start++) {
                 if (matches(stack, start, methods, bcis)) {
+                    /* Once per stack, at the outermost place the path occurs; see add. */
                     Node node = context;
                     int from = start + methods.length - 1;
                     for (int i = from; i + 1 < stack.methods.length && i - from < MAX_DEPTH_BELOW_ROOT && stack.methods[i + 1] != null; i++) {
@@ -196,6 +203,7 @@ public final class CrucibleCallTree {
                     if (node == context) {
                         node.selfCount += stack.count;
                     }
+                    break;
                 }
             }
         }
