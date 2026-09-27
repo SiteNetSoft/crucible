@@ -147,8 +147,18 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     }
 
     /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
+    /** The threshold {@link SerialGCOptions#SerialGCTenuringThreshold} asks for, else the policy's own. */
+    private static int requestedTenuringThreshold(int computed) {
+        int requested = SerialGCOptions.SerialGCTenuringThreshold.getValue();
+        if (requested < 0) {
+            return computed;
+        }
+        return Math.min(requested, HeapParameters.getMaxSurvivorSpaces());
+    }
+
     @Override
     public void onCollectionBegin(boolean completeCollection, long beginNanoTime) {
+        tenuringThreshold = requestedTenuringThreshold(tenuringThreshold);
         incrementTotalCollections(completeCollection);
         if (completeCollection) {
             majorCollectionBegin(beginNanoTime);
@@ -193,7 +203,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             updateAverages(survivorOverflow, UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
             sampleOldGenUsedBytes(acc.getOldGenerationAfterChunkBytes());
 
-            tenuringThreshold = computeTenuringThreshold(survivorOverflow, tenuringThreshold);
+            tenuringThreshold = requestedTenuringThreshold(computeTenuringThreshold(survivorOverflow, tenuringThreshold));
 
             resizeAfterYoungGC(survivorOverflow, oldLive, survived);
 

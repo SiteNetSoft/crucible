@@ -489,6 +489,7 @@ public final class GCImpl implements GC {
             printHeapSizeChange("Survivor", beforeGc.survivor, heapAccounting.getSurvivorUsedBytes());
             printHeapSizeChange("Old", beforeGc.old, heapAccounting.getOldUsedBytes());
             printHeapSizeChange("Free", beforeGc.free, heapAccounting.getBytesInUnusedChunks());
+            printGCPrefixAndTime().spaces(2).string("Tenuring age: ").signed(getPolicy().getTenuringAge()).newline();
 
             if (SerialGCOptions.PrintGCTimes.getValue()) {
                 timers.logAfterCollection(Log.log());
