@@ -96,7 +96,7 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
             super.afterExpansionPhase(callTree, coreProviders, expansionRound, expanderExtraAnalysisDuration);
             String trace = CrucibleOptions.CrucibleProfileTrace.getValue();
             if (!trace.isEmpty() && callTree.root().getReadonlySubgraph().method().format("%H.%n").contains(trace)) {
-                StringBuilder sb = new StringBuilder("Crucible: call tree after round " + expansionRound + " of " + callTree.root().getReadonlySubgraph().method().format("%H.%n(%p)") + "\n");
+                StringBuilder sb = new StringBuilder("Crucible: call tree after round " + expansionRound + " of " + callTree.root().getReadonlySubgraph().method().format("%H.%n(%p)") + " (" + callTree.getNodeCount() + " nodes)\n");
                 describe(callTree.root(), 1, sb);
                 System.out.print(sb);
             }
@@ -107,6 +107,12 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
                 String kind = child.getClass().getSimpleName().replace("Node", "");
                 sb.append("  ".repeat(depth)).append(kind).append(' ').append(child.targetMethod() == null ? "?" : child.targetMethod().format("%H.%n(%p)"));
                 sb.append(String.format(" freq=%.1f benefit=%.3g", child.getFrequency(), child.getLocalBenefit()));
+                if (child.getCostBenefit() != null) {
+                    sb.append(" cost=").append(child.getCostBenefit().getCost());
+                }
+                if (child.targetMethod() instanceof HostedMethod hosted && PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles) {
+                    sb.append(String.format(" work=%.4f", profiles.inclusiveWorkShare(hosted)));
+                }
                 if (child instanceof CutoffNode cutoff) {
                     sb.append(" bytecodes=").append(cutoff.targetMethod().getCodeSize()).append(cutoff.isMonomorphic() ? " monomorphic" : " polymorphic");
                 }

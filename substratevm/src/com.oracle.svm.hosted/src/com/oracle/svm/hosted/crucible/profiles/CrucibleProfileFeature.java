@@ -134,7 +134,11 @@ public final class CrucibleProfileFeature implements InternalFeature {
 
     /** The calling context for a compilation root, built from the profile on first use. */
     /** The calling-context tree, built on first use once the hosted universe exists. */
+    /** The tree, built on first use; {@code universe} may be null once it has been built. */
     static CrucibleCallTree callTree(HostedUniverse universe) {
+        if (callTree == null && universe == null) {
+            return null;
+        }
         cursorFor(universe, null);
         return callTree;
     }

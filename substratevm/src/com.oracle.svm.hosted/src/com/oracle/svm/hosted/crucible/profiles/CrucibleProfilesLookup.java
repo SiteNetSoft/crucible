@@ -91,6 +91,11 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
      * is not: a method entered once that loops a billion times counts for nothing by it.
      */
     private final Map<String, Long> workByRoot = new HashMap<>();
+    /**
+     * Branches taken inside each method and everything inlined into it, wherever the method itself
+     * was inlined: a method's share of the run whether it was compiled on its own or not.
+     */
+    private final Map<String, Long> workInclusive = new HashMap<>();
     private final long totalWork;
     /** Method id to its position in the order the run first entered methods. */
     private Map<String, Integer> firstCallOrder;
@@ -152,6 +157,15 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
                     total += s.count();
                 }
                 conditionalTotals.merge(innermost, total, Long::sum);
+                String previous = null;
+                for (String frame : ctx) {
+                    String frameMethod = methodIdOf(frame);
+                    if (!frameMethod.equals(previous)) {
+                        /* A recursive frame is counted once. */
+                        workInclusive.merge(frameMethod, total, Long::sum);
+                    }
+                    previous = frameMethod;
+                }
                 work += total;
             }
             work += method.calls();
@@ -176,6 +190,15 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         }
         this.totalCalls = calls;
         this.totalWork = totalWorkSeen;
+    }
+
+    /**
+     * Share of the recorded run's branches taken in this method and what it inlined, counted
+     * wherever the method itself ended up, inlined or compiled on its own.
+     */
+    public double inclusiveWorkShare(HostedMethod method) {
+        Long work = workInclusive.get(ProfileKey.methodId(method));
+        return work == null || totalWork == 0 ? 0 : (double) work / totalWork;
     }
 
     /**
