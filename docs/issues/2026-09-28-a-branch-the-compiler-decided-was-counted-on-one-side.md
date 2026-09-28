@@ -107,15 +107,38 @@ Every image prints what the control prints.
 | BenchPGO | 371 | 278 | 278 | **295** |
 
 BenchPGO is 6% slower with the probes, and its seven runs are within 3 ms of each other.
-The two recordings say the same about every branch of the program to within one count.
-They differ in a dozen records of code that ran once, the string concatenation for the line the program prints at its end among it.
-The old way had nothing for those branches, and with the probes each has a count of one.
-The build makes more of `main` for it: 5,594 bytes and 55 calls where the recording made as before gives 1,555 bytes and 14 calls.
-The program's loop is in `main`.
-What it takes in is `Integer.parseInt` and `PrintStream.writeln`, each of which runs once.
-From the recording made as before the inliner refuses both on cost against benefit; from the one made with probes it inlines both.
-A call's frequency is measured against the entry of the method being compiled, so a call made once in `main` is as frequent as `main`, whose loop runs 300 million times.
-Why the loop is slower in the larger method has not been looked at.
+It is one count in one record.
+The program tests `(i & 31) == 0` in its loop, which is true once in 32 times.
+Over the 3,000,000 iterations of a recording the old way counted 93,749 and the probes count 93,750, which is what the program does.
+The old-way recording with that one count changed gives the slower image, 294 ms, and the recording made with probes gives the faster one, 275 ms, when that one count is taken from the old way and all 1,433 other differences are left in.
+
+The count sits on a threshold of the compiler.
+With the record's other side left at 2,906,250:
+
+| count | share | |
+| --- | --- | --- |
+| 60,000 | 0.0202 | 277 ms |
+| 90,000 | 0.0300 | 277 ms |
+| 93,749 | 0.0312497 | 276 ms |
+| 93,750 | 0.03125 | 292 ms |
+| 93,751 | 0.0312503 | 292 ms |
+| 97,000 | 0.0323 | 292 ms |
+| 150,000 | 0.0491 | 293 ms |
+
+At one in 32 and above the image is the slower one, and `main` is two bytes larger, 1,557 against 1,555.
+Which part of the compiler has the threshold is not known.
+It is not loop range splitting and not the type guard: with either turned off the two counts give the same two times.
+
+So this is not what the probes cost.
+The old way had the count wrong by one, which put a program that sits on the threshold on the faster side of it.
+
+An earlier version of this note gave another reason, and it was wrong.
+With the probes a recording has counts of one for code that ran once, and the build inlines `Integer.parseInt` and `PrintStream.writeln` into `main` for them, which is then 5,594 bytes and not 1,555.
+That is so, and it is not why the loop is slower: with those calls kept out of `main`, which is then 1,482 bytes, the image runs the same 294 ms.
+The rule that kept them out was dropped.
+It refused about 1,570 callees in an image, at calls that ran at most three times and did next to none of the recorded work, and ArrayBench ran 338 ms with it and 321 without.
+
+The reason was found by taking the differences between the two recordings in halves, fifteen builds, after two reasons given from reading the code had been wrong.
 
 GameOfLife recorded and built today is 5% slower than the image in use, with the probes and without.
 The image in use was built on 2026-09-26.
