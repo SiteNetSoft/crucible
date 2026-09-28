@@ -123,7 +123,7 @@ An object that survives a young collection is copied to a survivor space and pro
 The community edition's policy copies it seven times first, and more on a program that allocates a lot.
 Where most of what survives one collection survives the next as well, and there is a lot of it, even the one copy is wasted, and the collector promotes straight from eden for as long as that lasts.
 It checks again at intervals and goes back when the program changes.
-Against the community edition's policy, scala-stm-bench7 gains 9%, reactors 12%, mnemonics 9%, and par-mnemonics 7%, and reactors goes from behind Oracle's binary to level with it.
+Against the community edition's policy, reactors gains 13%, mnemonics 10%, scala-stm-bench7 9%, and par-mnemonics 4%, and reactors goes from behind Oracle's binary to level with it.
 To fix the number of collections an object survives before it is promoted, use `-XX:SerialGCTenuringThreshold=<n>`.
 At 0, a program whose objects live for a collection or two loses a lot (fj-kmeans 40%), which is why the default looks before it chooses.
 `-XX:SerialGCTenuringThreshold=-1` gives the community edition's policy back.

@@ -183,9 +183,27 @@ fj-kmeans, mnemonics, and akka-uct never leave one: fj-kmeans ran 1210 collectio
 Reactors reaches zero in the first busy phase and takes four fifths of what a fixed zero takes off its pauses.
 Its iteration times gain less than its pauses do, and they spread as they always have: six rounds of it choosing ran between 9162 and 10455.
 
+rx-scrabble goes to zero in its first three collections, while it loads its data: the second and third have shares of 0.89 and 0.80 and survivors of 10 and 12% of eden.
+After that its young collections promote next to nothing, so no probe comes due and it stays at zero, where it runs as it does at one.
+future-genetic, scrabble, philosophers, scala-doku, scala-kmeans, and par-mnemonics stay at one in two runs each.
+
 On akka-uct one round in three of the choosing threshold was slow, 12772 against 10902 and 11229.
 It was not the threshold, which never moved.
 Single iterations of 13 to 15 seconds turn up in akka-uct at every setting.
 
 mnemonics is 4% faster at zero in this image and was level in the one before, and the rule leaves it at one either way, because 2% of eden surviving is too little for the rule to act on.
 At a threshold of one it has two levels of its own, 1945 and 2030, in the same image.
+
+It is the default since.
+In images built with the default changed, against the community edition's policy (`-1`) and a fixed one, three rounds and reactors six:
+
+| | Oracle GraalVM | policy (`-1`) | 1 | default |
+| --- | --- | --- | --- | --- |
+| scala-stm-bench7 | 894 | 1085 | 1080 | **991** |
+| reactors | 9822 | 11307 | 11733 | **9798** |
+| mnemonics | 1813 | 2147 | 1918 | 1924 |
+| par-mnemonics | 1878 | 1744 | 1732 | 1682 |
+| fj-kmeans | 3077 | 3261 | 3283 | 3255 |
+
+Against the policy that is 13% on reactors, 10% on mnemonics, 9% on scala-stm-bench7, and 4% on par-mnemonics.
+Images of scala-stm-bench7 and reactors built with `-H:+VerifyHeap` verify the heap before and after every collection and run through the change of threshold.
