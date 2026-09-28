@@ -63,8 +63,9 @@ public final class SerialGCOptions {
     public static final RuntimeOptionKey<Integer> SerialGCTimeRatio = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "Number of young collections an object survives before it is promoted to the old generation: 0 promotes straight from eden, which suits programs " +
-                    "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -1 lets the policy choose. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
-    public static final RuntimeOptionKey<Integer> SerialGCTenuringThreshold = new RuntimeOptionKey<>(-1, SerialGCOptions::validateSerialRuntimeOption);
+                    "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -1 lets the policy choose, which starts at 7 " +
+                    "and only ever raises it. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> SerialGCTenuringThreshold = new RuntimeOptionKey<>(1, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "The maximum free bytes reserved for allocations, in bytes (0 for automatic according to GC policy). Serial GC only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Long> MaxHeapFree = new RuntimeOptionKey<>(0L, SerialGCOptions::validateSerialRuntimeOption);
