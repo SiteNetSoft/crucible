@@ -24,20 +24,29 @@
  */
 package com.oracle.svm.hosted.crucible.instrument;
 
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
+import com.oracle.svm.core.crucible.ProfileKey;
 import com.oracle.svm.hosted.code.CompileQueue;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
+import com.oracle.svm.hosted.pgo.ProfilingUtilities;
 
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeSourcePosition;
+import jdk.graal.compiler.nodes.AbstractBeginNode;
+import jdk.graal.compiler.nodes.ControlSplitNode;
 import jdk.graal.compiler.nodes.IfNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.java.InstanceOfNode;
 import jdk.graal.compiler.nodes.java.MethodCallTargetNode;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
+import jdk.vm.ci.meta.ResolvedJavaMethod;
 
 /**
  * Puts the probes in, at the one point every method's graph passes on its way to being compiled or
@@ -72,6 +81,48 @@ public final class CrucibleProbePolicy extends CompileQueue.Policy {
         }
         if (CrucibleOptions.CrucibleRecordTestsWithProbes.getValue()) {
             probeTests(graph);
+        }
+        if (CrucibleOptions.CrucibleRecordBranchesWithProbes.getValue()) {
+            probeBranches(method, graph);
+        }
+    }
+
+    /**
+     * Methods whose branches have probes, so that the phase that counts branches in the finished
+     * graph leaves theirs alone wherever they were inlined.
+     */
+    private static final Set<String> BRANCHES_PROBED = ConcurrentHashMap.newKeySet();
+
+    static boolean branchesProbed(ResolvedJavaMethod method) {
+        return BRANCHES_PROBED.contains(ProfileKey.methodId(method));
+    }
+
+    /**
+     * A probe on each way out of each branch a profile is later applied to, which are chosen here
+     * as they will be chosen then, from the graph as it comes out of parsing. Inlined where the
+     * compiler can decide the branch, the branch goes and the side not taken with it, and the
+     * probe on the side that is taken is what is left to say that it was. Counted in the finished
+     * graph instead, the first test of a loop over the stages of a stream, which is decided
+     * wherever the stream is made and used in one place, left the profile of that place with
+     * fifty million ways out of the loop and none into it.
+     */
+    private static void probeBranches(HostedMethod method, StructuredGraph graph) {
+        BRANCHES_PROBED.add(ProfileKey.methodId(method));
+        for (List<ControlSplitNode> branches : ProfilingUtilities.relevantConditionalNodesFromGraph(graph).getValues()) {
+            for (ControlSplitNode branch : branches) {
+                List<AbstractBeginNode> successors = branch.successors().filter(AbstractBeginNode.class).snapshot();
+                if (successors.stream().anyMatch(s -> s.getNodeSourcePosition() == null)) {
+                    /* As in CrucibleInstrumentationPhase: a record is matched to a successor by the successor's own bci. */
+                    continue;
+                }
+                int index = 0;
+                for (AbstractBeginNode successor : successors) {
+                    CrucibleProbeNode probe = graph.add(new CrucibleProbeNode(index, successor.getNodeSourcePosition().getBCI()));
+                    probe.setNodeSourcePosition(branch.getNodeSourcePosition());
+                    graph.addAfterFixed(successor, probe);
+                    index++;
+                }
+            }
         }
     }
 

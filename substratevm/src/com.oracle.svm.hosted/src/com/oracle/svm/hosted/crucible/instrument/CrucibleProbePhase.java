@@ -53,6 +53,7 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
     public static final AtomicLong RECEIVER_PROBES = new AtomicLong();
     public static final AtomicLong ENTRY_PROBES = new AtomicLong();
     public static final AtomicLong ENTRY_PROBES_INLINED = new AtomicLong();
+    public static final AtomicLong BRANCH_PROBES = new AtomicLong();
 
     /** Methods whose own entry a probe has counted, so that the phase that used to does not count it again. */
     private static final Set<ResolvedJavaMethod> ENTRY_COUNTED = ConcurrentHashMap.newKeySet();
@@ -79,6 +80,8 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
             if (count && position != null) {
                 if (probe.kind() == CrucibleProbeNode.Kind.ENTRY) {
                     countEntry(graph, probe, position);
+                } else if (probe.kind() == CrucibleProbeNode.Kind.BRANCH) {
+                    countBranch(graph, probe, position);
                 } else {
                     boolean test = probe.kind() == CrucibleProbeNode.Kind.TESTED_VALUE;
                     int site = typeSiteAllocator.allocate(test ? ProfileKey.instanceOfForPosition(position) : ProfileKey.virtualInvokeForPosition(position, probe.target()));
@@ -92,6 +95,17 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
             }
             graph.removeFixed(probe);
         }
+    }
+
+    /** Under the key the branch itself would have been counted under, had it come this far. */
+    private void countBranch(StructuredGraph graph, CrucibleProbeNode probe, NodeSourcePosition position) {
+        int slot = allocator.allocate(ProfileKey.forPosition(position, probe.successor(), probe.successorBci()));
+        if (branchCounters != null) {
+            graph.addBeforeFixed(probe, graph.add(new CrucibleCounterNode(branchCounters, slot)));
+        } else {
+            graph.addBeforeFixed(probe, graph.add(new ForeignCallNode(CrucibleProfileRuntime.INCREMENT, ConstantNode.forInt(slot, graph))));
+        }
+        BRANCH_PROBES.incrementAndGet();
     }
 
     private void countEntry(StructuredGraph graph, CrucibleProbeNode probe, NodeSourcePosition position) {

@@ -63,20 +63,44 @@ public final class CrucibleProbeNode extends FixedWithNextNode implements Lowera
         /** The receivers of the call that follows. */
         RECEIVER,
         /** The types of the value an {@code instanceof} tests. */
-        TESTED_VALUE
+        TESTED_VALUE,
+        /** The times a branch went the way the probe is on. Its position is that of the branch. */
+        BRANCH
     }
 
     private final Kind kind;
-    /** The receiver or the tested value; {@code null} for {@link Kind#ENTRY}. */
+    /** The receiver or the tested value; {@code null} for {@link Kind#ENTRY} and {@link Kind#BRANCH}. */
     @OptionalInput ValueNode receiver;
     /** For {@link Kind#RECEIVER}, the method the call names, which the receivers seen are later resolved against. */
     private final ResolvedJavaMethod target;
+    /** For {@link Kind#BRANCH}, which of the branch's successors this is, and where that one begins. */
+    private final int successor;
+    private final int successorBci;
 
     public CrucibleProbeNode(Kind kind, ValueNode receiver, ResolvedJavaMethod target) {
         super(TYPE, StampFactory.forVoid());
         this.kind = kind;
         this.receiver = receiver;
         this.target = target;
+        this.successor = -1;
+        this.successorBci = -1;
+    }
+
+    /** A probe for one way out of a branch. */
+    public CrucibleProbeNode(int successor, int successorBci) {
+        super(TYPE, StampFactory.forVoid());
+        this.kind = Kind.BRANCH;
+        this.target = null;
+        this.successor = successor;
+        this.successorBci = successorBci;
+    }
+
+    public int successor() {
+        return successor;
+    }
+
+    public int successorBci() {
+        return successorBci;
     }
 
     public ValueNode receiver() {

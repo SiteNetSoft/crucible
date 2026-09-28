@@ -188,7 +188,8 @@ public final class CrucibleInstrumentFeature implements InternalFeature {
                         " KiB of type names, all carried in the instrumented image.");
         if (CrucibleOptions.CrucibleRecordWithProbes.getValue()) {
             System.out.println("Crucible: " + CrucibleProbePhase.RECEIVER_PROBES.get() + " receiver probes and " + CrucibleProbePhase.ENTRY_PROBES.get() +
-                            " entry probes became counters, " + CrucibleProbePhase.ENTRY_PROBES_INLINED.get() + " of the latter in methods that had been inlined.");
+                            " entry probes became counters, " + CrucibleProbePhase.ENTRY_PROBES_INLINED.get() + " of the latter in methods that had been inlined; " +
+                            CrucibleProbePhase.BRANCH_PROBES.get() + " branch probes.");
         } else {
             System.out.println("Crucible: saw " + CrucibleTypeSamplingPhase.CALL_TARGETS_SEEN.get() + " call targets, " +
                             CrucibleTypeSamplingPhase.CALL_TARGETS_INDIRECT.get() + " indirect, " +

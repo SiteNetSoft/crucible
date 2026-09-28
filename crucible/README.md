@@ -77,7 +77,7 @@ converted profile drives the build as well as one of our own.
 
 | | |
 | --- | --- |
-| Branch probabilities | applied before inlining, so layout, inlining and the loop optimizations all see them |
+| Branch probabilities | counted in every place a method is inlined, including the places where the compiler could decide the branch and removed it, so that what is recorded for a calling context has both sides of it; applied before inlining, so layout, inlining and the loop optimizations all see them |
 | Loop range splitting | a hot counted loop whose checks the profile saw go one way nearly always is run in three parts, the middle one without the checks; this is also what lets the vectorizer take it |
 | Receiver types | counted at every virtual call in every place its method is inlined, including the places where the compiler could work the receiver out and the call is no longer virtual, so that what is recorded for a call is everything that came through it; the inliner tests for the common receivers first and inlines their methods |
 | Call counts | of every method, inlined or not |
@@ -103,12 +103,13 @@ from each compiler; lower is better.
 | BranchBench | 1.00 s | **0.86 s** |
 | JsonBench | 2.48 s | **2.32 s** |
 | BenchPGO | **0.54 s** | 0.58 s |
-| Renaissance, twelve benchmarks | ahead on six | ahead on four, level on two |
+| Renaissance, twelve benchmarks | ahead on three | ahead on six, level on three |
 
-By default CrucibleVM is ahead on four of the twelve (akka-uct by 19%, scala-doku by 14%, philosophers and par-mnemonics by 9%) and level on two (reactors and scala-kmeans).
-It is behind by 5 to 13% on the other six.
-On scala-stm-bench7 and mnemonics that is allocation and collection, and on the rest it is the compiled program and not the collector.
-These figures are from one machine with six processors, three rounds of each benchmark.
+CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 17%, scala-doku by 16%, philosophers by 14%, mnemonics by 7%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
+It is behind by 7 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
+Over the twelve the geometric mean of the ratios is 0.950, that is 5% ahead.
+On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
+These figures are from one machine with six processors, three rounds of each benchmark; the rows of the samples above are from an older machine.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the
@@ -155,6 +156,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleContextMinimumCount` | 1000 | a recorded context stands in for the call site's pooled record only if it was seen this often |
 | `OptionalIdentityHashCodes` | on | give an object room for its identity hash code only once it is asked for, as Oracle GraalVM does; every array is 8 bytes smaller. Not a Crucible option: it is the tree's, and it needs no unlocking |
 | `InlineExactArraycopy` | on | an `arraycopy` between arrays of a known type checks its bounds inline and copies short arrays inline, instead of going through one generic call that works the types out at run time. Also the tree's, no profile needed |
+| `CrucibleRecordBranchesWithProbes` | on | in a recording image, mark every branch before inlining and count it after, so that a branch the compiler decides where its method was inlined is still counted there; off, branches are counted in the finished graph, and a calling context can have one side of a branch only |
 | `CrucibleRecordUninterruptible` | on | count branches in uninterruptible code too, which is where the garbage collector is |
 | `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
 | `CrucibleContextClones` | on | with sampled stacks, compile a method again for a caller it spends time under |

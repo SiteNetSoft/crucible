@@ -100,6 +100,14 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
             if (pos == null || !ProfilingUtilities.isNotForImplicitException(split)) {
                 continue;
             }
+            if (CrucibleProbePolicy.branchesProbed(pos.getMethod())) {
+                /*
+                 * Probes put in at parsing have counted the branches of this method, here and in
+                 * every other place it was inlined, the ones the compiler decided among them.
+                 * What is left to count here are its copies of those, which would count twice.
+                 */
+                continue;
+            }
             List<AbstractBeginNode> successors = split.successors().filter(AbstractBeginNode.class).snapshot();
             if (successors.stream().anyMatch(s -> s.getNodeSourcePosition() == null)) {
                 /*

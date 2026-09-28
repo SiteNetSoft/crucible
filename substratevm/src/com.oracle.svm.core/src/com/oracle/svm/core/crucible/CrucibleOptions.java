@@ -182,6 +182,10 @@ public final class CrucibleOptions {
                     "on the one benchmark measured, with no gain in the image built from them.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordTestsWithProbes = new HostedOptionKey<>(false);
 
+    @Option(help = "In a recording image, count branches the same way, in every copy of a method. A branch the compiler can decide " +
+                    "where the method was inlined is otherwise not counted there, and the profile of that calling context has one side of it only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleRecordBranchesWithProbes = new HostedOptionKey<>(true);
+
     @Option(help = "In a recording image, leave a call with several possible receivers a call, so that the receivers can be counted at it. " +
                     "Turned off, the image inlines as an optimized one does and records contexts more like the ones that will be looked up, at the price of those counts.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleRecordKeepsCallsVirtual = new HostedOptionKey<>(true);
