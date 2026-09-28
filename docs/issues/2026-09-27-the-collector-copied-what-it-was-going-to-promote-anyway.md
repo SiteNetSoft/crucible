@@ -109,3 +109,83 @@ that collection, which is not timed, takes it: 160 ms instead of 110. The run as
 the same time collecting either way. The fast rounds are the harness's accounting, and a
 threshold of one loses nothing by not having them. For anything that touches the collector,
 compare the pauses of the whole run and not only the iteration times.
+
+## A Threshold That Chooses
+
+`2026-09-28`
+
+A threshold of zero is worth 9% on scala-stm-bench7 and 19% on reactors, and costs fj-kmeans 40%.
+What tells them apart is visible at a threshold of one.
+There the survivor space holds what survived the previous young collection and nothing else, and everything a young collection promotes comes out of it.
+So the growth of the old generation divided by the survivor space before the collection is the share of survivors that a second collection does not free.
+One run of each benchmark at a threshold of one, median of the collections that had at least 1 MB of survivors:
+
+| | share promoted at the next collection | survivors as a share of eden | what a threshold of zero does |
+| --- | --- | --- | --- |
+| reactors | 0.94 | 14% | 19% faster |
+| scala-stm-bench7 | 0.92 | 32% | 9% faster |
+| rx-scrabble | 0.89 | 1.9% | level |
+| mnemonics | 0.86 | 2.0% | level to 4% faster |
+| scrabble | 0.83 | 2.3% | level to 3% slower |
+| future-genetic | 0.00 | 2.0% | level |
+| fj-kmeans | 0.00 | 2.3% | 40% slower |
+
+The first column says whether the copy to the survivor space is wasted, and the second says whether there is enough of it to matter.
+fj-kmeans promoted 19 MB of 2208 MB of survivors in 1194 collections.
+
+`-XX:SerialGCTenuringThreshold=-2` uses both.
+It starts at one.
+Two young collections in a row with a share of at least 0.75 and survivors of at least 8% of eden take the threshold to zero.
+At zero there are no survivors to look at, so after 16 young collections that promoted something the threshold goes back to one until a collection gives a sample, which takes two collections.
+A probe that finds a share of at least 0.5 doubles the distance to the next probe, up to 128 collections.
+Two probes in a row that find less take the threshold back to one.
+
+Three things had to be got right, each found in the collection log of a run:
+
+- At zero the survivor space shrinks, because nothing is put in it. The first probes overflowed it, and a collection that overflows promotes from eden as well, so its share says nothing. A probe now asks for a survivor space of one and a half times what recent collections promoted.
+- Reactors has phases: some fifteen young collections of half a megabyte of survivors and half a millisecond, then eight to ten with 70 MB of survivors that take 200 to 500 ms. Collections that promote less than 1 MB do not count toward the next probe, and a probe that starts in a quiet phase waits there, where a threshold of one costs nothing.
+- One probe landed on the last collection of a busy phase, found 3.5 MB of survivors and a share of 0.43, and sent the threshold back to one for the next busy phase. That is why it takes two.
+
+All twelve, each row one run of all four columns, three rounds (reactors six), milliseconds an iteration at `-O3`:
+
+| | Oracle GraalVM | choosing (`-2`) | 0 | 1 |
+| --- | --- | --- | --- | --- |
+| scala-doku | 1245 | 1066 | 1083 | 1066 |
+| akka-uct | 14374 | 11634 | 13308 | 11051 |
+| philosophers | 1703 | 1548 | 1565 | 1564 |
+| par-mnemonics | 1834 | 1667 | 1632 | 1702 |
+| reactors | 10154 | **10077** | 9377 | 11501 |
+| scala-kmeans | 171.5 | 174.6 | 174.5 | 173.4 |
+| scrabble | 251.7 | 263.3 | 267.7 | 260.2 |
+| fj-kmeans | 3073 | 3284 | 4598 | 3269 |
+| rx-scrabble | 63.9 | 70.0 | 69.9 | 70.1 |
+| scala-stm-bench7 | 897 | **984** | 985 | 1081 |
+| mnemonics | 1832 | 2030 | 1920 | 2001 |
+| future-genetic | 938 | 1061 | 1053 | 1054 |
+
+The akka-uct and par-mnemonics rows are from a machine with six processors where the earlier tables had them from one with four, which is why they are twice as fast here.
+
+Pauses and wall time of whole runs, with the collection log on:
+
+| | | choosing | 0 | 1 |
+| --- | --- | --- | --- | --- |
+| scala-stm-bench7, 10 iterations | all pauses | 5.7 s | 5.5 s | 6.7 s |
+| | wall | 11.4 s | 11.1 s | 12.3 s |
+| | peak memory | 480 MB | 425 MB | 626 MB |
+| reactors, 10 iterations | all pauses | 36.0 s | 34.2 s | 45.9 s |
+| | wall | 106.8 s | 94.8 s | 112.7 s |
+| fj-kmeans, 10 iterations | all pauses | 5.9 s | 19.6 s | 6.0 s |
+| | wall | 33.9 s | 47.7 s | 34.0 s |
+| | peak memory | 164 MB | 378 MB | 164 MB |
+
+scala-stm-bench7 goes to zero after six collections and runs as it does at a fixed zero.
+fj-kmeans, mnemonics, and akka-uct never leave one: fj-kmeans ran 1210 collections at one, and akka-uct stayed there in four runs of four.
+Reactors reaches zero in the first busy phase and takes four fifths of what a fixed zero takes off its pauses.
+Its iteration times gain less than its pauses do, and they spread as they always have: six rounds of it choosing ran between 9162 and 10455.
+
+On akka-uct one round in three of the choosing threshold was slow, 12772 against 10902 and 11229.
+It was not the threshold, which never moved.
+Single iterations of 13 to 15 seconds turn up in akka-uct at every setting.
+
+mnemonics is 4% faster at zero in this image and was level in the one before, and the rule leaves it at one either way, because 2% of eden surviving is too little for the rule to act on.
+At a threshold of one it has two levels of its own, 1945 and 2030, in the same image.

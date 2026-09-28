@@ -6,35 +6,38 @@ the binaries produce identical output. The reasoning behind each entry is in `do
 
 ## Standing
 
-Absolute time of the profile-guided binary from each compiler.
+Absolute time of the profile-guided binary from each compiler, milliseconds.
 
-| Workload | Oracle GraalVM PGO | CrucibleVM PGO | with `-XX:SerialGCTimeRatio=6` | |
-| --- | --- | --- | --- | --- |
-| GameOfLife | 5608 ms | **4922 ms** | | ahead |
-| ArrayBench | 782 ms | **662 ms** | | ahead |
-| BranchBench | 1002 ms | **857 ms** | | ahead |
-| JsonBench | 2477 ms | **2319 ms** | | ahead |
-| BenchPGO | **543 ms** | 579 ms | | behind by 7% |
-| Renaissance reactors | **17549 ms** | 18609 ms | | behind by 6%, bimodal between whole runs whichever binary; the range of a night of runs is wider than the gap |
-| Renaissance akka-uct | 28773 ms | **26060 ms** | 37989 ms | ahead by 9% (level before the arraycopy work); the ratio costs it a third |
-| Renaissance philosophers | 2174 ms | **1880 ms** | 1866 ms | ahead |
-| Renaissance scala-doku | 2302 ms | **1941 ms** | 1882 ms | ahead |
-| Renaissance scala-kmeans | 309 ms | 304 ms | 304 ms | level |
-| Renaissance par-mnemonics | **3802 ms**, 472 MB | 3886 ms | **3685 ms**, 350 MB | behind by 2% (24% before the arraycopy work), level with the ratio |
-| Renaissance fj-kmeans | **6397 ms**, 549 MB | 7885 ms | 7713 ms | behind by 23% here, 6% on the newer machine (3350 to 3264 against 3080 with the arraycopy work); 3% of it is the identity hash code layout, item T. Level with the ratio in a third of Oracle's memory |
-| Renaissance rx-scrabble | **120 ms** | 129 ms | 127 ms | behind by 8%; 10% on the newer machine, unmoved by the arraycopy work |
-| Renaissance scala-stm-bench7 | **1619 ms**, 316 MB | 1994 ms | 1887 ms | behind by 23% here, 21% on the newer machine (1091 to 1077 against 893 with the arraycopy work) |
-| Renaissance future-genetic | **1715 ms** | 1949 ms | 1931 ms | behind by 14%; 15% on the newer machine, unmoved by the arraycopy work |
-| Renaissance scrabble | **501 ms**, 166 MB | 611 ms, 349 MB | 693 ms | behind by 22%; the ratio costs it. On a newer machine ours runs 229 ms to Oracle's 250 in most runs and 278 in some: which is ahead depends on the machine and the run |
-| Renaissance mnemonics | **3534 ms**, 629 MB | 5561 ms | 4452 ms, 347 MB | behind by 57% here before the arraycopy work; on the newer machine it took the gap from 46% to 17% (2665 to 2128 against 1820). 26% here with the ratio |
+| Workload | Oracle GraalVM PGO | CrucibleVM PGO | |
+| --- | --- | --- | --- |
+| GameOfLife | 5608 | **4922** | ahead by 12% |
+| ArrayBench | 782 | **662** | ahead by 15% |
+| BranchBench | 1002 | **857** | ahead by 14% |
+| JsonBench | 2477 | **2319** | ahead by 6% |
+| BenchPGO | **543** | 579 | behind by 7%, a loop Oracle unrolls twice, item G |
+| Renaissance akka-uct | 14374 | **11634** | ahead by 19% |
+| Renaissance scala-doku | 1245 | **1066** | ahead by 14% |
+| Renaissance philosophers | 1703 | **1548** | ahead by 9% |
+| Renaissance par-mnemonics | 1834 | **1667** | ahead by 9% |
+| Renaissance reactors | 10154 | 10077 | level; six rounds of ours span 9162 to 10455 and of Oracle's 9749 to 10517 |
+| Renaissance scala-kmeans | 171.5 | 174.6 | level, behind by 2% |
+| Renaissance scrabble | **251.7** | 263.3 | behind by 5% |
+| Renaissance fj-kmeans | **3073** | 3284 | behind by 7%, in less time collecting than Oracle's binary spends; 3% of it is the identity hash code layout, item T |
+| Renaissance rx-scrabble | **63.9** | 70.0 | behind by 10% |
+| Renaissance scala-stm-bench7 | **897** | 984 | behind by 10%, all of it young collections, which promote the same 2 GB in 4.3 s where Oracle's take 3.4 s |
+| Renaissance mnemonics | **1832** | 2030 | behind by 11%; twice the allocation of Oracle's binary, item J |
+| Renaissance future-genetic | **938** | 1061 | behind by 13% |
 
-The akka-uct, par-mnemonics, philosophers, scala-doku, scala-kmeans and reactors rows are from the evening of 2026-09-27, after the arraycopy work (item R); the "newer machine" figures in the last column are from a second, faster machine the same evening, where each row was measured before and after that change against Oracle's binary in the same run. The rest: every Renaissance image recorded and built again from the tree as it stood on the morning of 2026-09-27, median of three runs of twelve iterations, peak resident memory beside the time where it was measured. Recorded again that day with counting marked before inlining, which moved future-genetic
-(2386 to 2026), reactors (20722 to 18458) and scrabble (688 to 653) and left the rest where they
-were. Across Renaissance the profile-guided gain is as large as Oracle's or larger on most
-benchmarks. What separates the binaries is what is underneath: where the two controls are
-level we are ahead, and where Oracle's starts ahead we stay behind by about that much. On the
-benchmarks that allocate most, the difference is a third more allocation and a slower
-collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the-suite.md`.
+Ahead on eight of the seventeen, level on two, behind on seven.
+Over the twelve Renaissance benchmarks the geometric mean of the ratios is 0.998, that is level, with a spread from 19% ahead to 13% behind.
+
+The Renaissance rows are from the night of 2026-09-28: one machine with six processors, `-O3`, three rounds of each benchmark (reactors six), Oracle's binary in the same run, with the tenuring threshold that chooses between one and zero (item M3), which is the default.
+The rows of the five samples are from before that and were not measured again.
+Earlier versions of this table had the Renaissance rows from an older and slower machine, and akka-uct and par-mnemonics from one with four processors, so the times here are not comparable with those.
+
+Across Renaissance the profile-guided gain is as large as Oracle's or larger on most benchmarks.
+What separates the binaries is what is underneath: where the two controls are level CrucibleVM is ahead, and where Oracle's starts ahead it stays behind by about that much.
+See `docs/issues/2026-09-20-renaissance-across-the-suite.md`.
 
 ## Open
 
@@ -51,8 +54,8 @@ collector, not the optimizer. See `docs/issues/2026-09-20-renaissance-across-the
 | M | Which collection policy suits a profiled image | settled: none as a default. `BySpaceAndTime` is worth 20% on mnemonics and par-mnemonics and 10% on scrabble, and costs 25% on akka-uct; a fixed young generation is neutral to far worse (akka-uct 2.6 times slower at 128 MB) | the README says to measure it and nothing more |
 | M2 | The slow iterations of a Renaissance run are the ones with a major collection in them, and the losses on the mnemonics pair are collection from end to end: 1375 collections where Oracle's binary has 193 | the default policy grows the young generation only until collection takes half the time. `-XX:SerialGCTimeRatio`, a run-time option with the default unchanged: at 6, par-mnemonics 4555 to 3733 (Oracle 3507) in 323 MB (Oracle 398), mnemonics 5710 to 4421 (Oracle 3573); scrabble four times the memory for little, scala-stm-bench7 slower. `-XX:InitialCollectionPolicy=Adaptive` is as mixed. Not a default | what is left on mnemonics after it is allocation, item J |
 
-| M3 | Oracle's collector puts nothing in survivor spaces on scala-stm-bench7; ours copies 130 to 165 MB of survivors at every young collection for seven collections before promoting them, and its young collections take four times as long | with no survivor spaces: scala-stm-bench7 1077 to 950 (Oracle 893), mnemonics 2134 to 1933 (1815), par-mnemonics 3856 to 3333 (3686, ahead), reactors 18270 to 16440 (17500, ahead), future-genetic 5%, six others level; fj-kmeans a third slower, because its survivors die a collection later and the old generation fills with them. Two ways of adapting the threshold tried and dropped (see the issue note). Shipped as `-XX:SerialGCTenuringThreshold`, a run-time option. Its default is 1, one survivor stage: against the policy's seven and more, mnemonics 2117 to 1923, par-mnemonics 3850 to 3571, philosophers and future-genetic 2%, the other eight level, fj-kmeans among them. Left: a threshold that goes to 0 by itself where that pays (reactors 11711 to 9698, scala-stm-bench7 1077 to 989), which needs a signal that separates the two cases within a few collections | 8 and 17% on two benchmarks that are behind Oracle's binary, and fj-kmeans loses 40% if it is got wrong |
-| P | One run in four of our future-genetic binaries is 13% slower than the rest, all iterations of it; Oracle's never is | seen in every build of ours, not looked into. Heap layout or the collection policy are the first things to rule out | a quarter of all runs |
+| M3 | Oracle's collector puts nothing in survivor spaces on scala-stm-bench7; ours copies 130 to 165 MB of survivors at every young collection for seven collections before promoting them, and its young collections take four times as long | with no survivor spaces: scala-stm-bench7 1077 to 950 (Oracle 893), mnemonics 2134 to 1933 (1815), par-mnemonics 3856 to 3333 (3686, ahead), reactors 18270 to 16440 (17500, ahead), future-genetic 5%, six others level; fj-kmeans a third slower, because its survivors die a collection later and the old generation fills with them. Two ways of adapting the threshold tried and dropped (see the issue note). Shipped as `-XX:SerialGCTenuringThreshold`, a run-time option. Its default is 1, one survivor stage: against the policy's seven and more, mnemonics 2117 to 1923, par-mnemonics 3850 to 3571, philosophers and future-genetic 2%, the other eight level, fj-kmeans among them. Then a threshold that goes to 0 by itself where that pays, which is the default now: at a threshold of one, what a young collection promotes divided by what was in the survivor space is the share of survivors a second collection does not free, 0.9 on scala-stm-bench7 and reactors and 0.0 on fj-kmeans. Two collections with a share above 0.75 and survivors above 8% of eden take it to zero, and a probe at intervals takes it back when two in a row disagree. scala-stm-bench7 1081 to 984 (a fixed zero 985), reactors 11501 to 10077 (9377), fj-kmeans 3269 and 3284 (4598), the other nine where they were | done; what is left on scala-stm-bench7 is the speed of a young collection, a quarter slower than Oracle's for each megabyte promoted |
+| P | One run in four of our future-genetic binaries is 13% slower than the rest, all iterations of it; Oracle's never is | not seen on the newer machine: of 32 runs, half of them with addresses not randomized, 31 had a median between 1032 and 1097 ms and one 1148, and the collector did the same in every one of them (550 to 584 young collections, 410 to 441 ms). Where it does occur it is not the collector. Oracle's binary ran between 926 and 964 | a quarter of all runs on the machine where it was seen |
 
 ## Done since the list was started
 

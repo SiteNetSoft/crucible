@@ -99,13 +99,12 @@ from each compiler; lower is better.
 | BranchBench | 1.00 s | **0.86 s** |
 | JsonBench | 2.48 s | **2.32 s** |
 | BenchPGO | **0.54 s** | 0.58 s |
-| Renaissance, twelve benchmarks | ahead on eight | ahead on three |
+| Renaissance, twelve benchmarks | ahead on six | ahead on four, level on two |
 
-By default CrucibleVM is ahead on three of the twelve (akka-uct by 9%, philosophers and scala-doku
-by 15%), level on one, within 2 to 6% on two more, and behind by 8 to 23% on the other six, most
-of which is allocation and collection rather than the optimizer; scrabble among them is ahead on
-one machine and behind on another. With the collector's ratio set (below) two of the six come
-level.
+By default CrucibleVM is ahead on four of the twelve (akka-uct by 19%, scala-doku by 14%, philosophers and par-mnemonics by 9%) and level on two (reactors and scala-kmeans).
+It is behind by 5 to 13% on the other six.
+On scala-stm-bench7 and mnemonics that is allocation and collection, and on the rest it is the compiled program and not the collector.
+These figures are from one machine with six processors, three rounds of each benchmark.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the
@@ -120,17 +119,17 @@ benchmarks from level with Oracle's binary to 23% ahead of it and two from 32% a
 and 27%, the latter in less memory than Oracle's uses. It cost another four times its memory for
 little and made one slower, so measure it; the default is unchanged.
 
-An object that survives a young collection is copied to a survivor space once and promoted at
-the next collection it survives. The community edition's policy copies it seven times first, and
-more on a program that allocates a lot; against that, mnemonics gains 9%, par-mnemonics 7%,
-philosophers and future-genetic 2%, and the other eight Renaissance benchmarks are level.
-`-XX:SerialGCTenuringThreshold=-1` gives the policy back. If the program's objects either die at
-once or live long, `-XX:SerialGCTenuringThreshold=0` promotes survivors straight to the old
-generation, as Oracle's collector does on such programs: reactors gains another 17% and
-scala-stm-bench7 8%, and reactors goes from behind Oracle's binary to ahead of it. A program
-whose objects live for a collection or two (fj-kmeans) loses 40%, so measure.
-`-XX:+VerboseGC` prints the tenuring age in use, which is the threshold plus one.
-See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`. `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
+An object that survives a young collection is copied to a survivor space and promoted at the next collection it survives.
+The community edition's policy copies it seven times first, and more on a program that allocates a lot.
+Where most of what survives one collection survives the next as well, and there is a lot of it, even the one copy is wasted, and the collector promotes straight from eden for as long as that lasts.
+It checks again at intervals and goes back when the program changes.
+Against the community edition's policy, scala-stm-bench7 gains 9%, reactors 12%, mnemonics 9%, and par-mnemonics 7%, and reactors goes from behind Oracle's binary to level with it.
+To fix the number of collections an object survives before it is promoted, use `-XX:SerialGCTenuringThreshold=<n>`.
+At 0, a program whose objects live for a collection or two loses a lot (fj-kmeans 40%), which is why the default looks before it chooses.
+`-XX:SerialGCTenuringThreshold=-1` gives the community edition's policy back.
+`-XX:+VerboseGC` prints the tenuring age in use at each collection, which is the threshold plus one.
+See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`.
+`-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
 same end and are as mixed. See `docs/issues/2026-09-21-the-collector-was-told-half-the-time-is-fine.md`.
 
 ## Options
