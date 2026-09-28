@@ -78,6 +78,37 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
 
     private long majorCount = 0;
 
+    /** The value of {@link SerialGCOptions#SerialGCTenuringThreshold} that asks for {@link #chooseBetweenOneAndZero}. */
+    private static final int CHOOSE_BETWEEN_ONE_AND_ZERO = -2;
+    /** Share of the survivors promoted at the next collection from which promoting at once pays. */
+    private static final double PROMOTE_AT_ONCE_ENTER_SHARE = 0.75;
+    /** Share seen by a probe below which survivors get their collection in the survivor space back. */
+    private static final double PROMOTE_AT_ONCE_LEAVE_SHARE = 0.5;
+    /** Survivors as a share of eden below which there is too little to copy for it to matter. */
+    private static final double PROMOTE_AT_ONCE_MIN_SURVIVORS_OF_EDEN = 0.08;
+    /** Collections in a row that must speak for promoting at once. */
+    private static final int PROMOTE_AT_ONCE_SAMPLES = 2;
+    /** Young collections at a threshold of zero before the first probe, and the most between two. */
+    private static final int PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL = 16;
+    private static final int PROMOTE_AT_ONCE_LAST_PROBE_INTERVAL = 128;
+    /** Probes in a row that must speak against promoting at once before it is given up. */
+    private static final int PROMOTE_AT_ONCE_PROBES_TO_LEAVE = 2;
+    /** Collections of a probe that may overflow the survivor space before the probe is given up. */
+    private static final int PROMOTE_AT_ONCE_OVERFLOWS_IN_PROBE = 3;
+    /** What a probe's survivor space is sized for, as a multiple of what collections promoted. */
+    private static final double PROMOTE_AT_ONCE_PROBE_HEADROOM = 1.5;
+    /** A survivor space, an eden or a promotion smaller than this says nothing. */
+    private static final double PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES = 1024 * 1024;
+
+    private boolean promoteAtOnce = false;
+    private boolean probing = false;
+    private int samplesInFavor = 0;
+    private int collectionsSinceProbe = 0;
+    private int probeInterval = PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL;
+    private int overflowsInProbe = 0;
+    private int probesAgainst = 0;
+    private UnsignedWord survivorBytesBefore = Word.zero();
+
     AdaptiveCollectionPolicy2() {
         super(MAX_GC_PAUSE_MILLIS / 1000.0);
     }
@@ -146,19 +177,98 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return promotionEstimate.aboveOrEqual(freeInOldGenWithExpansion);
     }
 
-    /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
     /** The threshold {@link SerialGCOptions#SerialGCTenuringThreshold} asks for, else the policy's own. */
-    private static int requestedTenuringThreshold(int computed) {
+    private int requestedTenuringThreshold(int computed) {
         int requested = SerialGCOptions.SerialGCTenuringThreshold.getValue();
+        if (requested == CHOOSE_BETWEEN_ONE_AND_ZERO) {
+            return Math.min(promoteAtOnce && !probing ? 0 : 1, HeapParameters.getMaxSurvivorSpaces());
+        }
         if (requested < 0) {
             return computed;
         }
         return Math.min(requested, HeapParameters.getMaxSurvivorSpaces());
     }
 
+    /**
+     * Chooses between a threshold of one and of zero from what a young collection at a threshold of
+     * one shows. At one, the survivor space holds what survived the collection before and nothing
+     * else, and what this collection promoted came out of it, so the two give the share of
+     * survivors that a second collection does not free. Where that share is high and the survivors
+     * are many, copying them to the survivor space first is work done for nothing, and they are
+     * promoted straight from eden until a probe says otherwise. At zero there is nothing to see,
+     * so after {@link #PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL} young collections that promoted
+     * something the threshold goes back to one for as long as it takes to get one sample, and
+     * every probe that says to stay doubles the time to the next.
+     *
+     * @return true if the next collection is the first of a probe and needs a survivor space
+     */
+    private boolean chooseBetweenOneAndZero(boolean survivorOverflow, double survivorsBefore, double edenBefore, double survived, double promoted) {
+        if (promoteAtOnce && !probing) {
+            if (promoted >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
+                collectionsSinceProbe++;
+            }
+            if (collectionsSinceProbe >= probeInterval) {
+                collectionsSinceProbe = 0;
+                overflowsInProbe = 0;
+                probing = true;
+                return true;
+            }
+            return false;
+        }
+        if (survivorOverflow) {
+            /*
+             * Some of what was promoted came from eden, so there is no telling what share of the
+             * survivors it was. The survivor space grows to what overflowed it; if it overflows all
+             * the same, what does not fit is promoted at once whatever the threshold.
+             */
+            if (probing) {
+                overflowsInProbe++;
+                if (overflowsInProbe >= PROMOTE_AT_ONCE_OVERFLOWS_IN_PROBE) {
+                    probing = false;
+                }
+            }
+            return false;
+        }
+        if (survivorsBefore < PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES || edenBefore < PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
+            /* The first collection of a probe, or the one after a complete collection. */
+            return false;
+        }
+        double promotedShare = promoted / survivorsBefore;
+        double survivorsOfEden = survived / edenBefore;
+        if (probing) {
+            probing = false;
+            samplesInFavor = 0;
+            if (promotedShare >= PROMOTE_AT_ONCE_LEAVE_SHARE) {
+                probesAgainst = 0;
+                probeInterval = Math.min(2 * probeInterval, PROMOTE_AT_ONCE_LAST_PROBE_INTERVAL);
+            } else {
+                /* One sample may be the end of a phase: ask again soon before believing it. */
+                probesAgainst++;
+                probeInterval = PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL;
+                if (probesAgainst >= PROMOTE_AT_ONCE_PROBES_TO_LEAVE) {
+                    promoteAtOnce = false;
+                }
+            }
+        } else if (promotedShare >= PROMOTE_AT_ONCE_ENTER_SHARE && survivorsOfEden >= PROMOTE_AT_ONCE_MIN_SURVIVORS_OF_EDEN) {
+            samplesInFavor++;
+            if (samplesInFavor >= PROMOTE_AT_ONCE_SAMPLES) {
+                promoteAtOnce = true;
+                probesAgainst = 0;
+                probeInterval = PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL;
+                collectionsSinceProbe = 0;
+                samplesInFavor = 0;
+            }
+        } else {
+            samplesInFavor = 0;
+        }
+        return false;
+    }
+
+    /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
     @Override
     public void onCollectionBegin(boolean completeCollection, long beginNanoTime) {
         tenuringThreshold = requestedTenuringThreshold(tenuringThreshold);
+        survivorBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
         incrementTotalCollections(completeCollection);
         if (completeCollection) {
             majorCollectionBegin(beginNanoTime);
@@ -203,9 +313,19 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             updateAverages(survivorOverflow, UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
             sampleOldGenUsedBytes(acc.getOldGenerationAfterChunkBytes());
 
+            UnsignedWord survivorFloor = Word.zero();
+            if (SerialGCOptions.SerialGCTenuringThreshold.getValue() == CHOOSE_BETWEEN_ONE_AND_ZERO) {
+                UnsignedWord edenBefore = acc.getYoungChunkBytesBefore().subtract(survivorBytesBefore);
+                boolean probeNext = chooseBetweenOneAndZero(survivorOverflow, UnsignedUtils.toDouble(survivorBytesBefore), UnsignedUtils.toDouble(edenBefore),
+                                UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
+                if (probeNext) {
+                    /* At zero the survivor space has shrunk; what was promoted is what it must hold. */
+                    survivorFloor = UnsignedUtils.fromDouble(PROMOTE_AT_ONCE_PROBE_HEADROOM * promotedBytesEstimate());
+                }
+            }
             tenuringThreshold = requestedTenuringThreshold(computeTenuringThreshold(survivorOverflow, tenuringThreshold));
 
-            resizeAfterYoungGC(survivorOverflow, oldLive, survived);
+            resizeAfterYoungGC(survivorOverflow, oldLive, UnsignedUtils.max(survived, survivorFloor));
 
             decaySupplementalGrowth(minorCount);
         }
