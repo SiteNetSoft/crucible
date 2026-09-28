@@ -57,7 +57,7 @@ import jdk.vm.ci.meta.SpeculationLog;
  * <p>
  * An earlier attempt did this after lowering and measured as a regression: the direct call it
  * produced could no longer be inlined, so the transformation only added a guard. Running ahead of
- * the inliner is the whole point — a direct call to a small method is one the inliner removes
+ * the inliner is the whole point: a direct call to a small method is one the inliner removes
  * entirely, which is where the benefit of devirtualising comes from.
  */
 public final class CrucibleTypeGuardPhase extends BasePhase<HighTierContext> {

@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.shared.util.ClassUtil;
 
 import jdk.graal.compiler.core.common.type.IntegerStamp;
 import jdk.graal.compiler.graph.Node;
@@ -201,7 +202,7 @@ public final class CrucibleLoopRangeSplitPhase extends BasePhase<CoreProviders> 
             if (node instanceof IfNode check && check != counted.getLimitTest()) {
                 collect(loop, check, inductionVariable, minimumBias, range, checks);
             } else if (node instanceof jdk.graal.compiler.nodes.memory.FixedAccessNode access && access.getGuard() != null) {
-                reject("note: memory access guarded by " + access.getGuard().getClass().getSimpleName());
+                reject("note: memory access guarded by " + ClassUtil.getUnqualifiedName(access.getGuard().getClass()));
             } else if (node instanceof jdk.graal.compiler.nodes.GuardNode guard && guard.getCondition() instanceof IntegerBelowNode) {
                 reject("note: bounds check is still a floating guard");
             } else if (node instanceof jdk.graal.compiler.nodes.FixedGuardNode guard && guard.getCondition() instanceof IntegerBelowNode) {
@@ -398,11 +399,13 @@ public final class CrucibleLoopRangeSplitPhase extends BasePhase<CoreProviders> 
             if (!outcome) {
                 reject("note: |<| biased to fail");
             } else if (offset == null) {
-                reject("note: |<| index is not iv + c but " + below.getX().getClass().getSimpleName());
+                reject("note: |<| index is not iv + c but " + ClassUtil.getUnqualifiedName(below.getX().getClass()));
             } else if (!isFixedInLoop(loop, below.getY())) {
-                String why = below.getY().getClass().getSimpleName();
+                String why = ClassUtil.getUnqualifiedName(below.getY().getClass());
                 if (below.getY() instanceof ArrayLengthNode length) {
-                    why += !loop.isOutsideLoop(withoutChecks(length.array())) ? " of an array from inside the loop, " + length.array().getClass().getSimpleName() + " over " + withoutChecks(length.array()).getClass().getSimpleName() : " of an array that may be null";
+                    why += !loop.isOutsideLoop(withoutChecks(length.array()))
+                                    ? " of an array from inside the loop, " + ClassUtil.getUnqualifiedName(length.array().getClass()) + " over " + ClassUtil.getUnqualifiedName(withoutChecks(length.array()).getClass())
+                                    : " of an array that may be null";
                 }
                 reject("note: |<| length changes inside the loop, " + why);
             } else if (!(below.getY().stamp(NodeView.DEFAULT) instanceof IntegerStamp lengthStamp) || !lengthStamp.isPositive()) {

@@ -171,7 +171,11 @@ public final class CrucibleProfileParser {
     }
 
     private static String describe(Object o) {
-        return o == null ? "nothing" : o.getClass().getSimpleName();
+        if (o == null) {
+            return "nothing";
+        }
+        String name = o.getClass().getTypeName();
+        return name.substring(name.lastIndexOf('.') + 1);
     }
 
     private Object readValue() throws IOException {

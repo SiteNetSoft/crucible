@@ -36,7 +36,7 @@ import jdk.vm.ci.meta.ResolvedJavaType;
  * {@code dispatchedMethod} directly.
  * <p>
  * The guard is built from {@code InstanceOfNode} and {@code PiNode}, so unlike the address-based
- * form this works before lowering — which is the point. A direct call created ahead of the inliner
+ * form this works before lowering, which is the point. A direct call created ahead of the inliner
  * is a call the inliner can inline, and inlining is where the value of devirtualising actually is.
  */
 public final class CrucibleReceiverDevirtualization extends ReceiverBasedDevirtualization {

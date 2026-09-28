@@ -259,11 +259,11 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
      * from other code, or from this code some versions ago, still applies wherever names happen to
      * agree, and quietly does nothing elsewhere, so the build should say how much of it landed.
      *
-     * @return the report, starting with {@code Warning:} when too little of the profile fits.
+     * @return the report, and whether too little of the profile fits.
      */
-    public String fitReport(HostedUniverse universe) {
+    public Fit fitReport(HostedUniverse universe) {
         if (callCounts == null || callCounts.isEmpty()) {
-            return "Crucible: the profile has no method counts.";
+            return new Fit("the profile has no method counts.", false);
         }
         java.util.Set<String> inImage = new java.util.HashSet<>();
         for (HostedMethod method : universe.getMethods()) {
@@ -298,7 +298,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
             }
         }
         if (named == 0) {
-            return "Crucible: the profile saw no method run.";
+            return new Fit("the profile saw no method run.", false);
         }
         double byNumber = 100.0 * found / named;
         double byCalls = calls == 0 ? 100.0 : 100.0 * callsFound / calls;
@@ -306,9 +306,13 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         String report = String.format("the profile saw %d methods run, %d of them (%.1f%%) are in this image, accounting for %.1f%% of the calls it counted; " +
                         "of the %d outside the class library and the VM, %d (%.1f%%) are.", named, found, byNumber, byCalls, ownNamed, ownFound, ofOwn);
         if (byCalls < 80.0 || byNumber < 50.0 || ofOwn < 50.0) {
-            return "Warning: " + report + " It looks stale, or recorded from a different program; record it again.";
+            return new Fit(report + " It looks stale, or recorded from a different program; record it again.", true);
         }
-        return "Crucible: " + report;
+        return new Fit(report, false);
+    }
+
+    /** What {@link #fitReport} found, and whether it is too little for the profile to be the right one. */
+    public record Fit(String report, boolean stale) {
     }
 
     private static boolean isPlatformCode(String methodId) {

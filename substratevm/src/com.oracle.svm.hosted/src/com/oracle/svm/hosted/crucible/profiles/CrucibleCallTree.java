@@ -126,7 +126,7 @@ public final class CrucibleCallTree {
         }
         totalCount += sample.count();
         sampledStacks++;
-        stacks.add(new Stack(methods, bcis, sample.count()));
+        stacks.add(new SampledStack(methods, bcis, sample.count()));
         java.util.Set<AnalysisMethod> filed = new java.util.HashSet<>();
         for (int start = 0; start < methods.length; start++) {
             if (methods[start] == null || !filed.add(methods[start])) {
@@ -150,10 +150,10 @@ public final class CrucibleCallTree {
     }
 
     /** A sampled stack with its methods looked up, outermost first; {@code null} where one is not in the image. */
-    private record Stack(AnalysisMethod[] methods, int[] bcis, long count) {
+    private record SampledStack(AnalysisMethod[] methods, int[] bcis, long count) {
     }
 
-    private final List<Stack> stacks = new ArrayList<>();
+    private final List<SampledStack> stacks = new ArrayList<>();
 
     /** How many calls down a copy is compared with the method it was copied from. */
     private static final int NARROWING_HORIZON = 8;
@@ -190,7 +190,7 @@ public final class CrucibleCallTree {
         Node context = new Node(reached.method);
         context.contextMethods = methods;
         context.contextBcis = bcis;
-        for (Stack stack : stacks) {
+        for (SampledStack stack : stacks) {
             for (int start = 0; start + methods.length <= stack.methods.length; start++) {
                 if (matches(stack, start, methods, bcis)) {
                     /* Once per stack, at the outermost place the path occurs; see add. */
@@ -210,7 +210,7 @@ public final class CrucibleCallTree {
         return context;
     }
 
-    private static boolean matches(Stack stack, int start, AnalysisMethod[] methods, int[] bcis) {
+    private static boolean matches(SampledStack stack, int start, AnalysisMethod[] methods, int[] bcis) {
         for (int i = 0; i < methods.length; i++) {
             if (!methods[i].equals(stack.methods[start + i]) || (i < bcis.length && bcis[i] != stack.bcis[start + i])) {
                 return false;

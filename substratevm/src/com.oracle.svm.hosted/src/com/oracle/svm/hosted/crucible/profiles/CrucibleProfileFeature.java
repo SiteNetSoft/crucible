@@ -40,6 +40,8 @@ import com.oracle.svm.core.crucible.CrucibleProfileParser;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.shared.option.HostedOptionValues;
+import com.oracle.svm.shared.util.ClassUtil;
+import com.oracle.svm.shared.util.LogUtils;
 import com.oracle.svm.core.graal.GraalConfiguration;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.hosted.cai.PrefixTree;
@@ -93,7 +95,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
         String recordedBase = profile.producer().graalBase();
         if (!CrucibleProfileRuntime.GRAAL_BASE.equals(recordedBase)) {
             /* A drifted profile still applies; the positions it misses are reported as misses. */
-            System.err.println("Warning: profile " + path + " was recorded against " + recordedBase + ", this toolchain is " + CrucibleProfileRuntime.GRAAL_BASE + ".");
+            LogUtils.warning("Profile " + path + " was recorded against " + recordedBase + ", this toolchain is " + CrucibleProfileRuntime.GRAAL_BASE + ".");
         }
         parsedProfile = profile;
         ImageSingletons.add(PGOProfilesLookup.class, new CrucibleProfilesLookup(profile));
@@ -200,8 +202,12 @@ public final class CrucibleProfileFeature implements InternalFeature {
             crucible.indexTypes(universe);
             if (!fitReported) {
                 fitReported = true;
-                String report = crucible.fitReport(universe);
-                (report.startsWith("Warning:") ? System.err : System.out).println(report);
+                CrucibleProfilesLookup.Fit fit = crucible.fitReport(universe);
+                if (fit.stale()) {
+                    LogUtils.warning(fit.report());
+                } else {
+                    System.out.println("Crucible: " + fit.report());
+                }
             }
         }
         if (typeGuardEnabled()) {
@@ -277,16 +283,20 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
             System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused, " +
                             CruciblePolicyFactory.HOT_ROOT_INLINES.get() + " more for being in a method the run spent its time in.");
-            System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " + CruciblePolicyFactory.COLD_EXPANSIONS_REFUSED.get() + " callees never looked into, " + CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
+            System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " +
+                            CruciblePolicyFactory.COLD_EXPANSIONS_REFUSED.get() + " callees never looked into, " +
+                            CruciblePolicyFactory.COLD_INLINES_ALREADY_DECLINED.get() + " the inliner declined anyway.");
             System.out.println("Crucible: type guard saw " + CrucibleTypeGuardPhase.SITES_SEEN.get() + " indirect sites, " +
-                            CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " + CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");
+                            CrucibleTypeGuardPhase.SITES_PROFILED.get() + " profiled, " + CrucibleTypeGuardPhase.SITES_GUARDED.get() + " guarded before inlining, " +
+                            CrucibleTypeGuardPhase.TARGETS_NOT_REACHABLE.get() + " targets skipped as unreachable.");
             System.out.println("Crucible: " + CrucibleDevirtualizationPhase.SITES_SEEN.get() + " indirect call sites, " +
                             CrucibleDevirtualizationPhase.SITES_UNSUPPORTED.get() + " not guardable, " +
                             CrucibleDevirtualizationPhase.SITES_PROFILED.get() + " with a receiver profile, " +
                             CrucibleDevirtualizationPhase.SITES_DEVIRTUALIZED.get() + " devirtualised.");
             if (CrucibleContextClonePhase.copies() > 0 || CrucibleContextClonePhase.CALLS_IN_CONTEXT.get() > 0) {
                 System.out.println("Crucible: " + CrucibleContextClonePhase.CALLS_SEEN.get() + " direct calls left after inlining, " + CrucibleContextClonePhase.CALLS_IN_CONTEXT.get() +
-                                " on a sampled path, " + CrucibleContextClonePhase.SAME_AS_ORIGINAL.get() + " hot but no different there, " + CrucibleContextClonePhase.CALLS_REDIRECTED.get() + " pointed at one of " + CrucibleContextClonePhase.copies() +
+                                " on a sampled path, " + CrucibleContextClonePhase.SAME_AS_ORIGINAL.get() + " hot but no different there, " +
+                                CrucibleContextClonePhase.CALLS_REDIRECTED.get() + " pointed at one of " + CrucibleContextClonePhase.copies() +
                                 " copies compiled for their caller.");
             }
             System.out.println("Crucible: " + CrucibleApplyProfilesPhase.INDIRECT_TARGETS.get() + " indirect call targets after applying, " +
@@ -309,7 +319,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
                     StringBuilder order = new StringBuilder("Crucible: suite #" + index++ + " (identity " +
                                     Integer.toHexString(System.identityHashCode(suite)) + ", high tier " +
                                     Integer.toHexString(System.identityHashCode(suite.getHighTier())) + "):");
-                    suite.getHighTier().getPhases().forEach(phase -> order.append("\n  ").append(phase.getClass().getSimpleName()));
+                    suite.getHighTier().getPhases().forEach(phase -> order.append("\n  ").append(ClassUtil.getUnqualifiedName(phase.getClass())));
                     System.out.println(order);
                 }
             }

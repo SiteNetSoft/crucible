@@ -31,18 +31,16 @@ import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstratePolicyFactory;
+import com.oracle.svm.shared.util.ClassUtil;
 
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
 import jdk.graal.compiler.phases.common.priorityinline.Expander;
 import jdk.graal.compiler.phases.common.priorityinline.InliningMath;
-import jdk.graal.compiler.phases.common.priorityinline.Inliner;
 import jdk.graal.compiler.nodes.spi.CoreProviders;
 import jdk.graal.compiler.debug.TimerKey;
 import jdk.graal.compiler.phases.common.priorityinline.CallTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
-import jdk.graal.compiler.graph.NodeSourcePosition;
-import com.oracle.svm.hosted.cai.PrefixTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CutoffNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
 
@@ -106,7 +104,7 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
 
         private static void describe(CallTreeNode node, int depth, StringBuilder sb) {
             for (CallTreeNode child : node.children()) {
-                String kind = child.getClass().getSimpleName().replace("Node", "");
+                String kind = ClassUtil.getUnqualifiedName(child.getClass()).replace("Node", "");
                 sb.append("  ".repeat(depth)).append(kind).append(' ').append(child.targetMethod() == null ? "?" : child.targetMethod().format("%H.%n(%p)"));
                 sb.append(String.format(" freq=%.1f benefit=%.3g", child.getFrequency(), child.getLocalBenefit()));
                 if (child.getCostBenefit() != null) {

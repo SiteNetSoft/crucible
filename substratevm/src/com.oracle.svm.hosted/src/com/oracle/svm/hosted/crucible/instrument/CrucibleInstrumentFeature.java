@@ -34,7 +34,6 @@ import com.oracle.graal.pointsto.infrastructure.UniverseMetaAccess;
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 
 import com.oracle.svm.core.SubstrateOptions;
-import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.core.crucible.CrucibleBranchCounters;
 import com.oracle.svm.core.graal.code.CGlobalDataInfo;
 import com.oracle.svm.hosted.c.CGlobalDataFeature;

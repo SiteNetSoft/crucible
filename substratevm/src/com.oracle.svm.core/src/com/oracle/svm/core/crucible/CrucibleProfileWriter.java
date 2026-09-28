@@ -63,7 +63,8 @@ public final class CrucibleProfileWriter {
                 return;
             }
             Thread writer = new Thread(() -> {
-                while (!Thread.currentThread().isInterrupted()) {
+                /* An interrupt that arrives while writing is found by the next sleep. */
+                while (true) {
                     try {
                         Thread.sleep(seconds * 1000L);
                     } catch (InterruptedException e) {
