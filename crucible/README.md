@@ -89,6 +89,10 @@ converted profile drives the build as well as one of our own.
 
 ## How it compares
 
+Build with `-O3` when you build with a profile.
+Oracle's `native-image` raises the optimization level to 3 by itself when it is given a profile, and CrucibleVM does not do that yet.
+On the samples a profile-guided image at the default level runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
+
 Same machine, `-O3`, each binary checked for identical output. Time of the profile-guided binary
 from each compiler; lower is better.
 
