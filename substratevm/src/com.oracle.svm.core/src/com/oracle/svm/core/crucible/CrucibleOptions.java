@@ -24,8 +24,11 @@
  */
 package com.oracle.svm.core.crucible;
 
+import java.util.List;
+
 import org.graalvm.collections.EconomicMap;
 
+import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.guest.staging.option.RuntimeOptionKey;
 import com.oracle.svm.shared.option.HostedOptionKey;
 
@@ -55,7 +58,7 @@ public final class CrucibleOptions {
                     "A profile is otherwise lost entirely if the process is killed rather than shut down.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> CrucibleProfileDumpInterval = new RuntimeOptionKey<>(0);
 
-    @Option(help = "Path of a CrucibleVM profile to apply while building this image.", type = OptionType.User)//
+    @Option(help = "Path of a CrucibleVM profile to apply while building this image. The image is built at -O3 unless an optimization level is asked for.", type = OptionType.User)//
     public static final HostedOptionKey<String> CrucibleProfile = new HostedOptionKey<>("") {
         @Override
         protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, String oldValue, String newValue) {
@@ -65,6 +68,25 @@ public final class CrucibleOptions {
             }
         }
     };
+
+    /**
+     * Builds at -O3 when a profile is given and no optimization level is: a profile is given for
+     * speed, and much of what it is worth is lost below -O3. Whether a level was given cannot be
+     * read from the option values, where the builder puts the default before it parses anything,
+     * so it is read from the arguments, in either spelling and from wherever they came.
+     */
+    public static void raiseLevelForProfile(EconomicMap<OptionKey<?>, Object> values, List<String> arguments) {
+        if (!(values.get(CrucibleProfile) instanceof String profile) || profile.isEmpty()) {
+            return;
+        }
+        String option = "-H:" + SubstrateOptions.Optimize.getName();
+        for (String argument : arguments) {
+            if (argument.startsWith(option + "=") || argument.startsWith(option + "@")) {
+                return;
+            }
+        }
+        SubstrateOptions.Optimize.update(values, SubstrateOptions.OptimizationLevel.O3.getOptionSwitch());
+    }
 
     @Option(help = "Print sample context keys that failed to match when applying a CrucibleVM profile.", type = OptionType.Debug)//
     public static final HostedOptionKey<Boolean> CrucibleProfileDiagnostics = new HostedOptionKey<>(false);

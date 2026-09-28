@@ -93,6 +93,7 @@ import org.graalvm.nativeimage.libgraal.hosted.LibGraalLoader;
 import com.oracle.svm.core.NativeImageClassLoaderOptions;
 import com.oracle.svm.core.SharedConstants;
 import com.oracle.svm.core.SubstrateOptions;
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.imagelayer.LayeredImageOptions;
 import com.oracle.svm.core.util.ClasspathUtils;
 import com.oracle.svm.core.util.InterruptImageBuilding;
@@ -518,6 +519,7 @@ public final class NativeImageClassLoaderSupport {
         // options
         SubstrateOptions.Optimize.update(optionParser.getHostedValues(), SubstrateOptions.Optimize.getDefaultValue());
         remainingArguments = Collections.unmodifiableList((optionParser.parse()));
+        CrucibleOptions.raiseLevelForProfile(optionParser.getHostedValues(), arguments);
 
         /*
          * The image layer support needs to be configured early to correctly set the
