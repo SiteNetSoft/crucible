@@ -133,6 +133,12 @@ At 0, a program whose objects live for a collection or two loses a lot (fj-kmean
 `-XX:SerialGCTenuringThreshold=-1` gives the community edition's policy back.
 `-XX:+VerboseGC` prints the tenuring age in use at each collection, which is the threshold plus one.
 See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`.
+If memory is not what limits your program, build with `-H:-CompactingOldGen`.
+The old generation is then collected by copying, as it is in Oracle's binaries, and a complete collection takes a little over half the time.
+A program that kept 2 GB alive ran 21% faster for it and peaked at 5.5 GB where the default peaks at 4.2 GB.
+On the twelve Renaissance benchmarks it is 1 to 8% faster on six and 2 to 8% slower on three, in about the same memory, because they keep little alive.
+See `docs/issues/2026-09-28-what-the-old-generation-is-collected-with.md`.
+
 `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the
 same end and are as mixed. See `docs/issues/2026-09-21-the-collector-was-told-half-the-time-is-fine.md`.
 
