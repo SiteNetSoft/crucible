@@ -133,7 +133,7 @@ To fix the number of collections an object survives before it is promoted, use `
 At 0, a program whose objects live for a collection or two loses a lot (fj-kmeans 40%), which is why the default looks before it chooses.
 `-XX:SerialGCTenuringThreshold=-1` gives the community edition's policy back.
 If your program keeps its objects for a couple of collections and then drops them, try `-XX:SerialGCTenuringThreshold=-3`, which chooses among two, one, and zero: it keeps such a program at two, and GameOfLife runs 7% faster with it, because what is promoted early fills the old generation and that is collected five times in a run and not twice.
-On the twelve Renaissance benchmarks it is level with the default but for rx-scrabble, 1% slower, and philosophers, 2% slower for a reason that is not the collector's work.
+On the twelve Renaissance benchmarks it is level with the default but for rx-scrabble, which is 1% slower.
 `-XX:+VerboseGC` prints the tenuring age in use at each collection, which is the threshold plus one.
 See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`.
 If memory is not what limits your program, build with `-H:-CompactingOldGen`.

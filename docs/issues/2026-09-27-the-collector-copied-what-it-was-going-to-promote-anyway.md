@@ -242,7 +242,7 @@ Three earlier versions were measured and dropped.
 The first came down from two at three quarters and looked at zero from two: scala-stm-bench7 ran 8% slower than with the default, because its second-age shares while it grows are 0.55 and 0.63 and reset the count, and a look at two from zero takes three collections at twice the copying.
 The second and third needed fewer samples and looked at zero from one, and still left scala-stm-bench7 5% behind, reaching zero after 15 to 26 collections where the default does after six.
 
-Against the default, in one image, three rounds, reactors and philosophers six, the median:
+Against the default, in one image, three rounds, reactors six, akka-uct four, philosophers fourteen, rx-scrabble nine, the median:
 
 | | the default | `-3` | |
 | --- | --- | --- | --- |
@@ -256,15 +256,15 @@ Against the default, in one image, three rounds, reactors and philosophers six, 
 | scala-doku | 1052 | 1052 | level |
 | scala-kmeans | 174.2 | 174.4 | level |
 | akka-uct | 11779 | 12369 | see below |
-| rx-scrabble | 68.7 | 69.6 | 1.3% slower |
-| philosophers | 1527 | 1561 | 2.2% slower |
+| rx-scrabble | 68.9 | 69.8 | 1.3% slower, in seven rounds of nine |
+| philosophers | 1504 | 1505 | level |
 | BenchPGO | 295 | 295 | level |
 | BranchBench | 461 | 462 | level |
 | ArrayBench | 321 | 321 | level |
 | JsonBench | 1404 | 1408 | level |
 
 rx-scrabble goes to zero while it loads under the default and stays there; under `-3` it rests at one.
-philosophers collects for 75 ms in four iterations and promotes nothing, so its difference is not the collector's work; it is the noisiest of the twelve.
+philosophers was 2% slower in its first six rounds and level in the next eight; it collects for 75 ms in four iterations and promotes nothing.
 akka-uct was slower under `-3` in three rounds of four, and collects for the same time under both, 26857 ms and 26982 in four iterations: `-3` rests at one for 58 of its 66 young collections, as the default does, and the other eight are at two and cheaper.
 akka-uct has iterations of 13 to 15 seconds at every setting, and its difference is not the collector's work either.
 scrabble has its two speeds under both.
