@@ -110,7 +110,7 @@ It is behind by 7 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-s
 Over the twelve the geometric mean of the ratios is 0.950, that is 5% ahead.
 On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
-Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording.
+Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the

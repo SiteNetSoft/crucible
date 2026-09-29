@@ -35,7 +35,7 @@ The Renaissance rows are from 2026-09-28: one machine with six processors, `-O3`
 Until that day the geometric mean was 0.998, with mnemonics, scrabble, and future-genetic behind by 5 to 13%.
 The rows of the five samples are from 2026-09-29, the same machine: both compilers' images built from scratch, eleven runs each, interleaved, and every image printing what Oracle's control prints.
 Oracle's image depends on how long a run it was recorded on, in both directions: BenchPGO runs 786 ms from a recording of 3 million iterations and 372 from one of 300 million, ArrayBench 372 from a short recording and 1188 from a long one.
-Oracle's rows are the better of the two; CrucibleVM's images run the same from either.
+Oracle's rows are the better of the two. CrucibleVM's images run within 1% of each other from either: BenchPGO 295 and 294, BranchBench 462 and 461, ArrayBench 321 and 321, JsonBench 1408 and 1422, GameOfLife 2918 and 2903.
 Until that day these rows were from an older machine, and BenchPGO was 7% behind there.
 Earlier versions of this table had the Renaissance rows from an older and slower machine, and akka-uct and par-mnemonics from one with four processors, so the times here are not comparable with those.
 
