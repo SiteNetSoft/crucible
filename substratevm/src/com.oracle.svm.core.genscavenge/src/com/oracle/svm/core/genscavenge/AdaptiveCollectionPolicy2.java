@@ -30,7 +30,9 @@ import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.impl.Word;
 
 import com.oracle.svm.core.Isolates;
+import com.oracle.svm.guest.staging.SubstrateGCOptions;
 import com.oracle.svm.core.heap.GCCause;
+import com.oracle.svm.guest.staging.log.Log;
 import com.oracle.svm.shared.util.TimeUtils;
 import com.oracle.svm.core.util.Timer;
 import com.oracle.svm.shared.util.UnsignedUtils;
@@ -99,6 +101,33 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     private static final double PROMOTE_AT_ONCE_PROBE_HEADROOM = 1.5;
     /** A survivor space, an eden or a promotion smaller than this says nothing. */
     private static final double PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES = 1024 * 1024;
+
+    /** The value of {@link SerialGCOptions#SerialGCTenuringThreshold} that asks for {@link #chooseAmongTwoOneAndZero}. */
+    private static final int CHOOSE_AMONG_TWO_ONE_AND_ZERO = -3;
+    /** Collections in a row at a threshold of two that must speak for one before two is given up. */
+    private static final int REST_AT_ONE_SAMPLES = 2;
+    /**
+     * Share of the second age promoted at the next collection from which two is given up for one. A
+     * program that wants two lets go of nearly all of it (a tenth or less); one that does not keeps
+     * half or more, and while it is growing the share it keeps is low for a collection at a time.
+     */
+    private static final double REST_AT_ONE_SHARE = 0.5;
+    /** Young collections before the first look, at a threshold of two from one and of one from zero. */
+    private static final int FIRST_LOOK_INTERVAL = 8;
+    /** Collections a look may take before it is given up without an answer. */
+    private static final int LOOK_COLLECTIONS = 3;
+
+    /** The threshold in use when there is no reason for another: two or one. */
+    private int restingThreshold = 2;
+    private boolean looking = false;
+    private int collectionsInLook = 0;
+    private int collectionsSinceLook = 0;
+    private int lookInterval = FIRST_LOOK_INTERVAL;
+    private int samplesForOne = 0;
+    private int samplesForZero = 0;
+    private int looksAgainstZero = 0;
+    private UnsignedWord firstAgeBytesBefore = Word.zero();
+    private UnsignedWord secondAgeBytesBefore = Word.zero();
 
     private boolean promoteAtOnce = false;
     private boolean probing = false;
@@ -183,6 +212,10 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         if (requested == CHOOSE_BETWEEN_ONE_AND_ZERO) {
             return Math.min(promoteAtOnce && !probing ? 0 : 1, HeapParameters.getMaxSurvivorSpaces());
         }
+        if (requested == CHOOSE_AMONG_TWO_ONE_AND_ZERO) {
+            /* A look from zero is made at one, which is all it needs and costs a copy less than two. */
+            return Math.min(looking ? (promoteAtOnce ? 1 : 2) : promoteAtOnce ? 0 : restingThreshold, HeapParameters.getMaxSurvivorSpaces());
+        }
         if (requested < 0) {
             return computed;
         }
@@ -264,11 +297,160 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return false;
     }
 
+    /**
+     * Chooses among a threshold of two, of one and of zero. What survives one young collection may
+     * go on living, or be dead by the collection after the next: a program that keeps the last
+     * few of what it makes, the boards of a game say, has everything survive twice and next to
+     * nothing a third time. At a threshold of one all of that is copied once and then promoted to
+     * die in the old generation, which pays for both. At two it dies where it is.
+     * <p>
+     * At two, the space of the second age holds what has survived two collections, and what a
+     * collection promotes comes out of it, so the two give the share of it that survives a third.
+     * Where that share is high the second copy is work done for nothing and the threshold comes
+     * down to one, and from there to zero as in {@link #chooseBetweenOneAndZero}, on the share of
+     * the first age that reaches the second. At one the second age cannot be seen, so at intervals
+     * the threshold goes back to two for as long as it takes to see it; at zero it goes back to
+     * one, as in {@link #chooseBetweenOneAndZero}, which is all that zero needs to be judged by.
+     *
+     * @return true if the next collection is the first of a look and needs survivor spaces
+     */
+    private boolean chooseAmongTwoOneAndZero(int usedThreshold, boolean survivorOverflow, double firstAgeBefore, double secondAgeBefore, double edenBefore, double firstAgeAfter,
+                    double secondAgeAfter, double promoted) {
+        if (!looking && (promoteAtOnce || restingThreshold == 1)) {
+            if (!promoteAtOnce && !survivorOverflow && usedThreshold == 1 && firstAgeBefore >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES && edenBefore >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
+                /* At one: the share of the survivors that a second collection does not free. */
+                if (promoted / firstAgeBefore >= PROMOTE_AT_ONCE_ENTER_SHARE && firstAgeAfter / edenBefore >= PROMOTE_AT_ONCE_MIN_SURVIVORS_OF_EDEN) {
+                    samplesForZero++;
+                    if (samplesForZero >= PROMOTE_AT_ONCE_SAMPLES) {
+                        promoteAtOnce = true;
+                        looksAgainstZero = 0;
+                        samplesForZero = 0;
+                        collectionsSinceLook = 0;
+                        lookInterval = FIRST_LOOK_INTERVAL;
+                        return false;
+                    }
+                } else {
+                    samplesForZero = 0;
+                }
+            }
+            if (promoted >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
+                collectionsSinceLook++;
+            }
+            if (collectionsSinceLook >= lookInterval) {
+                collectionsSinceLook = 0;
+                collectionsInLook = 0;
+                looking = true;
+                return promoteAtOnce;
+            }
+            return false;
+        }
+
+        if (looking && promoteAtOnce) {
+            /*
+             * A look from zero, at a threshold of one, as in chooseBetweenOneAndZero: the share of
+             * what the first collection put in the survivor space that the second promotes. What
+             * the second age would say only matters once zero is given up, and a look at two from
+             * zero takes three collections at twice the copying.
+             */
+            collectionsInLook++;
+            if (survivorOverflow) {
+                if (collectionsInLook >= PROMOTE_AT_ONCE_OVERFLOWS_IN_PROBE) {
+                    looking = false;
+                }
+                return false;
+            }
+            if (usedThreshold != 1 || firstAgeBefore < PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES || edenBefore < PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
+                /* The first collection of the look, or one after a complete collection. */
+                if (collectionsInLook >= LOOK_COLLECTIONS) {
+                    looking = false;
+                }
+                return false;
+            }
+            looking = false;
+            if (promoted / firstAgeBefore >= PROMOTE_AT_ONCE_LEAVE_SHARE) {
+                looksAgainstZero = 0;
+                lookInterval = Math.min(2 * lookInterval, PROMOTE_AT_ONCE_LAST_PROBE_INTERVAL);
+            } else {
+                /* One look against it may be the end of a phase: ask again soon before believing it. */
+                lookInterval = FIRST_LOOK_INTERVAL;
+                looksAgainstZero++;
+                if (looksAgainstZero >= PROMOTE_AT_ONCE_PROBES_TO_LEAVE) {
+                    /* To one; a look at two from there says whether two is better. */
+                    promoteAtOnce = false;
+                    looksAgainstZero = 0;
+                    restingThreshold = 1;
+                    samplesForOne = 0;
+                    samplesForZero = 0;
+                }
+            }
+            return false;
+        }
+
+        /* A threshold of two was in use, resting at it or looking from one. */
+        if (looking) {
+            collectionsInLook++;
+        }
+        boolean haveFirst = !survivorOverflow && firstAgeBefore >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES && edenBefore >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES;
+        boolean haveSecond = !survivorOverflow && usedThreshold == 2 && secondAgeBefore >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES;
+        double firstShare = haveFirst ? secondAgeAfter / firstAgeBefore : 0;
+        double secondShare = haveSecond ? promoted / secondAgeBefore : 0;
+
+        if (looking) {
+            if (!haveSecond) {
+                if (collectionsInLook >= LOOK_COLLECTIONS) {
+                    /* Overflowing, or nothing to be seen: no answer, ask again after the usual time. */
+                    looking = false;
+                }
+                return false;
+            }
+            looking = false;
+            /* Resting at one: the look is about the second age only. */
+            if (secondShare >= PROMOTE_AT_ONCE_LEAVE_SHARE) {
+                lookInterval = Math.min(2 * lookInterval, PROMOTE_AT_ONCE_LAST_PROBE_INTERVAL);
+            } else {
+                lookInterval = FIRST_LOOK_INTERVAL;
+                restingThreshold = 2;
+                samplesForOne = 0;
+                samplesForZero = 0;
+            }
+            return false;
+        }
+
+        if (!haveSecond) {
+            return false;
+        }
+        if (secondShare >= REST_AT_ONE_SHARE) {
+            samplesForOne++;
+            if (haveFirst && firstShare >= PROMOTE_AT_ONCE_ENTER_SHARE && firstAgeAfter / edenBefore >= PROMOTE_AT_ONCE_MIN_SURVIVORS_OF_EDEN) {
+                samplesForZero++;
+            } else {
+                samplesForZero = 0;
+            }
+        } else {
+            samplesForOne = 0;
+            samplesForZero = 0;
+        }
+        if (samplesForZero >= PROMOTE_AT_ONCE_SAMPLES || samplesForOne >= REST_AT_ONE_SAMPLES) {
+            restingThreshold = 1;
+            promoteAtOnce = samplesForZero >= PROMOTE_AT_ONCE_SAMPLES;
+            looksAgainstZero = 0;
+            samplesForOne = 0;
+            samplesForZero = 0;
+            collectionsSinceLook = 0;
+            lookInterval = FIRST_LOOK_INTERVAL;
+        }
+        return false;
+    }
+
     /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
     @Override
     public void onCollectionBegin(boolean completeCollection, long beginNanoTime) {
         tenuringThreshold = requestedTenuringThreshold(tenuringThreshold);
         survivorBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
+        if (HeapParameters.getMaxSurvivorSpaces() >= 2) {
+            firstAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(0);
+            secondAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(1);
+        }
         incrementTotalCollections(completeCollection);
         if (completeCollection) {
             majorCollectionBegin(beginNanoTime);
@@ -319,6 +501,26 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
                 boolean probeNext = chooseBetweenOneAndZero(survivorOverflow, UnsignedUtils.toDouble(survivorBytesBefore), UnsignedUtils.toDouble(edenBefore),
                                 UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
                 if (probeNext) {
+                    /* At zero the survivor space has shrunk; what was promoted is what it must hold. */
+                    survivorFloor = UnsignedUtils.fromDouble(PROMOTE_AT_ONCE_PROBE_HEADROOM * promotedBytesEstimate());
+                }
+            } else if (SerialGCOptions.SerialGCTenuringThreshold.getValue() == CHOOSE_AMONG_TWO_ONE_AND_ZERO && HeapParameters.getMaxSurvivorSpaces() >= 2) {
+                YoungGeneration young = HeapImpl.getHeapImpl().getYoungGeneration();
+                UnsignedWord edenBefore = acc.getYoungChunkBytesBefore().subtract(survivorBytesBefore);
+                int usedThreshold = tenuringThreshold;
+                boolean lookNext = chooseAmongTwoOneAndZero(usedThreshold, survivorOverflow, UnsignedUtils.toDouble(firstAgeBytesBefore), UnsignedUtils.toDouble(secondAgeBytesBefore),
+                                UnsignedUtils.toDouble(edenBefore), UnsignedUtils.toDouble(young.getSurvivorChunkBytes(0)), UnsignedUtils.toDouble(young.getSurvivorChunkBytes(1)),
+                                UnsignedUtils.toDouble(promoted));
+                if (SubstrateGCOptions.VerboseGC.getValue()) {
+                    /* What the choice was made from, in kilobytes, and what it is now. */
+                    Log.log().string("  Tenuring at ").signed(usedThreshold).string(survivorOverflow ? " overflow" : "").string(": eden ").unsigned(edenBefore.unsignedDivide(1024)).string(
+                                    "K first ").unsigned(firstAgeBytesBefore.unsignedDivide(1024)).string("K->").unsigned(young.getSurvivorChunkBytes(0).unsignedDivide(1024)).string(
+                                                    "K second ").unsigned(secondAgeBytesBefore.unsignedDivide(1024)).string("K->").unsigned(
+                                                                    young.getSurvivorChunkBytes(1).unsignedDivide(1024)).string("K promoted ").unsigned(promoted.unsignedDivide(1024)).string(
+                                                                                    "K; rest ").signed(restingThreshold).string(promoteAtOnce ? " zero" : "").string(looking ? " looking" : "").string(
+                                                                                                    " for-one ").signed(samplesForOne).string(" for-zero ").signed(samplesForZero).newline();
+                }
+                if (lookNext) {
                     /* At zero the survivor space has shrunk; what was promoted is what it must hold. */
                     survivorFloor = UnsignedUtils.fromDouble(PROMOTE_AT_ONCE_PROBE_HEADROOM * promotedBytesEstimate());
                 }

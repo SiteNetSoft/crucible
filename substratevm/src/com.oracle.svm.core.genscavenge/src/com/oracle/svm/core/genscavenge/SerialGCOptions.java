@@ -64,7 +64,8 @@ public final class SerialGCOptions {
 
     @Option(help = "Number of young collections an object survives before it is promoted to the old generation: 0 promotes straight from eden, which suits programs " +
                     "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -2, the default, starts at 1 and goes to 0 for as long as " +
-                    "most of what survives one collection survives the next as well. -1 lets the policy choose, which starts at 7 and only ever raises it. " +
+                    "most of what survives one collection survives the next as well. -3 starts at 2 instead, comes down to 1 and to 0 as most of what reaches an age reaches the next, " +
+                    "and stays at 2 for a program whose objects survive two collections and not a third. -1 lets the policy choose, which starts at 7 and only ever raises it. " +
                     "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCTenuringThreshold = new RuntimeOptionKey<>(-2, SerialGCOptions::validateSerialRuntimeOption);
 

@@ -207,3 +207,69 @@ In images built with the default changed, against the community edition's policy
 
 Against the policy that is 13% on reactors, 10% on mnemonics, 9% on scala-stm-bench7, and 4% on par-mnemonics.
 Images of scala-stm-bench7 and reactors built with `-H:+VerifyHeap` verify the heap before and after every collection and run through the change of threshold.
+
+## A Threshold of Two
+
+`2026-09-29`
+
+The threshold that chooses between one and zero costs GameOfLife 7%.
+What GameOfLife allocates survives two young collections and is dead by the third: at a threshold of one all of it is copied once and then promoted, to be collected in the old generation, which is collected five times in a run where it is collected twice at a threshold of two.
+
+GameOfLife at fixed thresholds, seven runs, the median:
+
+| threshold | ms | promoted |
+| --- | --- | --- |
+| the default | 2916 | 1021 MB |
+| 0 | 2854 | 1079 MB |
+| 1 | 3050 | 854 MB |
+| 2 | 2720 | 216 MB |
+| 3 | 2739 | 182 MB |
+| 5 | 2758 | 154 MB |
+| 7 | 2766 | 174 MB |
+| 15 | 2818 | 198 MB |
+| the policy's own | 2772 | 172 MB |
+
+A threshold of two does not suit everything: mnemonics runs 1665 at one and 1720 at two, because what survives one collection there goes on surviving, and each further age is a copy for nothing.
+What tells the two apart is the second age.
+At two, what a collection promotes comes out of the space of the second age, so the two give the share of it that survives a third collection: 0.00 to 0.11 on GameOfLife, collection after collection, and half or more on mnemonics and scala-stm-bench7.
+
+`-XX:SerialGCTenuringThreshold=-3` chooses among two, one, and zero.
+It starts at two, comes down to one when half or more of the second age survives, twice in a row, and goes on to zero under the same test as the default.
+At one it looks at intervals at two, for as long as it takes to see the second age, and at zero it looks at one, as the default does.
+Two looks against zero are needed before it is left.
+
+Three earlier versions were measured and dropped.
+The first came down from two at three quarters and looked at zero from two: scala-stm-bench7 ran 8% slower than with the default, because its second-age shares while it grows are 0.55 and 0.63 and reset the count, and a look at two from zero takes three collections at twice the copying.
+The second and third needed fewer samples and looked at zero from one, and still left scala-stm-bench7 5% behind, reaching zero after 15 to 26 collections where the default does after six.
+
+Against the default, in one image, three rounds, reactors and philosophers six, the median:
+
+| | the default | `-3` | |
+| --- | --- | --- | --- |
+| GameOfLife | 2911 | 2715 | 6.7% faster |
+| scala-stm-bench7 | 995 | 992 | level |
+| reactors | 10263 | 10353 | level; rounds of either span 10% |
+| mnemonics | 1713 | 1722 | level |
+| par-mnemonics | 1396 | 1398 | level |
+| fj-kmeans | 3275 | 3269 | level |
+| future-genetic | 933 | 941 | level |
+| scala-doku | 1052 | 1052 | level |
+| scala-kmeans | 174.2 | 174.4 | level |
+| akka-uct | 11779 | 12369 | see below |
+| rx-scrabble | 68.7 | 69.6 | 1.3% slower |
+| philosophers | 1527 | 1561 | 2.2% slower |
+| BenchPGO | 295 | 295 | level |
+| BranchBench | 461 | 462 | level |
+| ArrayBench | 321 | 321 | level |
+| JsonBench | 1404 | 1408 | level |
+
+rx-scrabble goes to zero while it loads under the default and stays there; under `-3` it rests at one.
+philosophers collects for 75 ms in four iterations and promotes nothing, so its difference is not the collector's work; it is the noisiest of the twelve.
+akka-uct was slower under `-3` in three rounds of four, and collects for the same time under both, 26857 ms and 26982 in four iterations: `-3` rests at one for 58 of its 66 young collections, as the default does, and the other eight are at two and cheaper.
+akka-uct has iterations of 13 to 15 seconds at every setting, and its difference is not the collector's work either.
+scrabble has its two speeds under both.
+BenchPGO, BranchBench, and ArrayBench do not collect at all.
+
+Images of GameOfLife built with `-H:+VerifyHeap` verify the heap at every collection under `-3`, the default, and a fixed two, and print what the control prints.
+The default is unchanged.
+
