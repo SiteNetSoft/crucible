@@ -112,7 +112,7 @@ The program tests `(i & 31) == 0` in its loop, which is true once in 32 times.
 Over the 3,000,000 iterations of a recording the old way counted 93,749 and the probes count 93,750, which is what the program does.
 The old-way recording with that one count changed gives the slower image, 294 ms, and the recording made with probes gives the faster one, 275 ms, when that one count is taken from the old way and all 1,433 other differences are left in.
 
-The count sits on a threshold of the compiler.
+The count sits on a tie.
 With the record's other side left at 2,906,250:
 
 | count | share | |
@@ -126,11 +126,29 @@ With the record's other side left at 2,906,250:
 | 150,000 | 0.0491 | 293 ms |
 
 At one in 32 and above the image is the slower one, and `main` is two bytes larger, 1,557 against 1,555.
-Which part of the compiler has the threshold is not known.
 It is not loop range splitting and not the type guard: with either turned off the two counts give the same two times.
 
+One in 32 is not a constant of the compiler.
+The receiver `BenchPGO$Dbl` at the call in `work` also comes once in 32 calls, and moving its count moves the edge with it:
+
+| share of `Dbl` at the call | share of the branch | |
+| --- | --- | --- |
+| 0.03125, as recorded | 0.0312497 | 275 ms |
+| | 0.03125 | 294 ms |
+| 0.0397 | 0.0313 | 275 ms |
+| | 0.0333 | 277 ms |
+| | 0.0406 | 294 ms |
+| | 0.0428 | 294 ms |
+| 0.0202 | 0.0169 | 277 ms |
+| | 0.0235 | 292 ms |
+| | 0.0313 | 294 ms |
+
+The image is the slower one whenever the branch is at least as frequent as the receiver.
+Where the two are equal the compiler orders the two rare blocks of the loop the other way, and the slower order puts an alignment `nop` inside the loop.
+That ordering is upstream's (`DefaultCodeEmissionOrder`, `BasicBlockOrderUtils`), and a tie there goes to the successor looked at second.
+
 So this is not what the probes cost.
-The old way had the count wrong by one, which put a program that sits on the threshold on the faster side of it.
+The program has two rare events of exactly the same frequency, the old way had one of them wrong by one count, and that broke the tie the fast way.
 
 An earlier version of this note gave another reason, and it was wrong.
 With the probes a recording has counts of one for code that ran once, and the build inlines `Integer.parseInt` and `PrintStream.writeln` into `main` for them, which is then 5,594 bytes and not 1,555.
