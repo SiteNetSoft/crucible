@@ -472,6 +472,17 @@ public class AddressRangeCommittedMemoryProvider extends ChunkBasedCommittedMemo
         throw reportUnalignedChunkAllocationFailed(error);
     }
 
+    /**
+     * An unaligned chunk is committed by {@link #allocateInHeapAddressSpace} when it is allocated
+     * and uncommitted by {@link #freeInHeapAddressSpace} when it is freed, and freshly committed
+     * pages are zeroed by the operating system, so a large array need not be zeroed again.
+     */
+    @Override
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    public boolean areUnalignedChunksZeroed() {
+        return true;
+    }
+
     @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
     private static OutOfMemoryError reportUnalignedChunkAllocationFailed(int error) {
         if (error == OUT_OF_ADDRESS_SPACE) {
