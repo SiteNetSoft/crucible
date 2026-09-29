@@ -98,18 +98,19 @@ from each compiler; lower is better.
 
 | workload | Oracle GraalVM | CrucibleVM |
 | --- | --- | --- |
-| GameOfLife (Oracle's own example) | 5.6 s | **4.9 s** |
-| ArrayBench | 0.78 s | **0.66 s** |
-| BranchBench | 1.00 s | **0.86 s** |
-| JsonBench | 2.48 s | **2.32 s** |
-| BenchPGO | **0.54 s** | 0.58 s |
+| GameOfLife (Oracle's own example) | 3.19 s | **2.92 s** |
+| ArrayBench | 0.37 s | **0.33 s** |
+| BranchBench | 0.55 s | **0.46 s** |
+| JsonBench | 1.55 s | **1.41 s** |
+| BenchPGO | 0.37 s | **0.29 s** |
 | Renaissance, twelve benchmarks | ahead on three | ahead on six, level on three |
 
 CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 17%, scala-doku by 16%, philosophers by 14%, mnemonics by 7%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
 It is behind by 7 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
 Over the twelve the geometric mean of the ratios is 0.950, that is 5% ahead.
 On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
-These figures are from one machine with six processors, three rounds of each benchmark; the rows of the samples above are from an older machine.
+These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
+Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the

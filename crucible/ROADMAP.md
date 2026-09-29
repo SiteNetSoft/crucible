@@ -10,11 +10,11 @@ Absolute time of the profile-guided binary from each compiler, milliseconds.
 
 | Workload | Oracle GraalVM PGO | CrucibleVM PGO | |
 | --- | --- | --- | --- |
-| GameOfLife | 5608 | **4922** | ahead by 12% |
-| ArrayBench | 782 | **662** | ahead by 15% |
-| BranchBench | 1002 | **857** | ahead by 14% |
-| JsonBench | 2477 | **2319** | ahead by 6% |
-| BenchPGO | **543** | 579 | behind by 7%, a loop Oracle unrolls twice, item G |
+| GameOfLife | 3194 | **2918** | ahead by 9%; by 15% with `-XX:SerialGCTenuringThreshold=-3` (2715), item M3 |
+| ArrayBench | 372 | **326** | ahead by 12% |
+| BranchBench | 547 | **461** | ahead by 16% |
+| JsonBench | 1545 | **1410** | ahead by 9% |
+| BenchPGO | 372 | **294** | ahead by 21%; 278 with a recording one count short, item W |
 | Renaissance par-mnemonics | 1821 | **1365** | ahead by 25% |
 | Renaissance akka-uct | 13942 | **11559** | ahead by 17% |
 | Renaissance scala-doku | 1245 | **1047** | ahead by 16% |
@@ -28,13 +28,15 @@ Absolute time of the profile-guided binary from each compiler, milliseconds.
 | Renaissance rx-scrabble | **63.8** | 69.8 | behind by 9% |
 | Renaissance scala-stm-bench7 | **891** | 998 | behind by 12%, all of it young collections, which promote the same 2 GB in 4.3 s where Oracle's take 3.4 s |
 
-Ahead on ten of the seventeen, level on three, behind on four.
+Ahead on eleven of the seventeen, level on three, behind on three.
 Over the twelve Renaissance benchmarks the geometric mean of the ratios is 0.950, that is 5% ahead, with a spread from 25% ahead to 12% behind.
 
 The Renaissance rows are from 2026-09-28: one machine with six processors, `-O3`, three rounds of each benchmark, Oracle's binary in the same run, from recordings made with probes on the branches (item W), with the tenuring threshold that chooses between one and zero (item M3).
 Until that day the geometric mean was 0.998, with mnemonics, scrabble, and future-genetic behind by 5 to 13%.
-The rows of the five samples are from before that and from an older machine.
-On the newer machine the samples recorded with branch probes run as they did, but for BenchPGO, which is 6% slower because its one branch then sits on a threshold of the compiler; these rows do not show it, see item W.
+The rows of the five samples are from 2026-09-29, the same machine: both compilers' images built from scratch, eleven runs each, interleaved, and every image printing what Oracle's control prints.
+Oracle's image depends on how long a run it was recorded on, in both directions: BenchPGO runs 786 ms from a recording of 3 million iterations and 372 from one of 300 million, ArrayBench 372 from a short recording and 1188 from a long one.
+Oracle's rows are the better of the two; CrucibleVM's images run the same from either.
+Until that day these rows were from an older machine, and BenchPGO was 7% behind there.
 Earlier versions of this table had the Renaissance rows from an older and slower machine, and akka-uct and par-mnemonics from one with four processors, so the times here are not comparable with those.
 
 Across Renaissance the profile-guided gain is as large as Oracle's or larger on most benchmarks.
@@ -46,7 +48,7 @@ See `docs/issues/2026-09-20-renaissance-across-the-suite.md`.
 | | What | State | Why it might matter |
 | --- | --- | --- | --- |
 | C | The community edition is behind Oracle's before any profile is involved: 30% on scrabble | measured, and mostly not the optimizer: a third more allocation, and a collector that takes twice as long over it | decides what "ahead of Oracle" can mean on allocation-heavy code |
-| G | The last 7% on BenchPGO, which is a loop Oracle unrolls twice | blocked: upstream's early-exit merging cannot take an exception exit | small, and risky to force |
+| G | The last 7% on BenchPGO, which is a loop Oracle unrolls twice | on the older machine. On the machine of the standing table CrucibleVM is 21% ahead on it; the early-exit merging that would unroll it is still blocked by the exception exit | nothing to win back here now |
 | H | More of Renaissance | twelve measured; dotty fails the harness's validation under both compilers. Tried on 2026-09-28: finagle-http level with Oracle's binary (2017 ms against 2035, and 20.2 s against 20.4 for ten iterations), finagle-chirper level by the iteration (1631 against 1627) and 4.5% behind over a whole run, both built with `org.slf4j` initialized at build time. db-shootout builds and cannot run under either compiler: Chronicle reads the field `directMemory` of `jdk.internal.misc.VM`, which an image does not have. neo4j-analytics does not build under either: its logging is initialized at build time and then `java.util.zip.Inflater` is asked for at build time and refused. als does not build under either: it puts an MBean server in the image heap | breadth; what is left does not build or run closed-world under Oracle's builder either |
 | I | Usability | done: `iprof-to-crucible.py` reads Oracle's `.iprof` (a converted profile drives the build as well as our own recording), the build says how much of a profile fits the program and warns when it does not, `mx crucible-e2e` is the gate. Left: documentation for users | needed before this stops being alpha |
 | T | fj-kmeans lost 3% this week, to the object layout that gives an object room for its identity hash code only when asked: recorded at one frame and at eight it runs the same, with the old layout it runs 3 to 5% faster in every round | found, in two parts. The first hash of a young object, and every hash of it until the collector moves it, was a call into the runtime; the benchmark keys a map by fresh arrays, and 1.8% of its samples were in that call. The hash is computed inline now from the address and the chunk's salt, as the call did, and the samples are gone. The rest is the collector: with the field optional every object copied has its header looked at and the hashed ones grow, 4.4 ms a young collection against 3.8, 0.7 s over a run of 26. That is the price of the layout, which Oracle pays too, and it stays | 3% on one benchmark, mostly for keeps |
