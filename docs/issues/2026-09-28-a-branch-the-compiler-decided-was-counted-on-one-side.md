@@ -82,7 +82,7 @@ One machine, six processors, `-O3`, three rounds, milliseconds for an iteration,
 | reactors | 9914 | 10097 | 10355 | 10197 | level; Oracle's binary ran 9257, 11002, and 9914 |
 | akka-uct | 13942 | 11298 | 11492 | 11559 | level; the image in use ran 12043, 11298, and 11076 |
 | philosophers | 1702 | 1520 | 1575 | 1463 | not to be told; the image in use ran 1435, 1520, and 1606 |
-| scala-kmeans | 171.9 | 173.6 | 174.1 | 175.8 | 1% slower, in every round |
+| scala-kmeans | 171.9 | 173.6 | 174.1 | 175.8 | level; the same two recordings built again the next day gave 175.2 without the probes and 173.1 with them |
 
 The percentages are against the image in use.
 The gain is where the program is made of streams: one method inlined in many places, and its branches decided differently in each.
@@ -175,6 +175,11 @@ On two benchmarks the difference is larger than that, and on both the probes are
 The largest difference the other way is scala-stm-bench7, 3.4 s against 3.1 s.
 
 ## What a Recording No Longer Has
+
+scala-kmeans was 1.5 to 2.5% slower with the probes in eight rounds, and it was not the probes.
+Built a second time from the same recordings, the image recorded as before ran 175.2 ms and the one with the probes 173.1, over six rounds, and all four images were the same size to the byte.
+An image built from the recording as before with every difference of the other applied to it ran 173.2.
+Two builds of one program from one recording differ here by up to 2%, and a difference of that size between two images says nothing until each has been built twice.
 
 On scala-kmeans the two recordings agree on the 4,121 branches both have, 0.82 billion counts in each.
 The old way counted at 2,361 more, with 1.16 billion counts, the largest of them at the bytecode of a call.

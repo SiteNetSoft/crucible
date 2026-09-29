@@ -105,7 +105,7 @@ from each compiler; lower is better.
 | BenchPGO | 0.37 s | **0.29 s** |
 | Renaissance, twelve benchmarks | ahead on three | ahead on six, level on three |
 
-CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 17%, scala-doku by 16%, philosophers by 14%, mnemonics by 7%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
+CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 19%, scala-doku by 16%, philosophers by 11%, mnemonics by 7%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
 It is behind by 7 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
 Over the twelve the geometric mean of the ratios is 0.950, that is 5% ahead.
 On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
