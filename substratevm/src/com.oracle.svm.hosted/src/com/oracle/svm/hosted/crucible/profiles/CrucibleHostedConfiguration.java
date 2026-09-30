@@ -26,6 +26,8 @@ package com.oracle.svm.hosted.crucible.profiles;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.graalvm.collections.EconomicMap;
@@ -74,6 +76,11 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
     public static final AtomicLong HOT_METHODS_AT_FULL_SETTINGS = new AtomicLong();
     /** Cold methods compiled with the loop optimizations that copy code taken out. */
     public static final AtomicLong COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS = new AtomicLong();
+    /**
+     * Cold methods compiled with the settings of {@code -Os}. A set, because a method's options are
+     * asked for more than once.
+     */
+    public static final Set<HostedMethod> COLD_METHODS_FOR_SIZE = ConcurrentHashMap.newKeySet();
 
     @Override
     public CompileQueue createCompileQueue(DebugContext debug, FeatureHandler featureHandler, HostedUniverse hostedUniverse, RuntimeConfiguration runtimeConfiguration, boolean deoptimizeAll) {
@@ -142,6 +149,10 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
 
             @Override
             protected OptionValues getCustomizedOptions(HostedMethod method, DebugContext methodDebug) {
+                if (CrucibleOptions.CrucibleColdOptimizeForSize.getValue() && CrucibleOptions.CrucibleColdCodeSize.getValue() && CruciblePolicyFactory.isCold(method)) {
+                    COLD_METHODS_FOR_SIZE.add(method);
+                    return new OptionValues(super.getCustomizedOptions(method, methodDebug), coldMethodOptions());
+                }
                 if (!isHot(method)) {
                     return super.getCustomizedOptions(method, methodDebug);
                 }
@@ -155,6 +166,23 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
                 return extra.isEmpty() ? options : new OptionValues(options, extra);
             }
         };
+    }
+
+    private static volatile EconomicMap<OptionKey<?>, Object> coldMethodOptions;
+
+    /**
+     * The settings of {@code -Os}, for one method at a time: code size reduction, no code
+     * alignment, no loop optimizations or vectorization, no partial escape analysis, and no
+     * priority inlining. In a method the run never reached there is no speed to lose.
+     */
+    private static EconomicMap<OptionKey<?>, Object> coldMethodOptions() {
+        EconomicMap<OptionKey<?>, Object> options = coldMethodOptions;
+        if (options == null) {
+            options = OptionValues.newOptionMap();
+            SubstrateOptions.configureOptimizeForCodeSize(options, true, true, true);
+            coldMethodOptions = options;
+        }
+        return options;
     }
 
     private static volatile EconomicMap<OptionKey<?>, Object> hotMethodOptions;

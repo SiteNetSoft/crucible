@@ -234,6 +234,9 @@ public final class CrucibleOptions {
     @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
 
+    @Option(help = "Compile the methods the profile never saw run with the settings of -Os, as a build at that level compiles every method.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleColdOptimizeForSize = new HostedOptionKey<>(false);
+
     @Option(help = "Share of all recorded executions a callee must account for before it is inlined even when the " +
                     "static budget refuses. Nothing in the community edition uses profiled call counts to decide inlining.", type = OptionType.User)//
     public static final HostedOptionKey<Double> CrucibleHotInlineShare = new HostedOptionKey<>(0.005);

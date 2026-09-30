@@ -266,6 +266,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (CrucibleHostedConfiguration.COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS.get() > 0) {
                 System.out.println("Crucible: " + CrucibleHostedConfiguration.COLD_METHODS_WITHOUT_LOOP_OPTIMIZATIONS.get() + " cold methods compiled without the loop optimizations that copy code.");
             }
+            if (!CrucibleHostedConfiguration.COLD_METHODS_FOR_SIZE.isEmpty()) {
+                System.out.println("Crucible: " + CrucibleHostedConfiguration.COLD_METHODS_FOR_SIZE.size() + " cold methods compiled with the settings of -Os.");
+            }
             if (CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() > 0) {
                 System.out.println("Crucible: " + CrucibleHostedConfiguration.HOT_METHODS_AT_FULL_SETTINGS.get() + " hot methods compiled with the inliner settings of -O3.");
             }
