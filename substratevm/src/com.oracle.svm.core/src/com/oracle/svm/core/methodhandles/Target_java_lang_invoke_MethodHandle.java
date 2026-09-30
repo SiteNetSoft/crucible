@@ -41,6 +41,7 @@ import java.util.Arrays;
 import com.oracle.svm.core.ForeignSupport;
 import com.oracle.svm.core.annotate.Alias;
 import com.oracle.svm.core.annotate.Delete;
+import com.oracle.svm.core.annotate.Inject;
 import com.oracle.svm.core.annotate.RecomputeFieldValue;
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
@@ -78,6 +79,14 @@ final class Target_java_lang_invoke_MethodHandle {
 
     @Alias @RecomputeFieldValue(isFinal = true, kind = RecomputeFieldValue.Kind.None) //
     MethodType type;
+
+    /**
+     * For an adapter that {@code asType} made around a direct method handle and that only casts
+     * references, the direct handle. {@link #invokeBasic} then does the casts and calls it, where
+     * it would interpret the adapter's lambda form for every call.
+     */
+    @Inject @RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset) //
+    Target_java_lang_invoke_MethodHandle castingAdapterTarget;
 
     @Alias
     native Target_java_lang_invoke_MemberName internalMemberName();
@@ -117,6 +126,19 @@ final class Target_java_lang_invoke_MethodHandle {
             }
             Class<?> callerClass = delegates ? internalCallerClass() : null;
             ret = Util_java_lang_invoke_MethodHandle.invokeInternal(memberName, type, callerClass, args);
+        } else if (castingAdapterTarget != null) {
+            /* An asType adapter that only casts references, around a direct method handle. */
+            Target_java_lang_invoke_MethodHandle target = castingAdapterTarget;
+            MethodType targetType = target.type;
+            for (int i = 0; i < args.length; i++) {
+                Class<?> parameterType = targetType.parameterType(i);
+                Object arg = args[i];
+                if (parameterType != type.parameterType(i) && arg != null && !parameterType.isInstance(arg)) {
+                    /* As Class.cast says it; an implicit type check would lose the message. */
+                    throw new ClassCastException("Cannot cast " + arg.getClass().getName() + " to " + parameterType.getName());
+                }
+            }
+            ret = target.invokeBasic(args);
         } else {
             /* Interpretation mode */
             Target_java_lang_invoke_LambdaForm form = internalForm();
@@ -195,6 +217,26 @@ final class Target_java_lang_invoke_MethodHandle {
 }
 
 final class Util_java_lang_invoke_MethodHandle {
+    /**
+     * Whether converting from {@code dstType} to {@code srcType} takes nothing but reference
+     * casts of the arguments, and a return value that is the same or is returned as an object.
+     */
+    static boolean castsReferencesOnly(MethodType srcType, MethodType dstType) {
+        if (srcType.parameterCount() != dstType.parameterCount()) {
+            return false;
+        }
+        for (int i = 0; i < srcType.parameterCount(); i++) {
+            Class<?> source = srcType.parameterType(i);
+            Class<?> destination = dstType.parameterType(i);
+            if (source != destination && (source.isPrimitive() || destination.isPrimitive())) {
+                return false;
+            }
+        }
+        Class<?> sourceReturn = srcType.returnType();
+        Class<?> destinationReturn = dstType.returnType();
+        return sourceReturn == destinationReturn || (sourceReturn == Object.class && destinationReturn != void.class);
+    }
+
     static Object linkTo(Object... args) throws Throwable {
         assert args.length > 0;
         Target_java_lang_invoke_MemberName memberName = (Target_java_lang_invoke_MemberName) args[args.length - 1];
@@ -384,6 +426,31 @@ final class Target_java_lang_invoke_DelegatingMethodHandle {
 
 @TargetClass(className = "java.lang.invoke.MethodHandleImpl")
 final class Target_java_lang_invoke_MethodHandleImpl {
+
+    @Alias
+    static native MethodHandle makePairwiseConvertByEditor(MethodHandle target, MethodType srcType, boolean strict, boolean monobox);
+
+    /**
+     * As the JDK's, and when the adapter only casts references around a direct method handle, the
+     * adapter is told its target: see {@code Target_java_lang_invoke_MethodHandle.castingAdapterTarget}.
+     * This is how {@code asType} makes an adapter, and a library that keeps a getter as a handle
+     * of type {@code (Object)Object} calls one for every read.
+     */
+    @Substitute
+    static MethodHandle makePairwiseConvert(MethodHandle target, MethodType srcType, boolean strict, boolean monobox) {
+        MethodType dstType = target.type();
+        if (srcType == dstType) {
+            return target;
+        }
+        MethodHandle adapter = makePairwiseConvertByEditor(target, srcType, strict, monobox);
+        Target_java_lang_invoke_MethodHandle substrateTarget = SubstrateUtil.cast(target, Target_java_lang_invoke_MethodHandle.class);
+        Target_java_lang_invoke_MethodHandle substrateAdapter = SubstrateUtil.cast(adapter, Target_java_lang_invoke_MethodHandle.class);
+        if (adapter != target && substrateAdapter.internalMemberName() == null && substrateTarget.internalMemberName() != null &&
+                        !Target_java_lang_invoke_DelegatingMethodHandle.class.isInstance(target) && Util_java_lang_invoke_MethodHandle.castsReferencesOnly(srcType, dstType)) {
+            substrateAdapter.castingAdapterTarget = substrateTarget;
+        }
+        return adapter;
+    }
 }
 
 @TargetClass(className = "java.lang.invoke.MethodHandleImpl", innerClass = "ArrayAccessor")

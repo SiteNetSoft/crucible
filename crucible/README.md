@@ -104,6 +104,8 @@ from each compiler; lower is better.
 | JsonBench | 1.55 s | **1.41 s** |
 | BenchPGO | 0.37 s | **0.29 s** |
 | Renaissance, twelve benchmarks | ahead on three | ahead on six, level on three |
+| Quarkus REST/JSON quickstart, requests a second | 90,364 | **93,401** |
+| Spring PetClinic, requests a second on `/vets` (JSON) | 36,936 | **44,188** |
 
 CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 19%, scala-doku by 16%, philosophers by 11%, mnemonics by 11%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
 It is behind by 5 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
@@ -111,6 +113,7 @@ Over the twelve the geometric mean of the ratios is 0.945, that is 5.5% ahead.
 On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
 Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
+The two services are built by their frameworks' own native builds, recorded under the load they are timed with, with the service on four processors and the load on four others; PetClinic also answers its page `/` 8% faster, in 172 MB of memory where Oracle's binary has 390.
 
 The gain from the profile is as large as Oracle's or larger on most of these. Where CrucibleVM is
 behind, the two compilers already differ by about that much without any profile, and on the
