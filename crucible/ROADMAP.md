@@ -18,11 +18,11 @@ Absolute time of the profile-guided binary from each compiler, milliseconds; for
 | JsonBench | 1545 | **1410** | ahead by 9% |
 | BenchPGO | 372 | **294** | ahead by 21%; 278 with a recording one count short, item W |
 | Renaissance par-mnemonics | 1840 | **1353** | ahead by 26% |
-| Renaissance akka-uct | 13963 | **12007** | ahead by 14%; by 19% over six rounds on 2026-09-29 |
+| Renaissance akka-uct | 13963 | **12007** | ahead by 14%; by 19% over six rounds on 2026-09-29. In four times the memory, 2,892 MB at its peak against 767: with the heap capped at 768 MB it runs 14,503, behind by 2% |
 | Renaissance scala-doku | 1246 | **1059** | ahead by 15% |
 | Renaissance philosophers | 1688 | **1416** | ahead by 16% |
 | Renaissance mnemonics | 1836 | **1621** | ahead by 12%; large arrays are no longer zeroed twice, item X. A run settles at about 1615 ms or about 1705 and can change within the run, at any tenuring threshold |
-| Renaissance scrabble | 250.1 | **234.5** | ahead by 6% |
+| Renaissance scrabble | 250.1 | **234.5** | ahead by 6%, in 3.5 times the memory, 586 MB at its peak against 166: with the heap capped at 192 MB it runs 261.8, behind by 5% |
 | Renaissance future-genetic | 944 | 933 | level by the median; one iteration in four or five is 20 to 25% slower, item P |
 | Renaissance reactors | 10127 | 10405 | level; each binary is ahead in some rounds, by up to 10% |
 | Renaissance scala-kmeans | 171.1 | 175.0 | level, behind by 2% as two builds of it from the same recording differ |
@@ -34,6 +34,7 @@ Ahead on thirteen of the nineteen, level on three, behind on three.
 Over the twelve Renaissance benchmarks the geometric mean of the ratios is 0.943, that is 5.7% ahead, with a spread from 26% ahead to 12% behind.
 
 The Renaissance rows are from 2026-09-30, the tree with cold code compiled for size (item K) and the method-handle adapters (item Y): one machine with six processors, `-O3`, three rounds of each benchmark, Oracle's binary in the same run, from recordings made with probes on the branches (item W), with the tenuring threshold that chooses between one and zero (item M3).
+The binaries run with the heap each collector chooses. CrucibleVM's uses less memory than Oracle's on seven of the twelve, fj-kmeans 165 MB against 1,168 and mnemonics 196 against 445, and much more on three: akka-uct four times, scrabble three and a half, scala-stm-bench7 one and a half. Capped at Oracle's memory, akka-uct and scrabble go from ahead to behind by 2 and 5%.
 Over a whole Renaissance run CrucibleVM's binary takes longer than its iterations say: on scrabble the twenty iterations add up to 5.1 s against Oracle's 5.3, and the run to 8.4 s against 6.7. The difference is outside the iterations, much of it the complete collection the harness asks for before each one, 99 ms in ours against 69 in Oracle's.
 Until that day the geometric mean was 0.998, with mnemonics, scrabble, and future-genetic behind by 5 to 13%.
 The two services are from 2026-09-29, the same machine: each built by its framework's own native build (for Quarkus its argument file, for PetClinic the command Spring's Maven plugin runs), recorded under the load it is timed with, the service on four processors and the load (oha, 16 connections, 20 s of warm-up and 30 s measured a page) on four others, three rounds, and a second profile-guided build of each compiler's image. Without a profile Oracle's compiler is ahead by 11% on Quarkus and by 12 to 22% on PetClinic; CrucibleVM's profile is worth 65 to 82% there, Oracle's 35 to 53%. PetClinic's owner pages answer 500 in Spring's own native image of it as well, so its two other pages are the ones timed.
