@@ -107,8 +107,17 @@ public final class SerialGCOptions {
 
     /** Query these options only through an appropriate method. */
     public static class ConcealedOptions {
+        /*
+         * Off by default, where the community edition has it on: copying is what Oracle's
+         * binaries collect the old generation with, and a complete collection takes 386 ms with
+         * it on akka-uct against 533 compacting. With the heap capped at the memory Oracle's
+         * binary uses, the twelve Renaissance benchmarks come out 2 to 4% ahead of it copying and
+         * level compacting, and none of them falls off the cliff scala-stm-bench7 does
+         * compacting. Compacting keeps the heap smaller, which is why it stays: build with
+         * -H:+CompactingOldGen where memory is what limits.
+         */
         @Option(help = "Collect old generation by compacting in-place instead of copying. Serial GC only.", type = OptionType.Expert) //
-        public static final HostedOptionKey<Boolean> CompactingOldGen = new HostedOptionKey<>(true, SerialGCOptions::validateCompactingOldGen);
+        public static final HostedOptionKey<Boolean> CompactingOldGen = new HostedOptionKey<>(false, SerialGCOptions::validateCompactingOldGen);
 
         @Option(help = "Determines if a remembered set is used, which is necessary for collecting the young and old generation independently. Serial GC only.", type = OptionType.Expert) //
         public static final HostedOptionKey<Boolean> UseRememberedSet = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);

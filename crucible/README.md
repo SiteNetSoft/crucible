@@ -103,14 +103,14 @@ from each compiler; lower is better.
 | BranchBench | 0.55 s | **0.46 s** |
 | JsonBench | 1.55 s | **1.41 s** |
 | BenchPGO | 0.37 s | **0.29 s** |
-| Renaissance, twelve benchmarks | ahead on three | ahead on six, level on three |
+| Renaissance, twelve benchmarks | ahead on four | ahead on six, level on two |
 | Quarkus REST/JSON quickstart, requests a second | 90,364 | **93,401** |
 | Spring PetClinic, requests a second on `/vets` (JSON) | 36,936 | **44,188** |
 
-CrucibleVM is ahead on six of the twelve (par-mnemonics by 26%, philosophers by 16%, scala-doku by 15%, akka-uct by 14%, mnemonics by 12%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
-It is behind by 5 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
-Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead.
-On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
+CrucibleVM is ahead on six of the twelve (par-mnemonics by 26%, akka-uct by 22%, scala-doku by 15%, mnemonics by 13%, philosophers by 6%, and reactors by 4%) and level on two (future-genetic and scala-kmeans).
+It is behind by 3 to 10% on the other four, fj-kmeans, rx-scrabble, scala-stm-bench7, and scrabble.
+Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead, and with the heap of each capped at the memory Oracle's binary uses on it, 0.980.
+On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
 Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
 The two services are built by their frameworks' own native builds, recorded under the load they are timed with, with the service on four processors and the load on four others; PetClinic also answers its page `/` 8% faster, in 172 MB of memory where Oracle's binary has 390.
@@ -140,10 +140,11 @@ If your program keeps its objects for a couple of collections and then drops the
 On the twelve Renaissance benchmarks it is level with the default but for rx-scrabble, which is 1% slower.
 `-XX:+VerboseGC` prints the tenuring age in use at each collection, which is the threshold plus one.
 See `docs/issues/2026-09-27-the-collector-copied-what-it-was-going-to-promote-anyway.md`.
-If memory is not what limits your program, build with `-H:-CompactingOldGen`.
-The old generation is then collected by copying, as it is in Oracle's binaries, and a complete collection takes a little over half the time.
-A program that kept 2 GB alive ran 21% faster for it and peaked at 5.5 GB where the default peaks at 4.2 GB.
-On the twelve Renaissance benchmarks it is 1 to 8% faster on six and 2 to 8% slower on three, in about the same memory, because they keep little alive.
+The old generation is collected by copying, as it is in Oracle's binaries, where the community edition compacts it in place.
+A complete collection takes about two thirds of the time: 386 ms on akka-uct against 533.
+With the heap capped at the memory Oracle's binary uses, the twelve Renaissance benchmarks are 2 to 4% ahead of it copying and level compacting, and compacting is where scala-stm-bench7 falls off a cliff, 54% behind at 352 MB.
+A program that kept 2 GB alive ran 21% faster copying and peaked at 5.5 GB where compacting peaks at 4.2 GB.
+If memory is what limits your program, build with `-H:+CompactingOldGen`.
 See `docs/issues/2026-09-28-what-the-old-generation-is-collected-with.md`.
 
 `-XX:InitialCollectionPolicy=Adaptive` and `BySpaceAndTime` are the older ways to the

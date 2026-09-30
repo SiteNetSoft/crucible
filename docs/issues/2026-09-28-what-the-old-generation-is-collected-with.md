@@ -71,7 +71,38 @@ All three binaries print the same checksum.
 
 A complete collection by copying takes a little over half the time of one by compacting, and the program runs 17 to 21% faster for it.
 It takes 24 to 45% more memory at its peak, and the more the more is kept alive.
-That is the trade the compacting old generation was made the default for, and it stays the default.
+That is the trade the compacting old generation was made the default for.
+
+## Under the Memory Oracle's Binary Uses
+
+`2026-09-30`
+
+With each collector choosing its own heap, the comparison is not between equals: on akka-uct this tree's binary peaks at four times the memory of Oracle's, on scrabble at three and a half times.
+So each of the twelve was run again with this tree's heap capped at the peak Oracle's binary reaches on it, with each old generation, two rounds, beside Oracle's binary uncapped.
+
+| | our time over Oracle's, compacting | copying |
+| --- | --- | --- |
+| par-mnemonics, 336 MB | 0.787 | 0.763 |
+| scala-doku, 136 MB | 0.873 | 0.867 |
+| philosophers, 64 MB | 0.929 | 0.886 |
+| mnemonics, 448 MB | 0.912 | 0.896 |
+| reactors, 1200 MB | 0.977 | 0.959 |
+| akka-uct, 768 MB | 1.012 | 0.970 |
+| scrabble, 192 MB | 1.043 | 0.998 |
+| future-genetic, 64 MB | 1.056 | 1.015 |
+| fj-kmeans, 1200 MB | 1.056 | 1.038 |
+| scala-kmeans, 96 MB | 1.069 | 1.078 |
+| rx-scrabble, 160 MB | 1.090 | 1.073 |
+| scala-stm-bench7, 352 MB | 1.536 | 1.318 |
+| geometric mean | 1.015 | 0.980 |
+
+Compacting, scala-stm-bench7 falls off a cliff under a cap: at 352 and in one round of two at 448 MB it runs 1250 to 1490 ms, and from 512 MB 990 to 1020, where Oracle's binary runs 890 at every cap from 352 MB up.
+Copying, it runs 950 to 978 from 448 MB, in 342 MB, the memory Oracle's uses, and the geometric mean with it at 448 MB is 0.963.
+akka-uct shows where the difference is: a complete collection takes 533 ms compacting, 386 copying, and 384 in Oracle's binary, which copies.
+Capped at 768 MB it runs 14,342 ms compacting and 13,445 copying, where Oracle's binary capped the same runs 14,575.
+Neither the tenuring threshold nor a larger young generation moves it: at 1 GB the thresholds 0, 1, and the default give 13,872 to 15,154 ms, and a young generation of 400 or 600 MB 15,201 and 15,791.
+
+So the copying old generation is now the default, as it is in Oracle's binaries, and `-H:+CompactingOldGen` gives the compacting one back where memory is what limits.
 
 ## What Did Not Lead Anywhere
 
