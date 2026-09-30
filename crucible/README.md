@@ -107,9 +107,9 @@ from each compiler; lower is better.
 | Quarkus REST/JSON quickstart, requests a second | 90,364 | **93,401** |
 | Spring PetClinic, requests a second on `/vets` (JSON) | 36,936 | **44,188** |
 
-CrucibleVM is ahead on six of the twelve (par-mnemonics by 25%, akka-uct by 19%, scala-doku by 16%, philosophers by 11%, mnemonics by 11%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
+CrucibleVM is ahead on six of the twelve (par-mnemonics by 26%, philosophers by 16%, scala-doku by 15%, akka-uct by 14%, mnemonics by 12%, and scrabble by 6%) and level on three (future-genetic, reactors, and scala-kmeans).
 It is behind by 5 to 12% on the other three, fj-kmeans, rx-scrabble, and scala-stm-bench7.
-Over the twelve the geometric mean of the ratios is 0.945, that is 5.5% ahead.
+Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead.
 On scala-stm-bench7 what is left is collection, and on the other two it is the compiled program and not the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
 Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
