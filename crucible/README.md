@@ -166,7 +166,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleMinimumSamplesAtCall` | 32 | fewest samples under a call for the sampled stacks to be believed about where it goes |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
 | `CrucibleColdCodeSize` | on | keep cold methods from inlining |
-| `CrucibleColdOptimizeForSize` | off | compile cold methods with the settings of `-Os`: the image of a Quarkus service 11% smaller, of Spring PetClinic 12%, of a Renaissance benchmark 7 to 10%, at the same speed |
+| `CrucibleColdOptimizeForSize` | on | compile cold methods with the settings of `-Os`: the image of a Quarkus service 11% smaller, of Spring PetClinic 12%, of a Renaissance benchmark or a sample 7 to 10%, at the same speed on all nineteen |
 | `CrucibleCodeLayout` | on | order the code section by call count |
 | `CrucibleHotMethodsAtFullSettings` | on | below `-O3`, compile hot methods as `-O3` would |
 | `CrucibleMinimumReceiverShare` | 0.01 | least share of a call site's calls for a receiver type to get its own test and inlined body |

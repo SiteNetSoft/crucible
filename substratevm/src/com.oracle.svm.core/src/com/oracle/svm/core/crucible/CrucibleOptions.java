@@ -235,7 +235,7 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
 
     @Option(help = "Compile the methods the profile never saw run with the settings of -Os, as a build at that level compiles every method.", type = OptionType.User)//
-    public static final HostedOptionKey<Boolean> CrucibleColdOptimizeForSize = new HostedOptionKey<>(false);
+    public static final HostedOptionKey<Boolean> CrucibleColdOptimizeForSize = new HostedOptionKey<>(true);
 
     @Option(help = "Share of all recorded executions a callee must account for before it is inlined even when the " +
                     "static budget refuses. Nothing in the community edition uses profiled call counts to decide inlining.", type = OptionType.User)//
