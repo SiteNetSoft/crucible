@@ -74,4 +74,6 @@ Over the twelve, three rounds each, against Oracle's binary:
 
 The bonus is worth 1.5% there, scrabble 5% and scala-kmeans 4%, and costs both services, so the recipe in the README leaves it out.
 Without it the twelve run 2.9% faster than from counts alone, future-genetic 6% and scrabble 9%, and reactors, 3% slower, is the only one that is not faster or level, within its rounds.
+A second round of three, with the first, puts it at 3.4% faster over six rounds and 0.922 against Oracle's binary where counts give 0.955, with none of the twelve slower: akka-uct 6%, scrabble 6%, future-genetic, reactors, and par-mnemonics 4 to 5%, fj-kmeans level.
+On the five samples it is level or faster, BenchPGO 278 ms against 295, and Spring PetClinic and Quarkus run the same.
 Keeping Oracle's dispatch limits for hot units, three receivers at a call and each with 9% of the calls, was not the cause either: with the community edition's four and 10%, PetClinic's `/vets` was 3 to 5% slower all the same.

@@ -75,10 +75,10 @@ hot methods and the copies the budget Oracle's builder gives a hot unit,
 
     -H:-CrucibleSampledTargetsOutsideCopies -H:+CrucibleHotInliningBudget
 
-the twelve Renaissance benchmarks run 2.9% faster than from the counted profile alone, scrabble 9%,
-future-genetic 6%, rx-scrabble 4%, and none of them more than reactors' 3% slower, which is within
-its rounds; the geometric mean against Oracle's binary goes from 0.956 to 0.928. Spring PetClinic
-runs the same. The copies need the larger budget: without them it makes rx-scrabble 3 to 5% slower.
+the twelve Renaissance benchmarks run 3.4% faster than from the counted profile alone over six
+rounds, akka-uct 6%, scrabble 6%, future-genetic, reactors and par-mnemonics 4 to 5%, and none of
+them slower; the geometric mean against Oracle's binary goes from 0.955 to 0.922. Spring PetClinic,
+Quarkus, and the five samples run the same or faster, BenchPGO 6%. The copies need the larger budget: without them it makes rx-scrabble 3 to 5% slower.
 `-H:CrucibleHotBonusWhileExpanding=50`, which makes the inliner look sooner into the calls the
 samples saw time spent under, adds 1.5% on Renaissance (scrabble 5%, scala-kmeans 4%) and costs
 PetClinic 3 to 4%.
