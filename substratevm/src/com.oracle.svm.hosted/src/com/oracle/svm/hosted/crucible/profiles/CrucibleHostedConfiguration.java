@@ -188,6 +188,16 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
     private static volatile EconomicMap<OptionKey<?>, Object> hotMethodOptions;
 
     /**
+     * The priority inliner's limits as Oracle GraalVM's builder sets them for a compilation unit
+     * its samples show hot ({@code native-image --expert-options-all}): a larger budget, no
+     * penalties for size, and a lower bar for a call's share of the benefit.
+     */
+    private static final String HOT_INLINING_BUDGET = "BaseTargetSpending=300:CutoffCodeSizePenaltyCoefficient=0:CompilerNodePenaltyCoefficient=0:" +
+                    "LargeChildrenCountPenaltyCoefficient=0:SmallRootIrPenaltyCoefficient=0:RelativeBenefitInliningCoefficient=0.0002:" +
+                    "TypicalGraphSize=4320:TypicalGraphSizeInvokeBonus=20:ExpansionInertiaBaseValue=550:MaxPolymorphicDispatches=3:" +
+                    "MinPolymorphicDispatchProbability=0.09";
+
+    /**
      * Compiler options given on top of everything else to the methods the run spent its time in,
      * from {@code -H:CrucibleHotMethodOptions=Name=value:Name=value}. Many of the compiler's limits
      * are read as each method is compiled, so they can be different for the few methods where a
@@ -198,6 +208,10 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
         if (parsed == null) {
             parsed = OptionValues.newOptionMap();
             String spec = CrucibleOptions.CrucibleHotMethodOptions.getValue();
+            if (CrucibleOptions.CrucibleHotInliningBudget.getValue()) {
+                /* First, so that a value given in CrucibleHotMethodOptions as well wins over this one. */
+                spec = spec.isEmpty() ? HOT_INLINING_BUDGET : HOT_INLINING_BUDGET + ":" + spec;
+            }
             if (!spec.isEmpty()) {
                 EconomicMap<String, String> settings = EconomicMap.create();
                 for (String setting : spec.split(":")) {

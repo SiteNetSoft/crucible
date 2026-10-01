@@ -15,6 +15,7 @@ CrucibleVM can make such copies too (`CrucibleContextClones`), but only from a p
 With stacks added, the builder copied `run` ten times, and each copy stopped inlining after 6 to 12 calls: at the filter's own downstream `onNext` the inliner's budget was spent.
 Neither longer sampling (27,776 samples against 4,272) nor believing the stacks from 8 samples under a call rather than 32 changed that.
 Oracle's builder gives a method the samples show hot a larger budget, and its values passed to CrucibleVM's hot methods (`-H:CrucibleHotMethodOptions`) took rx-scrabble from 68 ms to 66, against Oracle's 64, with the copies.
+`-H:+CrucibleHotInliningBudget` gives those values in one option, and builds an image of the same size that runs the same.
 Without the copies the same values made it 3 to 5% slower, the larger budget spent in code shared by every pipeline.
 
 Across the twelve Renaissance benchmarks that combination made scrabble 12% faster and philosophers 10%, and future-genetic 33% slower and scala-doku 48%.
@@ -50,5 +51,6 @@ The twelve Renaissance benchmarks, each from a profile with about a minute of sa
 | mnemonics | 1,826 | 1,590 | 1,659 | 4% slower |
 
 The geometric mean of the ratios is 0.967, and against Oracle's binary it goes from 0.947 to 0.916.
+A second round of all twelve, three runs each, gave 0.969, and 0.950 to 0.921 against Oracle's binary; mnemonics was again the one slower, by 4%.
 A second build of the fixed image of scrabble and of future-genetic ran within the rounds of the first.
 The stacks are not part of a profile by default: they need an image built with JFR, a run sampled, and the stacks added with `crucible/samples/jfr-to-samples.py`, as the README says.

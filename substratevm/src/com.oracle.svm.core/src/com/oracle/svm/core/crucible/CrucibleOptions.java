@@ -199,6 +199,10 @@ public final class CrucibleOptions {
     @Option(help = "Least share of a call site's observations a recorded calling context needs before its record is used in place of the site's own.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleContextMinimumShare = new HostedOptionKey<>(0.001);
 
+    @Option(help = "Give the methods the run spent its time in, and the copies made of methods for one caller, the priority inliner's larger budget " +
+                    "that Oracle GraalVM's builder gives a hot compilation unit. Pays with sampled stacks and copies; without copies it can cost.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleHotInliningBudget = new HostedOptionKey<>(false);
+
     @Option(help = "Compiler options for the methods the run spent its time in only, as Name=value:Name=value. For trying a setting out.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleHotMethodOptions = new HostedOptionKey<>("");
 
