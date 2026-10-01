@@ -54,3 +54,24 @@ The geometric mean of the ratios is 0.967, and against Oracle's binary it goes f
 A second round of all twelve, three runs each, gave 0.969, and 0.950 to 0.921 against Oracle's binary; mnemonics was again the one slower, by 4%.
 A second build of the fixed image of scrabble and of future-genetic ran within the rounds of the first.
 The stacks are not part of a profile by default: they need an image built with JFR, a run sampled, and the stacks added with `crucible/samples/jfr-to-samples.py`, as the README says.
+
+## The Expansion Bonus
+
+`2026-10-01`
+
+The numbers above were taken with `-H:CrucibleHotBonusWhileExpanding=50` as well, which makes the inliner look sooner into the calls the samples saw time spent under.
+On Spring PetClinic the same build made `/vets` 4% slower, and on Quarkus 1 to 2%.
+With the bonus alone, and no larger budget, PetClinic lost the same 4%; with the budget alone, and no bonus, it ran the same as the image built from counts, and so did Quarkus.
+
+Over the twelve, three rounds each, against Oracle's binary:
+
+| | geometric mean |
+| --- | --- |
+| counted profile | 0.956 |
+| stacks in copies only, the budget and the bonus | 0.914 |
+| stacks in copies only and the budget | **0.928** |
+| stacks in copies only, the budget for copies alone | 0.930 |
+
+The bonus is worth 1.5% there, scrabble 5% and scala-kmeans 4%, and costs both services, so the recipe in the README leaves it out.
+Without it the twelve run 2.9% faster than from counts alone, future-genetic 6% and scrabble 9%, and reactors, 3% slower, is the only one that is not faster or level, within its rounds.
+Keeping Oracle's dispatch limits for hot units, three receivers at a call and each with 9% of the calls, was not the cause either: with the community edition's four and 10%, PetClinic's `/vets` was 3 to 5% slower all the same.

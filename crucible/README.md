@@ -73,13 +73,15 @@ it: future-genetic ran 33% slower and scala-doku 48%. Build with
 where they tell one caller's pipeline from another's. With that, and with the inliner given for the
 hot methods and the copies the budget Oracle's builder gives a hot unit,
 
-    -H:-CrucibleSampledTargetsOutsideCopies -H:+CrucibleHotInliningBudget -H:CrucibleHotBonusWhileExpanding=50
+    -H:-CrucibleSampledTargetsOutsideCopies -H:+CrucibleHotInliningBudget
 
-the twelve Renaissance benchmarks run 3.1 to 3.3% faster, over two rounds of three, than from the
-counted profile alone: scrabble 10 to 11%, philosophers 6%, scala-kmeans 5 to 6%, rx-scrabble 2.5
-to 5%, and mnemonics 4% slower. The geometric mean against Oracle's binary goes from 0.947 to 0.916
-and from 0.950 to 0.921. The copies need the larger budget: without them it makes rx-scrabble 3 to
-5% slower.
+the twelve Renaissance benchmarks run 2.9% faster than from the counted profile alone, scrabble 9%,
+future-genetic 6%, rx-scrabble 4%, and none of them more than reactors' 3% slower, which is within
+its rounds; the geometric mean against Oracle's binary goes from 0.956 to 0.928. Spring PetClinic
+runs the same. The copies need the larger budget: without them it makes rx-scrabble 3 to 5% slower.
+`-H:CrucibleHotBonusWhileExpanding=50`, which makes the inliner look sooner into the calls the
+samples saw time spent under, adds 1.5% on Renaissance (scrabble 5%, scala-kmeans 4%) and costs
+PetClinic 3 to 4%.
 See `docs/issues/2026-09-30-samples-count-time-not-calls.md`.
 
 ### A profile recorded by Oracle GraalVM
