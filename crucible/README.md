@@ -116,7 +116,7 @@ from each compiler; lower is better.
 
 | workload | Oracle GraalVM | CrucibleVM |
 | --- | --- | --- |
-| GameOfLife (Oracle's own example) | 3.19 s | **2.92 s** |
+| GameOfLife (Oracle's own example) | 3.19 s | **2.96 s** |
 | ArrayBench | 0.37 s | **0.33 s** |
 | BranchBench | 0.55 s | **0.46 s** |
 | JsonBench | 1.55 s | **1.41 s** |
@@ -127,7 +127,8 @@ from each compiler; lower is better.
 
 CrucibleVM is ahead on six of the twelve (par-mnemonics by 26%, akka-uct by 22%, scala-doku by 15%, mnemonics by 13%, philosophers by 6%, and reactors by 4%) and level on two (future-genetic and scala-kmeans).
 It is behind by 3 to 10% on the other four, fj-kmeans, rx-scrabble, scala-stm-bench7, and scrabble.
-Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead, and with the heap of each capped at the memory Oracle's binary uses on it, 0.980.
+Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead, and with the heap of each capped at the memory Oracle's binary uses on it, 0.958.
+With each collector choosing its heap, CrucibleVM's binary peaks in less memory than Oracle's on six of the twelve (fj-kmeans 168 MB against 637, mnemonics 161 against 431, par-mnemonics 257 against 499, scala-doku 80 against 132, rx-scrabble 113 against 153, reactors 994 against 1,036), in about the same on three, and in more on three: akka-uct 3,072 MB against 983, scrabble 350 against 182, scala-stm-bench7 458 against 365.
 On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
 Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
