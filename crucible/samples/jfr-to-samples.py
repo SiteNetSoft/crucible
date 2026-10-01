@@ -29,13 +29,41 @@ def frame_id(frame):
     return "L%s;.%s%s:%d" % (type_id(method["type"]["name"]), method["name"], method["descriptor"], frame.get("bytecodeIndex", -1))
 
 
+def events_of(path, chunk=1 << 20):
+    # One event at a time: `jfr print --json` writes close to 80 KB for an event with a deep stack, and a
+    # minute of a many-threaded program comes to gigabytes, which json.load would hold all at once.
+    decoder = json.JSONDecoder()
+    with open(path) as f:
+        buf = ""
+        while '"events"' not in buf:
+            more = f.read(chunk)
+            if not more:
+                return
+            buf += more
+        buf = buf[buf.index('"events"'):]
+        buf = buf[buf.index("[") + 1:]
+        while True:
+            buf = buf.lstrip(" \t\r\n,")
+            if buf.startswith("]"):
+                return
+            try:
+                event, end = decoder.raw_decode(buf)
+            except json.JSONDecodeError:
+                more = f.read(chunk)
+                if not more:
+                    raise
+                buf += more
+                continue
+            yield event
+            buf = buf[end:]
+
+
 def main():
     if len(sys.argv) != 4:
         sys.exit(__doc__)
     profile = json.load(open(sys.argv[1]))
-    events = json.load(open(sys.argv[2]))["recording"]["events"]
     stacks = collections.Counter()
-    for event in events:
+    for event in events_of(sys.argv[2]):
         frames = (event["values"].get("stackTrace") or {}).get("frames") or []
         if frames:
             # JFR lists the innermost frame first; the profile wants the outermost first.
