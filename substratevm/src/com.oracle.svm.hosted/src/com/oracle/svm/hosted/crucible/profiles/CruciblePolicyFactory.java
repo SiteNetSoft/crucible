@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.hosted.crucible.profiles;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.oracle.svm.core.crucible.CrucibleOptions;
@@ -43,8 +44,18 @@ import jdk.graal.compiler.phases.common.priorityinline.CallTree;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CallTreeNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.CutoffNode;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.DontInlineCause;
+import jdk.graal.compiler.phases.common.priorityinline.nodes.ParentNode;
+import jdk.graal.compiler.phases.common.priorityinline.data.BenefitKind;
+import jdk.graal.compiler.phases.common.priorityinline.tuning.CompositeTuningPolicy;
+import jdk.graal.compiler.phases.common.priorityinline.tuning.NoTuningPolicy;
+import jdk.graal.compiler.phases.common.priorityinline.tuning.TuningPolicy;
+import jdk.graal.compiler.nodes.Invoke;
+import jdk.graal.compiler.nodes.ValueNode;
+import jdk.graal.compiler.nodes.java.NewInstanceNode;
+import jdk.graal.compiler.nodes.virtual.AllocatedObjectNode;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
+import jdk.vm.ci.meta.ResolvedJavaType;
 
 /**
  * Stops inlining into methods the profile never saw run.
@@ -75,6 +86,73 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
     public Expander.Policy createExpanderPolicy(OptionValues options, HighTierContext context) {
         return new ColdAwareExpanderPolicy();
     }
+
+    @Override
+    public TuningPolicy createTuningPolicy(OptionValues options) {
+        TuningPolicy policy = super.createTuningPolicy(options);
+        double factor = CrucibleOptions.CrucibleFreshArgumentBenefit.getValue();
+        return factor == 1.0 ? policy : new CompositeTuningPolicy(List.of(policy, new FreshArgumentTuningPolicy(factor)));
+    }
+
+    /**
+     * Counts a call for more when one of its arguments is an object allocated for it.
+     * <p>
+     * The inliner notes such an argument ({@link BenefitKind#NewAllocation}) and does nothing with
+     * it: only a constant or a better type makes a call worth more. Yet an object allocated for a
+     * call and used by the callee alone is one escape analysis can take out once the callee is
+     * inlined, and nowhere else. Collectors.groupingBy hands HashMap.computeIfAbsent a lambda made
+     * for each element, and declining computeIfAbsent on its size cost scrabble 2.9 GB of
+     * allocation that Oracle's binary does not have.
+     */
+    private static final class FreshArgumentTuningPolicy extends NoTuningPolicy {
+        private final double factor;
+
+        FreshArgumentTuningPolicy(double factor) {
+            this.factor = factor;
+        }
+
+        /** Looked into sooner. */
+        @Override
+        public double cutoffLocalBenefitAmplifier(CutoffNode node) {
+            return node.getBenefits().contains(BenefitKind.NewAllocation) && qualifies(node) ? factor : 1.0;
+        }
+
+        /** And, once looked into, worth more to inline, which is the benefit the decision weighs. */
+        @Override
+        public double parentLocalBenefitAmplifier(ParentNode node) {
+            if (node.getBenefits().contains(BenefitKind.NewAllocation) && qualifies(node)) {
+                FRESH_ARGUMENT_CALLS.incrementAndGet();
+                return factor;
+            }
+            return 1.0;
+        }
+
+        /**
+         * With {@code CrucibleFreshArgumentLambdasOnly}, only a lambda counts: the object a call is
+         * handed to run, and that inlining the call lets escape analysis remove. A builder or an
+         * iterator allocated for a call usually outlives it.
+         */
+        private static boolean qualifies(CallTreeNode node) {
+            if (!CrucibleOptions.CrucibleFreshArgumentLambdasOnly.getValue()) {
+                return true;
+            }
+            Invoke invoke = node.invoke();
+            if (invoke == null) {
+                return false;
+            }
+            for (ValueNode argument : invoke.callTarget().arguments()) {
+                ResolvedJavaType type = argument instanceof NewInstanceNode allocation ? allocation.instanceClass()
+                                : argument instanceof AllocatedObjectNode allocated ? allocated.getVirtualObject().type() : null;
+                if (type != null && type.getName().contains("$$Lambda")) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /** Calls counted for more because an argument was allocated for them. */
+    public static final AtomicLong FRESH_ARGUMENT_CALLS = new AtomicLong();
 
     /**
      * Keeps a cold method from exploring its callees in the first place.

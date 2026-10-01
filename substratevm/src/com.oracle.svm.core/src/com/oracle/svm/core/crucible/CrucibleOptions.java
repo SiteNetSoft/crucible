@@ -203,6 +203,13 @@ public final class CrucibleOptions {
                     "that Oracle GraalVM's builder gives a hot compilation unit. Pays with sampled stacks and copies; without copies it can cost.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleHotInliningBudget = new HostedOptionKey<>(false);
 
+    @Option(help = "How many times a call counts for more in the inliner's eyes when one of its arguments is an object allocated for it, " +
+                    "which escape analysis can remove once the callee is inlined. 1 leaves the inliner as it is.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleFreshArgumentBenefit = new HostedOptionKey<>(1.0);
+
+    @Option(help = "Count a call for more under -H:CrucibleFreshArgumentBenefit only when the object allocated for it is a lambda.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleFreshArgumentLambdasOnly = new HostedOptionKey<>(false);
+
     @Option(help = "Compiler options for the methods the run spent its time in only, as Name=value:Name=value. For trying a setting out.", type = OptionType.Debug)//
     public static final HostedOptionKey<String> CrucibleHotMethodOptions = new HostedOptionKey<>("");
 
