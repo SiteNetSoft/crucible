@@ -66,6 +66,22 @@ stacks in the profile, which methods are hot is measured rather than inferred, t
 told where each call goes in each calling context, and a method that takes a real share of the run
 under one caller is compiled again for that caller (`CrucibleContextClones`).
 
+Samples count time, not calls, so a receiver that is called often and returns quickly can be
+missing from them, and a method compiled for everyone loses the inlining the counted receivers gave
+it: future-genetic ran 33% slower and scala-doku 48%. Build with
+`-H:-CrucibleSampledTargetsOutsideCopies` to take the stacks' receivers in the copies only, which is
+where they tell one caller's pipeline from another's. With that, and with the inliner given for the
+methods the samples show hot the values Oracle's builder gives a hot unit,
+
+    -H:CrucibleHotMethodOptions=BaseTargetSpending=300:CutoffCodeSizePenaltyCoefficient=0:CompilerNodePenaltyCoefficient=0:LargeChildrenCountPenaltyCoefficient=0:SmallRootIrPenaltyCoefficient=0:RelativeBenefitInliningCoefficient=0.0002:TypicalGraphSize=4320:TypicalGraphSizeInvokeBonus=20:ExpansionInertiaBaseValue=550:MaxPolymorphicDispatches=3:MinPolymorphicDispatchProbability=0.09
+    -H:CrucibleHotBonusWhileExpanding=50
+
+the twelve Renaissance benchmarks run 3.3% faster than from the counted profile alone: akka-uct
+12%, scrabble 10%, philosophers and scala-kmeans 6%, mnemonics 4% slower and par-mnemonics 2%. The
+geometric mean against Oracle's binary goes from 0.947 to 0.916. The copies need the larger budget:
+without them the same values make rx-scrabble 3 to 5% slower.
+See `docs/issues/2026-09-30-samples-count-time-not-calls.md`.
+
 ### A profile recorded by Oracle GraalVM
 
     python3 crucible/samples/iprof-to-crucible.py default.iprof crucible-profile.json

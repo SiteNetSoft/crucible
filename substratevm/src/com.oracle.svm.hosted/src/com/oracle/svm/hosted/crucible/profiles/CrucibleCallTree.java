@@ -449,6 +449,15 @@ public final class CrucibleCallTree {
                 return null;
             }
             if (sampled) {
+                if (!CrucibleOptions.CrucibleSampledTargetsOutsideCopies.getValue() && !inCopy()) {
+                    /*
+                     * Samples count time, not calls: a receiver the call reaches often and returns
+                     * from quickly is seldom caught, and a profile made of them leaves it out. Where
+                     * the method is compiled for everyone the counted receivers are the same
+                     * calling context, and complete.
+                     */
+                    return null;
+                }
                 /*
                  * A handful of samples says that time was spent here and little about where else
                  * the call goes. Two receivers seen three times and once may be two of five, and
@@ -472,6 +481,15 @@ public final class CrucibleCallTree {
                 occurrences.put(hostedUniverse.lookup(candidate.method), candidate.subtreeCount());
             }
             return PGOUtils.createJavaMethodProfile(occurrences);
+        }
+
+        /** Whether this node is in a tree made by {@link #contextFor}, for a copy of a method. */
+        private boolean inCopy() {
+            Node top = this;
+            while (top.parent != null) {
+                top = top.parent;
+            }
+            return top.contextMethods != null;
         }
 
         @Override
