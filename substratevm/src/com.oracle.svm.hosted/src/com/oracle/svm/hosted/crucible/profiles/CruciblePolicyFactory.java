@@ -90,7 +90,11 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
     @Override
     public TuningPolicy createTuningPolicy(OptionValues options) {
         TuningPolicy policy = super.createTuningPolicy(options);
-        double factor = CrucibleOptions.CrucibleFreshArgumentBenefit.getValue();
+        /*
+         * Read from the compilation's own options, so that -H:CrucibleHotMethodOptions can give the
+         * factor to the methods the run spent its time in alone.
+         */
+        double factor = CrucibleOptions.CrucibleFreshArgumentBenefit.getValue(options);
         return factor == 1.0 ? policy : new CompositeTuningPolicy(List.of(policy, new FreshArgumentTuningPolicy(factor)));
     }
 

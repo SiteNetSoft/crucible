@@ -286,9 +286,8 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
             System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused, " +
                             CruciblePolicyFactory.HOT_ROOT_INLINES.get() + " more for being in a method the run spent its time in.");
-            if (CrucibleOptions.CrucibleFreshArgumentBenefit.getValue() != 1.0) {
-                System.out.println("Crucible: " + CruciblePolicyFactory.FRESH_ARGUMENT_CALLS.get() + " call benefits counted " + CrucibleOptions.CrucibleFreshArgumentBenefit.getValue() +
-                                " times for an argument allocated for the call.");
+            if (CruciblePolicyFactory.FRESH_ARGUMENT_CALLS.get() > 0) {
+                System.out.println("Crucible: " + CruciblePolicyFactory.FRESH_ARGUMENT_CALLS.get() + " call benefits counted more for an argument allocated for the call.");
             }
             System.out.println("Crucible: cold-method inlining -- " + CruciblePolicyFactory.COLD_INLINES_SUPPRESSED.get() + " decisions changed, " +
                             CruciblePolicyFactory.COLD_EXPANSIONS_REFUSED.get() + " callees never looked into, " +
