@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.hosted.crucible.profiles;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -52,6 +53,10 @@ import jdk.graal.compiler.phases.common.priorityinline.tuning.TuningPolicy;
 import jdk.graal.compiler.nodes.Invoke;
 import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.java.NewInstanceNode;
+import jdk.graal.compiler.nodes.java.AbstractNewObjectNode;
+import jdk.graal.compiler.nodes.ReturnNode;
+import jdk.graal.compiler.nodes.StructuredGraph;
+import jdk.graal.compiler.phases.common.priorityinline.nodes.SubgraphNode;
 import jdk.graal.compiler.nodes.virtual.AllocatedObjectNode;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
@@ -95,8 +100,59 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
          * factor to the methods the run spent its time in alone.
          */
         double factor = CrucibleOptions.CrucibleFreshArgumentBenefit.getValue(options);
-        return factor == 1.0 ? policy : new CompositeTuningPolicy(List.of(policy, new FreshArgumentTuningPolicy(factor)));
+        double resultFactor = CrucibleOptions.CrucibleFreshResultBenefit.getValue(options);
+        if (factor == 1.0 && resultFactor == 1.0) {
+            return policy;
+        }
+        List<TuningPolicy> policies = new ArrayList<>(List.of(policy));
+        if (factor != 1.0) {
+            policies.add(new FreshArgumentTuningPolicy(factor));
+        }
+        if (resultFactor != 1.0) {
+            policies.add(new FreshResultTuningPolicy(resultFactor));
+        }
+        return new CompositeTuningPolicy(policies);
     }
+
+    /**
+     * Counts a call for more, once its callee has been looked into, when every value the callee
+     * returns is an object it allocates.
+     * <p>
+     * Left a call, the object escapes into the caller; inlined, escape analysis can take it out
+     * when the caller only reads it or replaces it. Scala's immutable trees rebuild a path of nodes
+     * with such calls ({@code RedBlackTree.Tree.withRight}), and scala-stm-bench7 allocated three
+     * times as many tree nodes as Oracle's binary, whose inliner takes every one of those calls.
+     */
+    private static final class FreshResultTuningPolicy extends NoTuningPolicy {
+        private final double factor;
+
+        FreshResultTuningPolicy(double factor) {
+            this.factor = factor;
+        }
+
+        @Override
+        public double parentLocalBenefitAmplifier(ParentNode node) {
+            if (node instanceof SubgraphNode subgraph && returnsOnlyFreshObjects(subgraph.getReadonlySubgraph())) {
+                FRESH_RESULT_CALLS.incrementAndGet();
+                return factor;
+            }
+            return 1.0;
+        }
+
+        private static boolean returnsOnlyFreshObjects(StructuredGraph graph) {
+            boolean any = false;
+            for (ReturnNode ret : graph.getNodes(ReturnNode.TYPE)) {
+                if (!(ret.result() instanceof AbstractNewObjectNode)) {
+                    return false;
+                }
+                any = true;
+            }
+            return any;
+        }
+    }
+
+    /** Calls counted for more because their callee returns an object it allocates. */
+    public static final AtomicLong FRESH_RESULT_CALLS = new AtomicLong();
 
     /**
      * Counts a call for more when one of its arguments is an object allocated for it.
