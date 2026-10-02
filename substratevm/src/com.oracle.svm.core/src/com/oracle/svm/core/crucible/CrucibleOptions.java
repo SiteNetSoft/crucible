@@ -211,6 +211,10 @@ public final class CrucibleOptions {
                     "which escape analysis can remove once the callee is inlined. 1 leaves the inliner as it is.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleFreshResultBenefit = new HostedOptionKey<>(1.0);
 
+    @Option(help = "Under -H:CrucibleFreshResultBenefit, count a callee for more when any value it returns is an object it allocates, " +
+                    "and look sooner into small callees that return an object.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleFreshResultAnyReturn = new HostedOptionKey<>(false);
+
     @Option(help = "Count a call for more under -H:CrucibleFreshArgumentBenefit only when the object allocated for it is a lambda.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleFreshArgumentLambdasOnly = new HostedOptionKey<>(false);
 

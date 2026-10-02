@@ -59,6 +59,7 @@ import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.phases.common.priorityinline.nodes.SubgraphNode;
 import jdk.graal.compiler.nodes.virtual.AllocatedObjectNode;
 
+import jdk.vm.ci.meta.JavaKind;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import jdk.vm.ci.meta.ResolvedJavaType;
 
@@ -130,25 +131,51 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
             this.factor = factor;
         }
 
+        /**
+         * With {@code CrucibleFreshResultAnyReturn}, a small callee that returns an object is looked
+         * into sooner, so that the decision below can be made for it at all: a call left unexpanded
+         * has no graph to look at.
+         */
+        @Override
+        public double cutoffLocalBenefitAmplifier(CutoffNode node) {
+            if (CrucibleOptions.CrucibleFreshResultAnyReturn.getValue()) {
+                ResolvedJavaMethod target = node.targetMethod();
+                if (target != null && target.getCodeSize() <= SMALL_CALLEE_BYTES && target.getSignature().getReturnKind() == JavaKind.Object) {
+                    return factor;
+                }
+            }
+            return 1.0;
+        }
+
         @Override
         public double parentLocalBenefitAmplifier(ParentNode node) {
-            if (node instanceof SubgraphNode subgraph && returnsOnlyFreshObjects(subgraph.getReadonlySubgraph())) {
+            if (node instanceof SubgraphNode subgraph && returnsFreshObjects(subgraph.getReadonlySubgraph())) {
                 FRESH_RESULT_CALLS.incrementAndGet();
                 return factor;
             }
             return 1.0;
         }
 
-        private static boolean returnsOnlyFreshObjects(StructuredGraph graph) {
-            boolean any = false;
+        /**
+         * Every value returned is an object the callee allocates; or, with
+         * {@code CrucibleFreshResultAnyReturn}, one of them is, as in
+         * {@code RedBlackTree.Tree.withRight}, which returns itself when nothing changes.
+         */
+        private static boolean returnsFreshObjects(StructuredGraph graph) {
+            boolean anyReturn = CrucibleOptions.CrucibleFreshResultAnyReturn.getValue();
+            boolean fresh = false;
             for (ReturnNode ret : graph.getNodes(ReturnNode.TYPE)) {
-                if (!(ret.result() instanceof AbstractNewObjectNode)) {
+                if (ret.result() instanceof AbstractNewObjectNode) {
+                    fresh = true;
+                } else if (!anyReturn) {
                     return false;
                 }
-                any = true;
             }
-            return any;
+            return fresh;
         }
+
+        /** The bytecode size up to which a callee counts as small enough to be looked into sooner. */
+        private static final int SMALL_CALLEE_BYTES = 60;
     }
 
     /** Calls counted for more because their callee returns an object it allocates. */
