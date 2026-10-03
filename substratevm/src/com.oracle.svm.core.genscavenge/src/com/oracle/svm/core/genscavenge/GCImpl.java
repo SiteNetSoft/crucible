@@ -1391,7 +1391,7 @@ public final class GCImpl implements GC {
                 firstAligned = Word.nullPointer();
             }
             if (firstUnaligned.isNonNull()) {
-                HeapChunkProvider.consumeUnalignedChunks(firstUnaligned);
+                HeapImpl.getChunkProvider().consumeUnalignedChunks(firstUnaligned);
                 firstUnaligned = Word.nullPointer();
             }
         }

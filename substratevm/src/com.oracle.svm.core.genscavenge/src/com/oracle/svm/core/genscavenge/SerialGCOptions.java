@@ -72,6 +72,10 @@ public final class SerialGCOptions {
     @Option(help = "The maximum free bytes reserved for allocations, in bytes (0 for automatic according to GC policy). Serial GC only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Long> MaxHeapFree = new RuntimeOptionKey<>(0L, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Bytes of chunks of dead large arrays that a collection keeps committed for the next large arrays instead of returning them to the operating system. " +
+                    "A reused chunk is zeroed by the allocation; a fresh one costs a commit, a page fault per page and an uncommit when it dies. 0 returns every chunk. Serial GC only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Long> SerialGCLargeArrayChunkReserve = new RuntimeOptionKey<>(0L, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Determines if a full GC collects the young generation separately or together with the old generation. Serial GC only.", type = OptionType.Expert) //
     public static final RuntimeOptionKey<Boolean> CollectYoungGenerationSeparately = new RuntimeOptionKey<>(null, SerialGCOptions::validateSerialRuntimeOption);
 
