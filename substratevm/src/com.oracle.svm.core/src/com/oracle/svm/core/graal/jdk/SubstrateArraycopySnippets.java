@@ -49,7 +49,7 @@ import com.oracle.svm.core.util.ArrayUtil;
 import com.oracle.svm.shared.Uninterruptible;
 
 import jdk.graal.compiler.api.replacements.Fold;
-import jdk.graal.compiler.core.common.spi.ForeignCallDescriptor;
+import jdk.graal.compiler.debug.GraalError;
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.Node.ConstantNodeParameter;
 import jdk.graal.compiler.graph.Node.NodeIntrinsic;
@@ -59,13 +59,11 @@ import jdk.graal.compiler.nodeinfo.NodeInfo;
 import jdk.graal.compiler.nodes.NamedLocationIdentity;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
-import jdk.graal.compiler.nodes.extended.ForeignCallNode;
 import jdk.graal.compiler.nodes.extended.ForeignCallWithExceptionNode;
 import jdk.graal.compiler.nodes.spi.Lowerable;
 import jdk.graal.compiler.nodes.spi.LoweringTool;
 import jdk.graal.compiler.options.OptionValues;
 import jdk.graal.compiler.phases.util.Providers;
-import jdk.graal.compiler.replacements.ReplacementsUtil;
 import jdk.graal.compiler.replacements.Snippets;
 import jdk.graal.compiler.replacements.arraycopy.ArrayCopyNode;
 import jdk.graal.compiler.replacements.nodes.BasicArrayCopyNode;
@@ -154,33 +152,27 @@ public final class SubstrateArraycopySnippets extends SubstrateTemplates impleme
     /**
      * Copies {@code length} elements between arrays whose element kind is {@code elementKind} and
      * whose types and bounds have been checked already. Meant for snippets: the kind must be a
-     * compile-time constant so that the call target folds to one descriptor.
+     * compile-time constant. The call goes through a node that picks the stub for the kind when it
+     * is lowered, so that the call takes the bytecode index of the copy it replaces.
      */
     public static void exactArraycopy(Object src, int srcPos, Object dest, int destPos, int length, JavaKind elementKind) {
-        if (elementKind == JavaKind.Boolean) {
-            callArraycopy(ARRAYCOPY_BOOLEAN, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Byte) {
-            callArraycopy(ARRAYCOPY_BYTE, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Short) {
-            callArraycopy(ARRAYCOPY_SHORT, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Char) {
-            callArraycopy(ARRAYCOPY_CHAR, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Int) {
-            callArraycopy(ARRAYCOPY_INT, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Float) {
-            callArraycopy(ARRAYCOPY_FLOAT, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Long) {
-            callArraycopy(ARRAYCOPY_LONG, src, srcPos, dest, destPos, length);
-        } else if (elementKind == JavaKind.Double) {
-            callArraycopy(ARRAYCOPY_DOUBLE, src, srcPos, dest, destPos, length);
-        } else {
-            ReplacementsUtil.staticAssert(elementKind == JavaKind.Object, "unexpected element kind");
-            callArraycopy(ARRAYCOPY_OBJECT, src, srcPos, dest, destPos, length);
-        }
+        SubstrateExactArrayCopyCallNode.exactArraycopy(src, srcPos, dest, destPos, length, elementKind);
     }
 
-    @NodeIntrinsic(value = ForeignCallNode.class)
-    private static native void callArraycopy(@ConstantNodeParameter ForeignCallDescriptor descriptor, Object src, int srcPos, Object dest, int destPos, int length);
+    private static SubstrateForeignCallDescriptor exactArraycopyDescriptor(JavaKind elementKind) {
+        return switch (elementKind) {
+            case Boolean -> ARRAYCOPY_BOOLEAN;
+            case Byte -> ARRAYCOPY_BYTE;
+            case Short -> ARRAYCOPY_SHORT;
+            case Char -> ARRAYCOPY_CHAR;
+            case Int -> ARRAYCOPY_INT;
+            case Float -> ARRAYCOPY_FLOAT;
+            case Long -> ARRAYCOPY_LONG;
+            case Double -> ARRAYCOPY_DOUBLE;
+            case Object -> ARRAYCOPY_OBJECT;
+            default -> throw GraalError.shouldNotReachHere("unexpected element kind " + elementKind);
+        };
+    }
 
     @SubstrateForeignCallTarget(stubCallingConvention = false, fullyUninterruptible = true)
     @Uninterruptible(reason = "Arrays must not move while copying.")
@@ -305,5 +297,30 @@ public final class SubstrateArraycopySnippets extends SubstrateTemplates impleme
 
         @NodeIntrinsic
         public static native int genericArraycopy(Object src, int srcPos, Object dest, int destPos, int length, @ConstantNodeParameter JavaKind elementKind);
+    }
+
+    @NodeInfo(allowedUsageTypes = {InputType.Memory, InputType.Value}, cycles = CYCLES_UNKNOWN, size = SIZE_UNKNOWN)
+    public static final class SubstrateExactArrayCopyCallNode extends BasicArrayCopyNode implements Lowerable {
+        public static final NodeClass<SubstrateExactArrayCopyCallNode> TYPE = NodeClass.create(SubstrateExactArrayCopyCallNode.class);
+
+        public SubstrateExactArrayCopyCallNode(ValueNode src, ValueNode srcPos, ValueNode dest, ValueNode destPos, ValueNode length, JavaKind elementKind) {
+            super(TYPE, src, srcPos, dest, destPos, length, elementKind);
+        }
+
+        @Override
+        public void lower(LoweringTool tool) {
+            if (graph().getGuardsStage().areFrameStatesAtDeopts()) {
+                StructuredGraph graph = graph();
+                ForeignCallWithExceptionNode call = graph.add(new ForeignCallWithExceptionNode(exactArraycopyDescriptor(getElementKind()), getSource(), getSourcePosition(), getDestination(),
+                                getDestinationPosition(), getLength()));
+                call.setStateAfter(stateAfter());
+                call.setStateDuring(stateDuring());
+                call.setBci(bci());
+                graph.replaceWithExceptionSplit(this, call);
+            }
+        }
+
+        @NodeIntrinsic
+        public static native void exactArraycopy(Object src, int srcPos, Object dest, int destPos, int length, @ConstantNodeParameter JavaKind elementKind);
     }
 }
