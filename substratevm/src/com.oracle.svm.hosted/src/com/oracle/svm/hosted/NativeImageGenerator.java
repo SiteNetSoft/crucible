@@ -1497,6 +1497,13 @@ public class NativeImageGenerator {
 
         bb.addRootMethod(ReflectionUtil.lookupMethod(SubstrateArraycopySnippets.class, "doArraycopy",
                         Object.class, int.class, Object.class, int.class, int.class), true, rootMethodReason);
+        if (SubstrateOptions.InlineExactArraycopy.getValue()) {
+            /* The exact copy stubs are called from nodes that are only lowered after analysis. */
+            for (String stub : new String[]{"arraycopyBoolean", "arraycopyByte", "arraycopyShort", "arraycopyChar", "arraycopyInt", "arraycopyFloat", "arraycopyLong", "arraycopyDouble",
+                            "arraycopyObject"}) {
+                bb.addRootMethod(ReflectionUtil.lookupMethod(SubstrateArraycopySnippets.class, stub, Object.class, int.class, Object.class, int.class, int.class), true, rootMethodReason);
+            }
+        }
         bb.addRootMethod(ReflectionUtil.lookupMethod(Object.class, "getClass"), true, rootMethodReason);
         for (JavaKind kind : JavaKind.values()) {
             if (kind.isPrimitive() && kind != JavaKind.Void) {
