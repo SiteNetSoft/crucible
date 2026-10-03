@@ -37,7 +37,6 @@ import com.oracle.svm.core.SubstrateTarget;
 import com.oracle.svm.core.genscavenge.AlignedHeapChunk.AlignedHeader;
 import com.oracle.svm.core.genscavenge.HeapChunk.Header;
 import com.oracle.svm.core.genscavenge.UnalignedHeapChunk.UnalignedHeader;
-import com.oracle.svm.core.locks.VMMutex;
 import com.oracle.svm.guest.staging.core.UnmanagedMemoryUtil;
 import com.oracle.svm.guest.staging.core.jdk.UninterruptibleUtils;
 import com.oracle.svm.guest.staging.core.jdk.UninterruptibleUtils.AtomicUnsigned;
@@ -71,16 +70,37 @@ final class HeapChunkProvider {
      */
     private final AtomicUnsigned numUnusedAlignedChunks = new AtomicUnsigned();
 
+    /** Kept chunks are listed by size in pages, for chunks of fewer pages than this. */
+    private static final int UNUSED_UNALIGNED_CHUNK_LISTS = 2048;
+
     /**
      * Chunks of dead large arrays kept committed for the next large arrays, up to
-     * {@link SerialGCOptions#SerialGCLargeArrayChunkReserve} bytes, chained by
-     * {@link HeapChunk#getNext}. Collections push to the list, which needs no lock because no
-     * thread allocates during a collection; allocation takes from it under
-     * {@link #unusedUnalignedChunksLock}.
+     * {@link SerialGCOptions#SerialGCLargeArrayChunkReserve} bytes, one list for each size in pages,
+     * chained by {@link HeapChunk#getNext}. As for {@link #unusedAlignedChunks}, chunks are only
+     * pushed during collections and popped in uninterruptible code.
      */
-    private final UninterruptibleUtils.AtomicPointer<UnalignedHeader> unusedUnalignedChunks = new UninterruptibleUtils.AtomicPointer<>();
+    private final UninterruptibleUtils.AtomicPointer<?>[] unusedUnalignedChunks = createUnusedUnalignedChunkLists();
     private final AtomicUnsigned bytesInUnusedUnalignedChunks = new AtomicUnsigned();
-    private final VMMutex unusedUnalignedChunksLock = new VMMutex("unusedUnalignedChunks");
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    private static UninterruptibleUtils.AtomicPointer<?>[] createUnusedUnalignedChunkLists() {
+        UninterruptibleUtils.AtomicPointer<?>[] lists = new UninterruptibleUtils.AtomicPointer<?>[UNUSED_UNALIGNED_CHUNK_LISTS];
+        for (int i = 0; i < lists.length; i++) {
+            lists[i] = new UninterruptibleUtils.AtomicPointer<UnalignedHeader>();
+        }
+        return lists;
+    }
+
+    /** The list for chunks of {@code committedChunkSize} bytes, or null if there is none. */
+    @SuppressWarnings("unchecked")
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private UninterruptibleUtils.AtomicPointer<UnalignedHeader> unusedUnalignedChunkList(UnsignedWord committedChunkSize) {
+        UnsignedWord pages = committedChunkSize.unsignedDivide(ChunkBasedCommittedMemoryProvider.get().getGranularity());
+        if (pages.aboveOrEqual(UNUSED_UNALIGNED_CHUNK_LISTS)) {
+            return null;
+        }
+        return (UninterruptibleUtils.AtomicPointer<UnalignedHeader>) unusedUnalignedChunks[(int) pages.rawValue()];
+    }
 
     @Platforms(Platform.HOSTED_ONLY.class)
     HeapChunkProvider() {
@@ -274,41 +294,23 @@ final class HeapChunkProvider {
         return ChunkBasedCommittedMemoryProvider.get().areUnalignedChunksZeroed();
     }
 
-    /**
-     * Takes the smallest kept chunk of at least {@code committedChunkSize} bytes and at most a
-     * quarter more, or returns null.
-     */
-    @Uninterruptible(reason = "Allocation internals must never end up in interruptible code.")
+    /** Takes a kept chunk of exactly {@code committedChunkSize} bytes, or returns null. */
+    @Uninterruptible(reason = "Must not be interrupted by competing pushes.")
     private UnalignedHeader popUnusedUnalignedChunk(UnsignedWord committedChunkSize) {
-        if (unusedUnalignedChunks.get().isNull()) {
+        UninterruptibleUtils.AtomicPointer<UnalignedHeader> list = unusedUnalignedChunkList(committedChunkSize);
+        if (list == null) {
             return Word.nullPointer();
         }
-        UnsignedWord limit = committedChunkSize.add(committedChunkSize.unsignedDivide(4));
-        unusedUnalignedChunksLock.lockNoTransition();
-        try {
-            UnalignedHeader best = Word.nullPointer();
-            UnalignedHeader bestPrevious = Word.nullPointer();
-            UnalignedHeader previous = Word.nullPointer();
-            for (UnalignedHeader cur = unusedUnalignedChunks.get(); cur.isNonNull(); cur = HeapChunk.getNext(cur)) {
-                UnsignedWord size = HeapChunk.getSize(cur);
-                if (size.aboveOrEqual(committedChunkSize) && size.belowOrEqual(limit) && (best.isNull() || size.belowThan(HeapChunk.getSize(best)))) {
-                    best = cur;
-                    bestPrevious = previous;
-                }
-                previous = cur;
+        while (true) {
+            UnalignedHeader result = list.get();
+            if (result.isNull()) {
+                return Word.nullPointer();
             }
-            if (best.isNonNull()) {
-                UnalignedHeader next = HeapChunk.getNext(best);
-                if (bestPrevious.isNull()) {
-                    unusedUnalignedChunks.set(next);
-                } else {
-                    HeapChunk.setNext(bestPrevious, next);
-                }
-                bytesInUnusedUnalignedChunks.subtractAndGet(HeapChunk.getSize(best));
+            UnalignedHeader next = HeapChunk.getNext(result);
+            if (list.compareAndSet(result, next)) {
+                bytesInUnusedUnalignedChunks.subtractAndGet(HeapChunk.getSize(result));
+                return result;
             }
-            return best;
-        } finally {
-            unusedUnalignedChunksLock.unlock();
         }
     }
 
@@ -324,10 +326,11 @@ final class HeapChunkProvider {
         while (cur.isNonNull()) {
             UnalignedHeader next = HeapChunk.getNext(cur);
             UnsignedWord size = HeapChunk.getSize(cur);
-            if (bytesInUnusedUnalignedChunks.get().add(size).belowOrEqual(reserve)) {
+            UninterruptibleUtils.AtomicPointer<UnalignedHeader> list = unusedUnalignedChunkList(size);
+            if (list != null && bytesInUnusedUnalignedChunks.get().add(size).belowOrEqual(reserve)) {
                 HeapChunk.setPrevious(cur, Word.nullPointer());
-                HeapChunk.setNext(cur, unusedUnalignedChunks.get());
-                unusedUnalignedChunks.set(cur);
+                HeapChunk.setNext(cur, list.get());
+                list.set(cur);
                 bytesInUnusedUnalignedChunks.addAndGet(size);
             } else {
                 freeUnalignedChunk(cur);
@@ -352,7 +355,9 @@ final class HeapChunkProvider {
     @Uninterruptible(reason = "Tear-down in progress.")
     void tearDown() {
         freeAlignedChunkList(unusedAlignedChunks.get());
-        freeUnalignedChunkList(unusedUnalignedChunks.get());
+        for (UninterruptibleUtils.AtomicPointer<?> list : unusedUnalignedChunks) {
+            freeUnalignedChunkList((UnalignedHeader) list.get());
+        }
     }
 
     @Uninterruptible(reason = "Allocation internals must never end up in interruptible code.")
