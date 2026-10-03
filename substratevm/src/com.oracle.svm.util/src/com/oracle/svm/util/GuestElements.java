@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -46,6 +47,7 @@ import org.graalvm.nativeimage.c.function.CEntryPoint;
 import org.graalvm.nativeimage.c.function.CFunction;
 import org.graalvm.nativeimage.c.function.InvokeCFunctionPointer;
 import org.graalvm.nativeimage.hosted.FieldValueTransformer;
+import org.graalvm.word.WordBase;
 
 import com.oracle.svm.core.annotate.Delete;
 import com.oracle.svm.shared.singletons.ImageSingletonsSupportImpl;
@@ -98,6 +100,8 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaMethod java_lang_Double_valueOf = lookupMethod(java_lang_Double, "valueOf", double.class);
     public final ResolvedJavaMethod java_lang_Double_doubleValue = lookupMethod(java_lang_Double, "doubleValue");
 
+    public final ResolvedJavaType java_lang_Void = lookupType(Void.class);
+
     public final ResolvedJavaType java_lang_Enum = lookupType(Enum.class);
     public final ResolvedJavaMethod java_lang_Enum_name = lookupMethod(java_lang_Enum, "name");
 
@@ -121,9 +125,11 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaMethod java_lang_Object_hashCode = lookupMethod(java_lang_Object, "hashCode");
     public final ResolvedJavaMethod java_lang_Object_toString = lookupMethod(java_lang_Object, "toString");
 
+    public final ResolvedJavaType java_lang_String = lookupType(String.class);
+
     public final ResolvedJavaType java_lang_Throwable = lookupType(Throwable.class);
     public final ResolvedJavaMethod java_lang_Throwable_init_String_Throwable_boolean_boolean = JVMCIReflectionUtil.getDeclaredConstructor(java_lang_Throwable,
-                    lookupType(String.class), java_lang_Throwable, lookupType(boolean.class), lookupType(boolean.class));
+                    java_lang_String, java_lang_Throwable, lookupType(boolean.class), lookupType(boolean.class));
 
     public final ResolvedJavaType java_lang_ref_Reference = lookupType(Reference.class);
     public final ResolvedJavaMethod java_lang_ref_Reference_refersTo = lookupMethod(java_lang_ref_Reference, "refersTo", Object.class);
@@ -136,6 +142,7 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaMethod java_lang_System_arraycopy = lookupMethod(java_lang_System, "arraycopy", Object.class, int.class, Object.class, int.class, int.class);
 
     public final ResolvedJavaType java_lang_reflect_Proxy = lookupType(Proxy.class);
+    public final ResolvedJavaMethod java_lang_reflect_Proxy_isProxyClass = lookupMethod(java_lang_reflect_Proxy, "isProxyClass", Class.class);
     public final ResolvedJavaType jdk_internal_loader_ClassLoaders = lookupType("jdk.internal.loader.ClassLoaders");
 
     public final ResolvedJavaType java_io_InputStream = lookupType(InputStream.class);
@@ -148,6 +155,9 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaType java_util_Map = lookupType(Map.class);
     public final ResolvedJavaMethod java_util_Map_entrySet = lookupMethod(java_util_Map, "entrySet");
 
+    public final ResolvedJavaType java_util_Set = lookupType(Set.class);
+    public final ResolvedJavaMethod java_util_Set_of = lookupMethod(java_util_Set, "of", Object[].class);
+
     public final ResolvedJavaType java_util_Map_Entry = lookupType("java.util.Map$Entry");
     public final ResolvedJavaMethod java_util_Map_Entry_getKey = lookupMethod(java_util_Map_Entry, "getKey");
     public final ResolvedJavaMethod java_util_Map_Entry_getValue = lookupMethod(java_util_Map_Entry, "getValue");
@@ -159,6 +169,9 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
 
     public final ResolvedJavaType java_util_function_BooleanSupplier = lookupType(BooleanSupplier.class);
     public final ResolvedJavaMethod java_util_function_BooleanSupplier_getAsBoolean = lookupMethod(java_util_function_BooleanSupplier, "getAsBoolean");
+
+    public final ResolvedJavaType java_util_function_Consumer = lookupType(Consumer.class);
+    public final ResolvedJavaMethod java_util_function_Consumer_accept = lookupMethod(java_util_function_Consumer, "accept", Object.class);
 
     public final ResolvedJavaType java_util_function_Function = lookupType(Function.class);
     public final ResolvedJavaMethod java_util_function_Function_apply = lookupMethod(java_util_function_Function, "apply", Object.class);
@@ -177,6 +190,7 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaType Delete = lookupType(Delete.class);
     public final ResolvedJavaType CEntryPoint_IsolateContext = lookupType(CEntryPoint.IsolateContext.class);
     public final ResolvedJavaType CEntryPoint_IsolateThreadContext = lookupType(CEntryPoint.IsolateThreadContext.class);
+    public final ResolvedJavaType CEntryPointOptions_NoCallerEpilogue = lookupType("com.oracle.svm.guest.staging.c.function.CEntryPointOptions$NoCallerEpilogue");
     public final ResolvedJavaType CFunction = lookupType(CFunction.class);
     public final ResolvedJavaType InvokeCFunctionPointer = lookupType(InvokeCFunctionPointer.class);
     public final ResolvedJavaType InternalVMMethod = lookupType("com.oracle.svm.guest.staging.jdk.InternalVMMethod");
@@ -184,6 +198,8 @@ public abstract sealed class GuestElements permits GuestAccess.GuestElementsImpl
     public final ResolvedJavaType FieldValueTransformer = lookupType(FieldValueTransformer.class);
     public final ResolvedJavaMethod FieldValueTransformer_transform = lookupMethod(FieldValueTransformer, "transform", Object.class, Object.class);
     public final ResolvedJavaMethod FieldValueTransformer_isAvailable = lookupMethod(FieldValueTransformer, "isAvailable");
+
+    public final ResolvedJavaType WordBase = lookupType(WordBase.class);
 
     public final ResolvedJavaType ImageSingletons = lookupType(ImageSingletons.class);
     public final ResolvedJavaMethod ImageSingletons_add = lookupMethod(ImageSingletons, "add", Class.class, Object.class);

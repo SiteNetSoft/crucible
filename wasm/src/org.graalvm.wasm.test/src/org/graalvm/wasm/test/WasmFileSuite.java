@@ -236,6 +236,7 @@ public abstract class WasmFileSuite extends AbstractWasmSuite {
             ContextState firstIterationContextState = null;
 
             for (int i = 0; i != iterations; ++i) {
+                boolean validationErrorThrown = false;
                 try {
                     testOut.reset();
                     final Value result = arg == null ? testFunction.execute() : testFunction.execute(arg);
@@ -247,6 +248,7 @@ public abstract class WasmFileSuite extends AbstractWasmSuite {
                         Assert.assertEquals("Program exited with non-zero return code.", 0, e.getExitStatus());
                         WasmCase.validateResult(testCase.data().resultValidator(), null, testOut);
                     } else if (testCase.data().expectedErrorTime() == WasmCaseData.ErrorType.Validation) {
+                        validationErrorThrown = true;
                         validateThrown(testCase.data(), WasmCaseData.ErrorType.Validation, e);
                         return;
                     } else {
@@ -258,7 +260,7 @@ public abstract class WasmFileSuite extends AbstractWasmSuite {
                     throw e;
                 } finally {
                     // Context may have already been closed, e.g. by __wasi_proc_exit.
-                    if (!wasmContext.environment().getContext().isClosed()) {
+                    if (!validationErrorThrown && !wasmContext.environment().getContext().isClosed()) {
                         Collection<WasmInstance> instanceList = wasmContext.contextStore().moduleInstances().values();
                         // Save context state, and check that it's consistent with the previous one.
                         if (iterationNeedsStateCheck(i)) {
@@ -413,6 +415,14 @@ public abstract class WasmFileSuite extends AbstractWasmSuite {
             String legacyExceptionsOption = testCase.options().getProperty("wasm.LegacyExceptions");
             if ("true".equals(exceptionsOption) || "true".equals(legacyExceptionsOption)) {
                 options.add(WasmBinaryTools.WabtOption.EXCEPTIONS);
+            }
+            String typedFunctionReferencesOption = testCase.options().getProperty("wasm.TypedFunctionReferences");
+            if ("true".equals(typedFunctionReferencesOption)) {
+                options.add(WasmBinaryTools.WabtOption.FUNCTION_REFERENCES);
+            }
+            String tailCallsOption = testCase.options().getProperty("wasm.TailCalls");
+            if ("true".equals(tailCallsOption)) {
+                options.add(WasmBinaryTools.WabtOption.TAIL_CALLS);
             }
             ArrayList<Source> sources = testCase.getSources(options);
 

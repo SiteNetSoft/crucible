@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,10 +66,7 @@ import com.oracle.svm.hosted.image.NativeImageCodeCache;
 import com.oracle.svm.hosted.image.NativeImageCodeCacheFactory;
 import com.oracle.svm.hosted.image.NativeImageHeap;
 import com.oracle.svm.hosted.image.ObjectFileFactory;
-import com.oracle.svm.hosted.imagelayer.HostedImageLayerBuildingSupport;
-import com.oracle.svm.hosted.imagelayer.SVMImageLayerLoader;
 import com.oracle.svm.hosted.imagelayer.SVMImageLayerSnapshotUtil;
-import com.oracle.svm.hosted.imagelayer.SVMImageLayerWriter;
 import com.oracle.svm.hosted.meta.HostedField;
 import com.oracle.svm.hosted.meta.HostedInstanceClass;
 import com.oracle.svm.hosted.meta.HostedMetaAccess;
@@ -115,13 +112,7 @@ public class HostedConfiguration {
         }
 
         if (!ImageSingletons.contains(ObjectLayout.class)) {
-            /*
-             * The layout with the identity hash code added to an object only once it is asked for
-             * has its runtime here already; this is the switch that had been left out. Every array
-             * and some instances come out 8 bytes smaller, which is what Oracle GraalVM ships.
-             */
-            IdentityHashMode identityHashMode = SubstrateOptions.OptionalIdentityHashCodes.getValue() && SubstrateOptions.useSerialGC() ? IdentityHashMode.OPTIONAL : IdentityHashMode.TYPE_SPECIFIC;
-            ObjectLayout objectLayout = createObjectLayout(identityHashMode);
+            ObjectLayout objectLayout = createObjectLayout();
             ImageSingletons.add(ObjectLayout.class, objectLayout);
         }
     }
@@ -136,7 +127,23 @@ public class HostedConfiguration {
         return new CompressEncoding(compressBase, compressShift);
     }
 
-    public static ObjectLayout createObjectLayout(IdentityHashMode identityHashMode) {
+    /**
+     * Defines the serial/epsilon GC object layout.
+     *
+     * The identity hash code field is optional by default (see
+     * {@link SubstrateOptions#OptionalIdentityHashCodes}) and it is only materialized
+     * during garbage collection. The field materialization may change the object size (unless there
+     * is an otherwise unused gap in the object that can be used instead) and writes a valid
+     * identity hash code into the field. Note that non-GC code may only access the identity hash
+     * code field after it was materialized (regardless if the field is placed in an unused gap or
+     * not).
+     *
+     * @see #createObjectLayout(JavaKind, IdentityHashMode)
+     */
+    public static ObjectLayout createObjectLayout() {
+        boolean useOptionalIdentityHashField = SubstrateOptions.canUseOptionalIdentityHashCodes() &&
+                        !Boolean.FALSE.equals(SubstrateOptions.OptionalIdentityHashCodes.getValue());
+        IdentityHashMode identityHashMode = useOptionalIdentityHashField ? IdentityHashMode.OPTIONAL : IdentityHashMode.TYPE_SPECIFIC;
         JavaKind referenceKind = JavaKind.Object;
         if (SubstrateOptions.useCompressedReferences()) {
             referenceKind = JavaKind.Int;
@@ -145,16 +152,18 @@ public class HostedConfiguration {
     }
 
     /**
-     * Defines the serial/epsilon GC object layout. The monitor slot and the identity hash code
-     * fields are appended to instance objects (unless there is an otherwise unused gap in the
-     * object that can be used).
+     * Defines the serial/epsilon GC object layout, using the given identity hash mode. The monitor
+     * slot is appended to instance objects unless there is an otherwise unused gap in the object
+     * that can be used.
      *
      * The layout of instance objects is:
      * <ul>
      * <li>32/64 bit hub reference</li>
      * <li>instance fields (references, primitives)</li>
-     * <li>32/64 bit object monitor reference (if needed)</li>
-     * <li>32 bit identity hashcode (if needed)</li>
+     * <li>32/64 bit object monitor reference (if needed; may be placed in a gap between instance
+     * fields instead)</li>
+     * <li>32 bit identity hashcode (if needed; may be added at runtime or placed in a gap between
+     * instance fields instead)</li>
      * </ul>
      *
      * The layout of array objects is:
@@ -260,16 +269,6 @@ public class HostedConfiguration {
     public SVMHost createHostVM(OptionValues options, ImageClassLoader loader, ClassInitializationSupport classInitializationSupport, AnnotationSubstitutionProcessor annotationSubstitutions,
                     MissingRegistrationSupport missingRegistrationSupport) {
         return new SVMHost(options, loader, classInitializationSupport, annotationSubstitutions, missingRegistrationSupport);
-    }
-
-    public SVMImageLayerWriter createSVMImageLayerWriter(SVMImageLayerSnapshotUtil imageLayerSnapshotUtil, boolean useSharedLayerGraphs, boolean useSharedLayerStrengthenedGraphs) {
-        return new SVMImageLayerWriter(imageLayerSnapshotUtil, useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
-    }
-
-    public SVMImageLayerLoader createSVMImageLayerLoader(SVMImageLayerSnapshotUtil imageLayerSnapshotUtil, HostedImageLayerBuildingSupport imageLayerBuildingSupport,
-                    boolean useSharedLayerGraphs, boolean useSharedLayerStrengthenedGraphs) {
-        return new SVMImageLayerLoader(imageLayerSnapshotUtil, imageLayerBuildingSupport, imageLayerBuildingSupport.getSnapshot(),
-                        imageLayerBuildingSupport.getLoadLayerArchiveSupport().getSnapshotGraphsPath(), useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
     }
 
     public SVMImageLayerSnapshotUtil createSVMImageLayerSnapshotUtil(ImageClassLoader imageClassLoader) {

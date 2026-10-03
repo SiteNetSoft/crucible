@@ -2,6 +2,20 @@
 
 This changelog summarizes newly introduced optimizations and other compiler related changes.
 
+## GraalVM 25.5 (Internal Version 25.5.5)
+* (GR-79526): Extended lock elimination to coarsen locks across simple control flow and eliminate
+  nested locking of the same object.
+
+## GraalVM 25.4 (Internal Version 25.4.4.1.1)
+* (GR-79029): Add `PullThroughPhiPhase` and `DuplicationPhase` to the community compiler configuration.
+  The optimizations are enabled by default and can be disabled with `-Djdk.graal.OptPullThroughPhi=false` and
+  `-Djdk.graal.OptDuplication=false`, respectively.
+* (GR-78871): Extended read elimination to handle indexed array accesses with nonconstant indices, reads from newly
+  allocated arrays whose elements contain default values, and array clone operations. Read elimination can now also
+  run after reads are fixed in the low tier.
+* (GR-78795): Extended `OptimizeDivPhase` with magic-number optimizations for unsigned integer division
+  and remainder operations by constant values.
+
 ## GraalVM 25.3 (Internal Version 25.3.4.1)
 * (GR-77137) Add new priority inlining algorithm that does extensive analysis of the call graph when making
   inlining decisions (see `PriorityInliningPhase` for details). It is now the default inliner. To use the old

@@ -33,7 +33,9 @@ import java.util.function.Predicate;
 
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
+
 import com.oracle.svm.util.JVMCIFieldValueTransformer;
+import com.oracle.svm.util.dynamicaccess.JVMCIForeignAccess;
 import com.oracle.svm.util.dynamicaccess.JVMCIJNIAccess;
 import com.oracle.svm.util.dynamicaccess.JVMCIReflectiveAccess;
 import com.oracle.svm.util.dynamicaccess.JVMCIResourceAccess;
@@ -107,7 +109,7 @@ public final class JVMCIFeatureAccess {
         /**
          * JVMCI-based counterpart of {@link org.graalvm.nativeimage.hosted.Feature.AfterRegistrationAccess#getForeignAccess()}.
          */
-        Object getJVMCIForeignAccess();
+        JVMCIForeignAccess getJVMCIForeignAccess();
     }
 
     /**
@@ -126,6 +128,18 @@ public final class JVMCIFeatureAccess {
          * {@link org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess#registerObjectReachabilityHandler(Consumer, Class)}.
          */
         void registerObjectReachabilityHandler(Consumer<JavaConstant> callback, ResolvedJavaType type);
+
+        /**
+         * JVMCI-based counterpart of
+         * {@link org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess#registerBuildTimeBootstrapIndy(java.lang.reflect.Executable)}.
+         */
+        void registerBuildTimeBootstrapIndy(ResolvedJavaMethod method);
+
+        /**
+         * JVMCI-based counterpart of
+         * {@link org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess#registerBuildTimeBootstrapCondy(java.lang.reflect.Executable)}.
+         */
+        void registerBuildTimeBootstrapCondy(ResolvedJavaMethod method);
     }
 
     /**

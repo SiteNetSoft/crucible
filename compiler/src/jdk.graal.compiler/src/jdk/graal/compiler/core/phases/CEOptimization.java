@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 package jdk.graal.compiler.core.phases;
 
 import jdk.graal.compiler.core.common.GraalOptions;
+import jdk.graal.compiler.duplication.phases.PullThroughPhiPhase;
+import jdk.graal.compiler.duplication.phases.simulation.DuplicationPhase;
 import jdk.graal.compiler.graph.Node.ValueNumberable;
 import jdk.graal.compiler.guards.optimistic.memory.OptimisticAliasingAnalysisPhase;
 import jdk.graal.compiler.loop.phases.ConvertDeoptimizeToGuardPhase;
@@ -48,7 +50,9 @@ import jdk.graal.compiler.phases.common.ConditionalEliminationPhase;
 import jdk.graal.compiler.phases.common.DeadCodeEliminationPhase;
 import jdk.graal.compiler.phases.common.DeoptimizationGroupingPhase;
 import jdk.graal.compiler.phases.common.FloatingReadPhase;
+import jdk.graal.compiler.phases.common.LateLockEliminationPhase;
 import jdk.graal.compiler.phases.common.LockEliminationPhase;
+import jdk.graal.compiler.phases.common.OptimizeDivPhase;
 import jdk.graal.compiler.phases.common.ReassociationPhase;
 import jdk.graal.compiler.phases.common.UseTrappingNullChecksPhase;
 import jdk.graal.compiler.phases.common.inlining.InliningPhase;
@@ -106,6 +110,20 @@ public enum CEOptimization {
     /// [InliningPhase] is a less aggressive inlining algorithm used when priority
     /// inlining is disabled. Inlining as a whole can be disabled with [HighTier.Options#Inline].
     Inlining(HighTier.Options.Inline, InliningPhase.class),
+
+    /// [PullThroughPhiPhase] heuristically duplicates floating operations at control flow merges.
+    /// The duplicated operations can then be specialized based on the types and values of the
+    /// preceding branches.
+    ///
+    /// This phase is enabled by default and can be disabled with
+    /// [PullThroughPhiPhase.Options#OptPullThroughPhi].
+    PullThroughPhi(PullThroughPhiPhase.Options.OptPullThroughPhi, PullThroughPhiPhase.class),
+
+    /// [DuplicationPhase] uses simulation to evaluate the optimization effects of tail
+    /// duplication while balancing the expected performance benefit against the code size cost.
+    ///
+    /// This phase is enabled by default and can be disabled with [GraalOptions#OptDuplication].
+    Duplication(GraalOptions.OptDuplication, DuplicationPhase.class),
 
     /**
      * {@link DeadCodeEliminationPhase} tries to remove unused (i.e., "dead") code from a program.
@@ -169,9 +187,9 @@ public enum CEOptimization {
     FloatingReads(GraalOptions.OptFloatingReads, FloatingReadPhase.class),
 
     /**
-     * {@link ReadEliminationPhase} tries to remove redundant memory access operations (e.g.,
-     * successive reads of the same Java field are redundant). Its uses a control-flow sensitive
-     * analysis.
+     * {@link ReadEliminationPhase} removes redundant memory access operations using a control-flow
+     * sensitive analysis. In addition to field reads, it handles indexed array accesses, reads from
+     * initialized arrays, and array clone operations.
      *
      * This phase is enabled by default and can be disabled with
      * {@link GraalOptions#OptReadElimination}.
@@ -197,16 +215,25 @@ public enum CEOptimization {
     PartialEscapeAnalysis(GraalOptions.PartialEscapeAnalysis, PartialEscapePhase.class),
 
     /**
-     * {@link LockEliminationPhase} tries to reduce Java monitor enter/exit overhead of an
-     * application. Java {@code synchronized} blocks mark critical regions which can only be entered
-     * if a thread acquires an object monitor (enter operation). A monitor is held until the region
-     * is exited (monitor exit). Lock elimination (also known as lock coarsening) tries to merge
-     * adjacent synchronized regions into larger ones by removing enters that are directly followed
-     * by exits on the same locked object. It thus removes redundant unlock-lock operations.
+     * {@link LockEliminationPhase} and {@link LateLockEliminationPhase} try to reduce Java monitor
+     * enter/exit overhead of an application. Java {@code synchronized} blocks mark critical regions
+     * which can only be entered if a thread acquires an object monitor (enter operation). A monitor
+     * is held until the region is exited (monitor exit). Lock elimination (also known as lock
+     * coarsening) tries to merge synchronized regions into larger ones by removing redundant
+     * unlock-lock operations. The late phase can coarsen locks across simple control flow and
+     * eliminate nested locking of the same object.
      *
      * This phase is unconditionally enabled.
      */
     LockElimination(null, LockEliminationPhase.class),
+
+    /**
+     * {@link OptimizeDivPhase} tries to simplify expensive division operations.
+     *
+     * This phase is enabled by default and can be disabled with
+     * {@link GraalOptions#OptimizeDiv}.
+     */
+    DivisionOptimization(GraalOptions.OptimizeDiv, OptimizeDivPhase.class),
 
     /**
      * {@link LoopSafepointEliminationPhase} tries to reduce the number of safepoint checks in the

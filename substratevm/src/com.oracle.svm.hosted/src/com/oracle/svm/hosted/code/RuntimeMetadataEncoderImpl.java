@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.hosted.code;
 
+import com.oracle.svm.hosted.DeleteGuestValue;
 import static com.oracle.svm.core.code.RuntimeMetadataDecoderImpl.ALL_FLAGS_MASK;
 import static com.oracle.svm.core.code.RuntimeMetadataDecoderImpl.ALL_NEST_MEMBERS_FLAG;
 import static com.oracle.svm.core.code.RuntimeMetadataDecoderImpl.ALL_PERMITTED_SUBCLASSES_FLAG;
@@ -46,6 +47,7 @@ import static com.oracle.svm.hosted.code.ReflectionRuntimeMetadata.MethodMetadat
 import static com.oracle.svm.hosted.code.ReflectionRuntimeMetadata.RecordComponentMetadata;
 import static com.oracle.svm.hosted.code.ReflectionRuntimeMetadata.ReflectParameterMetadata;
 
+import java.lang.annotation.Inherited;
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Executable;
@@ -78,9 +80,9 @@ import com.oracle.graal.pointsto.meta.AnalysisField;
 import com.oracle.graal.pointsto.meta.AnalysisMetaAccess;
 import com.oracle.graal.pointsto.meta.AnalysisMethod;
 import com.oracle.graal.pointsto.meta.AnalysisType;
+import com.oracle.graal.pointsto.meta.AnalysisUniverse;
 import com.oracle.graal.pointsto.meta.BaseLayerType;
 import com.oracle.graal.pointsto.util.AnalysisError;
-import com.oracle.svm.core.annotate.Delete;
 import com.oracle.svm.core.code.CodeInfoEncoder;
 import com.oracle.svm.core.code.RuntimeMetadataDecoderImpl;
 import com.oracle.svm.core.code.RuntimeMetadataEncoding;
@@ -98,6 +100,7 @@ import com.oracle.svm.hosted.image.NativeImageCodeCache.RuntimeMetadataEncoder;
 import com.oracle.svm.hosted.imagelayer.SVMImageLayerSingletonLoader;
 import com.oracle.svm.hosted.imagelayer.SVMImageSingletonWriter;
 import com.oracle.svm.hosted.imagelayer.SnapshotWriters;
+import com.oracle.svm.hosted.meta.HostedClass;
 import com.oracle.svm.hosted.meta.HostedField;
 import com.oracle.svm.hosted.meta.HostedMetaAccess;
 import com.oracle.svm.hosted.meta.HostedMethod;
@@ -122,7 +125,8 @@ import com.oracle.svm.shared.singletons.traits.SingletonLayeredCallbacksSupplier
 import com.oracle.svm.shared.singletons.traits.SingletonTraits;
 import com.oracle.svm.shared.util.ReflectionUtil;
 import com.oracle.svm.shared.util.VMError;
-import com.oracle.svm.util.GuestAnnotationAccess;
+import com.oracle.svm.util.GuestAccess;
+import com.oracle.svm.util.OriginalClassProvider;
 
 import jdk.graal.compiler.annotation.AnnotationValue;
 import jdk.graal.compiler.annotation.TypeAnnotationValue;
@@ -132,6 +136,7 @@ import jdk.graal.compiler.core.common.util.UnsafeArrayTypeWriter;
 import jdk.internal.reflect.Reflection;
 import jdk.vm.ci.meta.JavaConstant;
 import jdk.vm.ci.meta.ResolvedJavaRecordComponent;
+import jdk.vm.ci.meta.ResolvedJavaType;
 import jdk.vm.ci.meta.annotation.Annotated;
 
 /**
@@ -433,7 +438,7 @@ public class RuntimeMetadataEncoderImpl implements RuntimeMetadataEncoder {
         Field signatureField = ReflectionDataBuilder.getGenericSignatureDeclaration(analysisField);
         String signature = getSignature(signatureField != null ? signatureField : reflectField);
         int offset = hostedField.wrapped.isUnsafeAccessed() ? hostedField.getOffset() : SharedField.LOC_UNINITIALIZED;
-        Delete deleteAnnotation = GuestAnnotationAccess.getAnnotation(hostedField, Delete.class);
+        DeleteGuestValue deleteAnnotation = DeleteGuestValue.get(hostedField);
         String deletedReason = (deleteAnnotation != null) ? deleteAnnotation.value() : null;
         RuntimeDynamicAccessMetadata dynamicAccessMetadata = conditionalReflectField.getDynamicAccessMetadata();
         /* Fill encoders with the necessary values. */
@@ -820,6 +825,11 @@ public class RuntimeMetadataEncoderImpl implements RuntimeMetadataEncoder {
      */
     @Override
     public void encodeAllAndInstall() {
+        // A later layer could add annotations and invalidate our installed AnnotationData.
+        boolean assignEmptyAnnotationData = ImageLayerBuildingSupport.lastImageBuild();
+        Map<HostedType, Boolean> cachedNoInheritableAnnotations = new HashMap<>();
+        ResolvedJavaType inheritedAnnotationType = GuestAccess.get().lookupType(Inherited.class);
+
         UnsafeArrayTypeWriter buf = UnsafeArrayTypeWriter.create(ByteArrayReader.supportsUnalignedMemoryAccess());
         int typesIndex = encodeAndAddCollection(buf, sortedTypes.toArray(HostedType.EMPTY_ARRAY), this::encodeType, false);
         assert typesIndex == 0;
@@ -848,6 +858,12 @@ public class RuntimeMetadataEncoderImpl implements RuntimeMetadataEncoder {
                 if (anySet(enclosingMethodInfoIndex, annotationsIndex, typeAnnotationsIndex, classesEncodingIndex, permittedSubclassesIndex, nestMembersEncodingIndex, signersEncodingIndex)) {
                     hub.setHubMetadata(enclosingMethodInfoIndex, annotationsIndex, typeAnnotationsIndex, classesEncodingIndex, permittedSubclassesIndex, nestMembersEncodingIndex,
                                     signersEncodingIndex);
+                }
+                if (assignEmptyAnnotationData && classMetadata.annotations.length == 0) {
+                    HostedClass superclass = declaringType.getSuperclass();
+                    if (superclass == null || hasNoInheritableAnnotations(superclass, inheritedAnnotationType, cachedNoInheritableAnnotations)) {
+                        hub.setEmptyAnnotationData();
+                    }
                 }
             }
 
@@ -1037,6 +1053,49 @@ public class RuntimeMetadataEncoderImpl implements RuntimeMetadataEncoder {
     private void encodeConditions(UnsafeArrayTypeWriter buf, RuntimeDynamicAccessMetadata dynamicAccessMetadata) {
         EconomicSet<Class<?>> typesForEncoding = dynamicAccessMetadata.getTypesForEncoding();
         encodeArray(buf, typesForEncoding.toArray(new Class<?>[typesForEncoding.size()]), t -> encodeType(buf, t));
+    }
+
+    private boolean hasNoInheritableAnnotations(HostedType type, ResolvedJavaType inheritedAnnotationType, Map<HostedType, Boolean> cachedResults) {
+        Boolean cached = cachedResults.get(type);
+        if (cached != null) {
+            return cached;
+        }
+        boolean result = true;
+        ClassMetadata metadata = classData.get(type);
+        if (metadata == null) {
+            result = false;
+        }
+        if (result && type.getSuperclass() != null) {
+            result = hasNoInheritableAnnotations(type.getSuperclass(), inheritedAnnotationType, cachedResults);
+        }
+        if (result) {
+            for (AnnotationValue annotation : metadata.annotations) {
+                if (annotation.isError()) {
+                    result = false;
+                    break;
+                }
+                ResolvedJavaType originalType = OriginalClassProvider.getOriginalType(annotation.getAnnotationType());
+                AnalysisUniverse aUniverse = ((AnalysisMetaAccess) metaAccess.getWrapped()).getUniverse();
+                AnalysisType aType = aUniverse.lookup(originalType);
+                HostedType hType = metaAccess.getUniverse().lookup(aType);
+                ClassMetadata annotationMetadata = classData.get(hType);
+                if (annotationMetadata == null || !hasNoDeclaredAnnotation(annotationMetadata, inheritedAnnotationType)) {
+                    result = false;
+                    break;
+                }
+            }
+        }
+        cachedResults.put(type, result);
+        return result;
+    }
+
+    private static boolean hasNoDeclaredAnnotation(ClassMetadata metadata, ResolvedJavaType annotationType) {
+        for (AnnotationValue annotation : metadata.annotations) {
+            if (annotation.isError() || OriginalClassProvider.getOriginalType(annotation.getAnnotationType()).equals(annotationType)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void encodeExecutable(UnsafeArrayTypeWriter buf, ExecutableMetadata executable) {

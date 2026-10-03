@@ -52,10 +52,7 @@ import org.graalvm.nativeimage.AnnotationAccess;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.c.constant.CConstant;
-import org.graalvm.nativeimage.c.function.CEntryPoint;
-import org.graalvm.nativeimage.c.function.CLibrary;
 import org.graalvm.nativeimage.hosted.Feature;
-import org.graalvm.word.WordBase;
 import org.graalvm.word.impl.Word.Operation;
 
 import com.oracle.graal.pointsto.BigBang;
@@ -117,6 +114,7 @@ import com.oracle.svm.hosted.classinitialization.ClassInitializationFeature;
 import com.oracle.svm.hosted.classinitialization.ClassInitializationOptions;
 import com.oracle.svm.hosted.classinitialization.ClassInitializationSupport;
 import com.oracle.svm.hosted.classinitialization.SimulateClassInitializerSupport;
+import com.oracle.svm.hosted.code.CEntryPointGuestValue;
 import com.oracle.svm.hosted.code.InliningUtilities;
 import com.oracle.svm.hosted.code.SubstrateCompilationDirectives;
 import com.oracle.svm.hosted.code.UninterruptibleAnnotationChecker;
@@ -138,6 +136,8 @@ import com.oracle.svm.hosted.phases.ImplicitAssertionsPhase;
 import com.oracle.svm.hosted.phases.InlineBeforeAnalysisGraphDecoderImpl;
 import com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyImpl;
 import com.oracle.svm.hosted.phases.InlineBeforeAnalysisPolicyUtils;
+import com.oracle.svm.hosted.sboutlining.SBOutliningFeature;
+import com.oracle.svm.hosted.sboutlining.SBOutliningPhase;
 import com.oracle.svm.hosted.substitute.AnnotationSubstitutionProcessor;
 import com.oracle.svm.hosted.substitute.AutomaticUnsafeTransformationSupport;
 import com.oracle.svm.shared.AlwaysInline;
@@ -705,7 +705,7 @@ public class SVMHost extends HostVM {
     }
 
     public static boolean isUnknownClass(ResolvedJavaType resolvedJavaType) {
-        return GuestAnnotationAccess.getAnnotation(resolvedJavaType, UnknownClass.class) != null;
+        return GuestAnnotationAccess.isAnnotationPresent(resolvedJavaType, UnknownClass.class);
     }
 
     public ClassInitializationSupport getClassInitializationSupport() {
@@ -737,23 +737,26 @@ public class SVMHost extends HostVM {
 
     @Override
     public void checkType(ResolvedJavaType type, AnalysisUniverse universe) {
-        Class<?> originalClass = OriginalClassProvider.getJavaClass(type);
-        ClassLoader originalClassLoader = originalClass.getClassLoader();
+        GuestAccess guestAccess = GuestAccess.get();
+        ResolvedJavaType originalType = OriginalClassProvider.getOriginalType(type);
+        JavaConstant originalClass = guestAccess.getProviders().getConstantReflection().asJavaClass(originalType);
+        JavaConstant originalClassLoader = guestAccess.invoke(guestAccess.elements.java_lang_Class_getClassLoader, originalClass);
         if (NativeImageSystemClassLoader.singleton().isDisallowedClassLoader(originalClassLoader)) {
-            String message = "Class " + originalClass.getName() + " was loaded by " + originalClassLoader + " and not by the current image class loader " + classLoader + ". ";
+            String message = "Class " + originalType.toJavaName() + " was loaded by " + originalClassLoader + " and not by the current image class loader " + classLoader + ". ";
             message += "This usually means that some objects from a previous build leaked in the current build. ";
             message += "This can happen when using the image build server. ";
             message += "To fix the issue you must reset all static state from the bootclasspath and application classpath that points to the application objects. ";
             message += "If the offending code is in JDK code please file a bug with GraalVM. ";
             throw new UnsupportedFeatureException(message);
         }
-        if (originalClass.isRecord()) {
+        if (originalType.isRecord()) {
             try {
-                for (var recordComponent : originalClass.getRecordComponents()) {
-                    if (WordBase.class.isAssignableFrom(recordComponent.getType())) {
+                for (var recordComponent : originalType.getRecordComponents()) {
+                    ResolvedJavaType componentType = recordComponent.getType().resolve(originalType);
+                    if (guestAccess.elements.WordBase.isAssignableFrom(componentType)) {
                         throw UserError.abort("Records cannot use Word types. " +
                                         "The equals/hashCode/toString implementation of records uses method handles, and Word types are not supported as parameters of method handle invocations. " +
-                                        "Record type: `" + originalClass.getTypeName() + "`, component: `" + recordComponent.getName() + "` of type `" + recordComponent.getType().getTypeName() + "`");
+                                        "Record type: `" + originalType.toJavaName() + "`, component: `" + recordComponent.getName() + "` of type `" + componentType.toJavaName() + "`");
                     }
                 }
             } catch (LinkageError e) {
@@ -843,6 +846,13 @@ public class SVMHost extends HostVM {
         }
         if (shouldIntrinsifyStringFormat(method)) {
             new StringFormatPhase(allowStringFormatFormatterFallback()).apply(graph, bb.getProviders(method));
+        }
+        if (method.isOriginalMethod() && SBOutliningFeature.outlineSBSequences()) {
+            /*
+             * SB outlining creates synthetic graphs into which deoptimizations cannot be inserted.
+             * It also alters frame states in a deoptimization-unsafe way.
+             */
+            new SBOutliningPhase().apply(graph, bb.getProviders(method));
         }
     }
 
@@ -1263,7 +1273,7 @@ public class SVMHost extends HostVM {
          * Methods from a CLibrary that is not included in the static libraries of the image should
          * not be included.
          */
-        CLibrary cLibrary = nativeLibraries.getCLibrary(method);
+        CLibraryGuestValue cLibrary = nativeLibraries.getCLibrary(method);
         if (cLibrary != null && allStaticLibNames.stream().noneMatch(lib -> lib.toString().contains(cLibrary.value()))) {
             return false;
         }
@@ -1275,8 +1285,8 @@ public class SVMHost extends HostVM {
         }
 
         /* CEntryPoint methods should not be included according to their predicate. */
-        CEntryPoint cEntryPoint = GuestAnnotationAccess.getAnnotation(method, CEntryPoint.class);
-        return cEntryPoint == null || ReflectionUtil.newInstance(cEntryPoint.include()).getAsBoolean();
+        CEntryPointGuestValue cEntryPoint = CEntryPointGuestValue.get(method);
+        return cEntryPoint == null || GuestAccess.get().callBooleanSupplier(cEntryPoint.include());
     }
 
     /**
@@ -1301,7 +1311,7 @@ public class SVMHost extends HostVM {
         }
 
         /* Fields that are deleted or substituted should not be in the image. */
-        if (GuestAnnotationAccess.getAnnotation(field, Delete.class) != null || GuestAnnotationAccess.getAnnotation(field, InjectAccessors.class) != null) {
+        if (GuestAnnotationAccess.isAnnotationPresent(field, Delete.class) || GuestAnnotationAccess.isAnnotationPresent(field, InjectAccessors.class)) {
             return false;
         }
 
@@ -1423,8 +1433,9 @@ public class SVMHost extends HostVM {
         if (!callee.canBeInlined()) {
             return true;
         }
-        if (GuestAnnotationAccess.isAnnotationPresent(callee, NeverInlineTrivial.class)) {
-            Class<?>[] onlyWith = GuestAnnotationAccess.getAnnotation(callee, NeverInlineTrivial.class).onlyWith();
+        NeverInlineTrivialGuestValue neverInlineTrivial = NeverInlineTrivialGuestValue.get(callee);
+        if (neverInlineTrivial != null) {
+            List<ResolvedJavaType> onlyWith = neverInlineTrivial.onlyWith();
             if (shouldEvaluateNeverInlineTrivialOnlyWith(onlyWith)) {
                 return evaluateOnlyWith(onlyWith, callee.toString(), null);
             }
@@ -1441,8 +1452,8 @@ public class SVMHost extends HostVM {
         return SubstrateOptions.NeverInlineTrivial.getValue().values().stream().anyMatch(re -> MethodFilter.parse(re).matches(callee));
     }
 
-    private static boolean shouldEvaluateNeverInlineTrivialOnlyWith(Class<?>[] onlyWith) {
-        return onlyWith.length != 1 || onlyWith[0] != NeverInlineTrivial.NeverInlined.class;
+    private static boolean shouldEvaluateNeverInlineTrivialOnlyWith(List<ResolvedJavaType> onlyWith) {
+        return onlyWith.size() != 1 || !onlyWith.getFirst().equals(GuestAccess.get().lookupType(NeverInlineTrivial.NeverInlined.class));
     }
 
     public static boolean evaluateOnlyWith(Class<?>[] onlyWith, String context, Class<?> originalClass) {
@@ -1480,8 +1491,9 @@ public class SVMHost extends HostVM {
             if (guestAccess.elements.java_util_function_BooleanSupplier.isAssignableFrom(onlyWithType)) {
                 onlyWithResult = guestAccess.callBooleanSupplier(onlyWithType);
             } else if (guestAccess.elements.java_util_function_Predicate.isAssignableFrom(onlyWithType)) {
-                onlyWithResult = guestAccess.callPredicate(onlyWithType,
-                                guestAccess.getProviders().getConstantReflection().asJavaClass(OriginalClassProvider.getOriginalType(originalType)));
+                JavaConstant originalClass = originalType == null ? JavaConstant.NULL_POINTER
+                                : guestAccess.getProviders().getConstantReflection().asJavaClass(OriginalClassProvider.getOriginalType(originalType));
+                onlyWithResult = guestAccess.callPredicate(onlyWithType, originalClass);
             } else {
                 throw UserError.abort("Class specified as onlyWith for %s does not implement %s or %s", context,
                                 BooleanSupplier.class.getSimpleName(), Predicate.class.getSimpleName());

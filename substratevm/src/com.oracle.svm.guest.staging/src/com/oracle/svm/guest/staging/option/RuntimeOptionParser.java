@@ -117,6 +117,7 @@ public final class RuntimeOptionParser {
     @GuaranteeFolded private static final String HOTSPOT_OPTION_COMPATIBILITY_NAME = "CREMA_HOTSPOT_OPTION_COMPATIBILITY";
     private static final String PATCH_MODULE_OPTION = "--patch-module";
     private static final String RESERVED_INTERNAL_MODULE_PROPERTY_WARNING = "Ignoring system property options whose names match '-Djdk.module.*', which is reserved for internal use.";
+    private static final String VERIFY_NONE_WARNING = "Options -Xverify:none and -noverify were deprecated in JDK 13 and will likely be removed in a future release.";
 
     private static final Set<String> SYSTEM_ASSERTION_OPTIONS = Set.of(
                     "-esa",
@@ -159,10 +160,6 @@ public final class RuntimeOptionParser {
                     "-Xshare:on",
                     "-Xshare:auto",
                     "-Xshare:off",
-                    "-Xverify",
-                    "-Xverify:all",
-                    "-Xverify:remote",
-                    "-Xverify:none",
                     "-Xdebug",
                     "-Xcheck:jni");
     private static final Set<String> UNIMPLEMENTED_VERBOSE_OPTIONS = Set.of(
@@ -210,7 +207,7 @@ public final class RuntimeOptionParser {
         String[] args = parseJavaVMOptions(initialArgs, context);
         args = consumeCompatibilityOptions(args);
         args = singleton().parse(args, ignoreUnrecognized);
-        if (!GuestStagingDependencyBridge.singleton().legacyJavaOptionMode()) {
+        if (GuestStagingDependencyBridge.singleton().strictRuntimeJavaOptions()) {
             rejectRecognizedUnimplementedJavaOptions(args);
         }
         configureLogFile(context.logFile);
@@ -220,7 +217,7 @@ public final class RuntimeOptionParser {
 
     /** Parses runtime options for a Java main image and returns the application main arguments. */
     public static String[] parseAndConsumeJavaMainOptions(String[] initialArgs, boolean ignoreUnrecognized) {
-        if (GuestStagingDependencyBridge.singleton().legacyJavaOptionMode()) {
+        if (!GuestStagingDependencyBridge.singleton().strictRuntimeJavaOptions()) {
             return parseAndConsumeAllOptions(initialArgs, ignoreUnrecognized);
         }
 
@@ -366,10 +363,11 @@ public final class RuntimeOptionParser {
                 continue;
             }
             if (parseProperty(arg, context) ||
-                            (!GuestStagingDependencyBridge.singleton().legacyJavaOptionMode() && (parseModuleOption(arg, context) ||
+                            (GuestStagingDependencyBridge.singleton().strictRuntimeJavaOptions() && (parseModuleOption(arg, context) ||
                                             parsePreviewOption(arg) ||
+                                            parseVerifyOption(arg) ||
                                             parseXBootClasspathAppendOption(arg, context) ||
-                                            parseRecognizedJavaOption(arg, context)))) {
+                                            parseRecognizedJavaOption(arg)))) {
                 continue;
             }
             args[newIdx] = arg;
@@ -382,6 +380,26 @@ public final class RuntimeOptionParser {
         initializeProperties(context.properties);
 
         return newIdx == args.length ? args : Arrays.copyOf(args, newIdx);
+    }
+
+    private static boolean parseVerifyOption(String arg) {
+        if (!arg.startsWith("-Xverify")) {
+            return false;
+        }
+        String mode = switch (arg.substring("-Xverify".length())) {
+            case "", ":all" -> "ALL";
+            case ":remote" -> "REMOTE";
+            case ":none" -> {
+                Log.log().string("Substrate VM warning: ").string(VERIFY_NONE_WARNING).newline();
+                yield "NONE";
+            }
+            default -> null;
+        };
+        if (mode == null) {
+            return false;
+        }
+        GuestStagingDependencyBridge.singleton().setVerifyMode(mode);
+        return true;
     }
 
     /// Initializes system properties derived from recognized Java VM options.
@@ -399,7 +417,7 @@ public final class RuntimeOptionParser {
         if (!arg.startsWith(PROPERTY_PREFIX) || hasPrefix(arg, GRAAL_OPTION_PREFIX) || hasPrefix(arg, LEGACY_GRAAL_OPTION_PREFIX)) {
             return false;
         }
-        if (!GuestStagingDependencyBridge.singleton().legacyJavaOptionMode() && isReservedInternalModuleProperty(arg)) {
+        if (GuestStagingDependencyBridge.singleton().strictRuntimeJavaOptions() && isReservedInternalModuleProperty(arg)) {
             if (!context.warnedInternalModuleProperty) {
                 Log.log().string("Substrate VM warning: ").string(RESERVED_INTERNAL_MODULE_PROPERTY_WARNING).newline();
                 context.warnedInternalModuleProperty = true;
@@ -571,7 +589,20 @@ public final class RuntimeOptionParser {
     }
 
     /// Parses known and implemented Java VM options.
-    private static boolean parseRecognizedJavaOption(String arg, @SuppressWarnings("unused") ParseContext context) {
+    private static boolean parseRecognizedJavaOption(String arg) {
+        if (isEnableAssertionsOption(arg)) {
+            GuestStagingDependencyBridge.singleton().updateRuntimeAssertionStatus(assertionOptionTarget(arg), true);
+            return true;
+        }
+        if (isDisableAssertionsOption(arg)) {
+            GuestStagingDependencyBridge.singleton().updateRuntimeAssertionStatus(assertionOptionTarget(arg), false);
+            return true;
+        }
+        if (SYSTEM_ASSERTION_OPTIONS.contains(arg)) {
+            boolean enable = arg.equals("-esa") || arg.equals("-enablesystemassertions");
+            GuestStagingDependencyBridge.singleton().updateRuntimeSystemAssertionStatus(enable);
+            return true;
+        }
         if (arg.equals("-verbose") || arg.equals("-verbose:class")) {
             GuestStagingDependencyBridge.singleton().enableTraceClassLoading();
             return true;
@@ -602,15 +633,6 @@ public final class RuntimeOptionParser {
     /// Returns whether `arg` is a recognized but unimplemented VM option.
     private static boolean isRecognizedUnimplementedJavaOption(String arg) {
         if (arg.startsWith(FINALIZATION_OPTION_PREFIX)) {
-            return true;
-        }
-        if (isEnableAssertionsOption(arg)) {
-            return true;
-        }
-        if (isDisableAssertionsOption(arg)) {
-            return true;
-        }
-        if (SYSTEM_ASSERTION_OPTIONS.contains(arg)) {
             return true;
         }
         if (arg.startsWith("-agentlib:")) {
@@ -654,6 +676,12 @@ public final class RuntimeOptionParser {
     /// Returns whether `arg` selects the disable-assertions family, including `:<target>` forms.
     private static boolean isDisableAssertionsOption(String arg) {
         return arg.equals("-da") || arg.equals("-disableassertions") || arg.startsWith("-da:") || arg.startsWith("-disableassertions:");
+    }
+
+    /// Extracts the optional class or package target from an assertion option.
+    private static String assertionOptionTarget(String arg) {
+        int separatorIndex = arg.indexOf(':');
+        return separatorIndex == -1 ? "" : arg.substring(separatorIndex + 1);
     }
 
     /// Returns whether `arg` is a recognized `-Xshare` mode.

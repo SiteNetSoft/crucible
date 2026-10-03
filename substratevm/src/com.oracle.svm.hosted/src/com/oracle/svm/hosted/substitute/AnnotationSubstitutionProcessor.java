@@ -48,6 +48,7 @@ import com.oracle.graal.pointsto.BigBang;
 import com.oracle.graal.pointsto.infrastructure.SubstitutionProcessor;
 import com.oracle.graal.pointsto.meta.AnalysisField;
 import com.oracle.graal.pointsto.meta.AnalysisUniverse;
+import com.oracle.svm.core.AssertionsSupport;
 import com.oracle.svm.core.BuilderUtil;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.annotate.Alias;
@@ -79,8 +80,8 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.shared.option.SubstrateOptionsParser;
 import com.oracle.svm.shared.util.ReflectionUtil;
 import com.oracle.svm.shared.util.VMError;
-import com.oracle.svm.util.GuestAnnotationAccess;
 import com.oracle.svm.util.GuestAccess;
+import com.oracle.svm.util.GuestAnnotationAccess;
 import com.oracle.svm.util.JVMCIFieldValueTransformer;
 import com.oracle.svm.util.JVMCIReflectionUtil;
 import com.oracle.svm.util.OriginalClassProvider;
@@ -280,10 +281,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
      * Returns the original types explicitly marked with a class-level {@link Delete}.
      */
     public List<ResolvedJavaType> getDeletedTypes() {
-        return deleteAnnotations.keySet().stream()
-                        .filter(ResolvedJavaType.class::isInstance)
-                        .map(ResolvedJavaType.class::cast)
-                        .toList();
+        return deleteAnnotations.keySet().stream().filter(ResolvedJavaType.class::isInstance).map(ResolvedJavaType.class::cast).toList();
     }
 
     /**
@@ -291,10 +289,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
      * both the original target method and the annotated deletion declaration.
      */
     public List<ResolvedJavaMethod> getDeletedMethods() {
-        return deleteAnnotations.keySet().stream()
-                        .filter(ResolvedJavaMethod.class::isInstance)
-                        .map(ResolvedJavaMethod.class::cast)
-                        .toList();
+        return deleteAnnotations.keySet().stream().filter(ResolvedJavaMethod.class::isInstance).map(ResolvedJavaMethod.class::cast).toList();
     }
 
     public Optional<ResolvedJavaField> findSubstitution(ResolvedJavaField field) {
@@ -443,7 +438,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
             return;
         }
 
-        TargetClassGuestValue targetClassAnnotation = lookupAnnotation(annotatedType, TargetClass.class, TargetClassGuestValue::from);
+        TargetClassGuestValue targetClassAnnotation = TargetClassGuestValue.get(annotatedType);
         ResolvedJavaType originalType = findTargetClass(annotatedType, targetClassAnnotation);
         if (originalType == null) {
             return;
@@ -509,7 +504,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
         }
 
         AnnotationValue deleteAnnotation = lookupAnnotation(annotated, Delete.class);
-        SubstituteGuestValue substituteAnnotation = lookupAnnotation(annotated, Substitute.class, SubstituteGuestValue::from);
+        SubstituteGuestValue substituteAnnotation = SubstituteGuestValue.get(annotated);
         AnnotationValue annotateOriginalAnnotation = lookupAnnotation(annotated, AnnotateOriginal.class);
         AnnotationValue aliasAnnotation = lookupAnnotation(annotated, Alias.class);
 
@@ -589,7 +584,9 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
     }
 
     private void handleFieldInAliasClass(ResolvedJavaField annotated, ResolvedJavaType originalType) {
-        if (skipExcludedPlatform(annotated) || annotated.isSynthetic()) {
+        /* Assertion status fields must be mapped so runtime-initialized alias classes can retain their assertion code. */
+        boolean assertionStatusField = annotated.isSynthetic() && annotated.getName().startsWith(AssertionsSupport.SYNTHETIC_ASSERTIONS_DISABLED_FIELD_NAME);
+        if (skipExcludedPlatform(annotated) || (annotated.isSynthetic() && !assertionStatusField)) {
             return;
         }
 
@@ -599,10 +596,10 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
 
         int numAnnotations = (deleteAnnotation != null ? 1 : 0) + (aliasAnnotation != null ? 1 : 0) + (injectAnnotation != null ? 1 : 0);
         if (numAnnotations == 0) {
-            guarantee(annotated.getName().equals("$assertionsDisabled"), "One of @Delete, @Alias, or @Inject must be used: %s", annotated);
+            guarantee(annotated.getName().startsWith(AssertionsSupport.SYNTHETIC_ASSERTIONS_DISABLED_FIELD_NAME), "One of @Delete, @Alias, or @Inject must be used: %s", annotated);
             /*
              * The field $assertionsDisabled can be present in the original class, but does not have
-             * to. We treat it like an optional @Alias fields without field value recomputation.
+             * to be. We treat it like an optional @Alias field without field value recomputation.
              */
             ResolvedJavaField original = findOriginalField(annotated, originalType, true);
             if (original != null) {
@@ -637,7 +634,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
             guarantee(annotated.isStatic() == original.isStatic(), "Static modifier mismatch: %s, %s", annotated, original);
             guarantee(annotated.getJavaKind() == original.getJavaKind(), "Type mismatch: %s, %s", annotated, original);
 
-            RecomputeFieldValueGuestValue recomputeAnnotation = lookupAnnotation(annotated, RecomputeFieldValue.class, RecomputeFieldValueGuestValue::from);
+            RecomputeFieldValueGuestValue recomputeAnnotation = RecomputeFieldValueGuestValue.get(annotated);
             if (annotated.isStatic() && (recomputeAnnotation == null || recomputeAnnotation.kind() != RecomputeFieldValue.Kind.FromAlias)) {
                 guarantee(hasDefaultValue(annotated), "The value assigned to a static @Alias field is ignored unless @RecomputeFieldValue with kind=FromAlias is used: %s", annotated);
             }
@@ -831,7 +828,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
             return;
         }
 
-        SubstituteGuestValue substituteAnnotation = lookupAnnotation(annotated, Substitute.class, SubstituteGuestValue::from);
+        SubstituteGuestValue substituteAnnotation = SubstituteGuestValue.get(annotated);
         AnnotationValue keepOriginalAnnotation = lookupAnnotation(annotated, KeepOriginal.class);
 
         int numAnnotations = (substituteAnnotation != null ? 1 : 0) + (keepOriginalAnnotation != null ? 1 : 0);
@@ -924,6 +921,9 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
                 ResolvedJavaType targetReturnType = interceptParameterType(annotatedMethod.getSignature().getReturnType(annotatedMethod.getDeclaringClass()), annotatedMethod.getDeclaringClass());
                 ResolvedJavaMethod originalMethod = JVMCIReflectionUtil.getDeclaredMethod(true, originalType, originalName, targetReturnType, originalParams);
                 if (originalMethod == null) {
+                    ResolvedJavaMethod originalMethodWithDifferentReturnType = JVMCIReflectionUtil.getUniqueDeclaredMethod(true, originalType, originalName, originalParams);
+                    guarantee(originalMethodWithDifferentReturnType == null,
+                                    "Return type mismatch:%n    %s%n    %s", annotatedMethod, originalMethodWithDifferentReturnType);
                     throw UserError.abort("Could not find target method: %s", annotatedMethod);
                 }
 
@@ -984,24 +984,24 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
         return originalField;
     }
 
-    private String findOriginalElementName(ResolvedJavaField annotatedField, ResolvedJavaType originalType) {
-        TargetElementGuestValue targetElementAnnotation = lookupAnnotation(annotatedField, TargetElement.class, TargetElementGuestValue::from);
+    private static String findOriginalElementName(ResolvedJavaField annotatedField, ResolvedJavaType originalType) {
+        TargetElementGuestValue targetElementAnnotation = TargetElementGuestValue.get(annotatedField);
         if (!isIncluded(targetElementAnnotation, originalType, annotatedField)) {
             return null;
         }
         return targetElementAnnotation == null || targetElementAnnotation.name().isEmpty() ? annotatedField.getName() : targetElementAnnotation.name();
     }
 
-    String findOriginalElementName(ResolvedJavaMethod annotatedMethod, ResolvedJavaType originalType) {
-        TargetElementGuestValue targetElementAnnotation = lookupAnnotation(annotatedMethod, TargetElement.class, TargetElementGuestValue::from);
+    static String findOriginalElementName(ResolvedJavaMethod annotatedMethod, ResolvedJavaType originalType) {
+        TargetElementGuestValue targetElementAnnotation = TargetElementGuestValue.get(annotatedMethod);
         if (!isIncluded(targetElementAnnotation, originalType, annotatedMethod)) {
             return null;
         }
         return targetElementAnnotation == null || targetElementAnnotation.name().isEmpty() ? annotatedMethod.getName() : targetElementAnnotation.name();
     }
 
-    public static boolean isIncluded(AnnotationValue targetElementAnnotation, ResolvedJavaType originalType, Object context) {
-        return isIncluded(TargetElementGuestValue.from(targetElementAnnotation), originalType, context);
+    public static boolean isIncluded(Annotated annotated, ResolvedJavaType originalType, Object context) {
+        return isIncluded(TargetElementGuestValue.get(annotated), originalType, context);
     }
 
     private static boolean isIncluded(TargetElementGuestValue targetElementAnnotation, ResolvedJavaType originalType, Object context) {
@@ -1055,7 +1055,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
     }
 
     private ResolvedJavaField fieldValueRecomputation(ResolvedJavaType originalType, ResolvedJavaField original, ResolvedJavaField annotated) {
-        RecomputeFieldValueGuestValue recomputeAnnotation = lookupAnnotation(annotated, RecomputeFieldValue.class, RecomputeFieldValueGuestValue::from);
+        RecomputeFieldValueGuestValue recomputeAnnotation = RecomputeFieldValueGuestValue.get(annotated);
         AnnotationValue injectAccessorsAnnotation = lookupAnnotation(annotated, InjectAccessors.class);
 
         int numAnnotations = (recomputeAnnotation != null ? 1 : 0) + (injectAccessorsAnnotation != null ? 1 : 0);
@@ -1169,7 +1169,7 @@ public class AnnotationSubstitutionProcessor extends SubstitutionProcessor {
             annotatedBaseType = annotatedBaseType.getComponentType();
         }
 
-        TargetClassGuestValue targetClassAnnotation = lookupAnnotation(annotatedBaseType, TargetClass.class, TargetClassGuestValue::from);
+        TargetClassGuestValue targetClassAnnotation = TargetClassGuestValue.get(annotatedBaseType);
         if (targetClassAnnotation == null) {
             return annotatedType;
         }

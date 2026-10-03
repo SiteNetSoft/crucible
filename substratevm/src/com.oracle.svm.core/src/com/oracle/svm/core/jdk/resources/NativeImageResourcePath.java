@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -88,8 +88,10 @@ import com.oracle.svm.util.NativeImageResourcePathRepresentation;
 /// non-loader-aware mode keeps `org.graalvm.nativeimage.driver` as `moduleName`, while the visible
 /// path remains `/com/oracle/...`.
 ///
-/// `rootId` is the dense per-loader ID of the source root encoded in resource URLs and URIs, for
-/// example the `2` in class-path resource URLs such as `resource://app/2!/META-INF/services/A`.
+/// `rootId` is either the dense per-loader ID of the source root encoded in resource URLs and URIs,
+/// for example the `2` in class-path resource URLs such as
+/// `resource://app/2!/META-INF/services/A`, or [NativeImageResourceFileSystem#ANY_ROOT_ID] for paths
+/// in the aggregate `resource:/` filesystem.
 /// `resourceIndex` is the local data-array index used by this exact path's resolved
 /// [ResourceStorageEntry]. In the common compact case `rootId == resourceIndex`; when entries are
 /// registered from roots whose IDs are sparse for a particular resource,
@@ -97,17 +99,19 @@ import com.oracle.svm.util.NativeImageResourcePathRepresentation;
 ///
 /// Paths keep `rootId`, `resourceIndex`, and optional `moduleName` because `rootId` is stable URL
 /// identity, while the usable local data index depends on the current resolved resource path and
-/// module. Each path resolves its local index when it is created. Structural directory nodes have no
-/// data array to index, so they use [NativeImageResourceFileSystem#NO_RESOURCE_INDEX] and only
-/// preserve `rootId` while walking toward complete child entries. If a complete path has no data in
-/// the selected root, the operation should fail for that root instead of silently falling back to a
-/// different resource variant.
+/// module. Each path resolves and caches its local index when an operation first needs it. Once
+/// resolved, structural directory nodes have no data array to index, so they use
+/// [NativeImageResourceFileSystem#NO_RESOURCE_INDEX] and only preserve `rootId` while walking toward
+/// complete child entries. If a complete path has no data in the selected root, the operation should
+/// fail for that root instead of silently falling back to a different resource variant. Aggregate
+/// paths deliberately select the first variant for each resource.
 public class NativeImageResourcePath extends NativeImageResourcePathRepresentation implements Path {
+    private static final int RESOURCE_INDEX_UNINITIALIZED = -2;
 
     private final NativeImageResourceFileSystem fileSystem;
-    private final int resourceIndex;
     private final int rootId;
     private final String moduleName;
+    private int resourceIndex;
 
     NativeImageResourcePath(NativeImageResourceFileSystem fileSystem, byte[] resourcePath, boolean normalized, int rootId) {
         this(fileSystem, resourcePath, normalized, rootId, null);
@@ -118,7 +122,7 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
         this.fileSystem = fileSystem;
         this.rootId = rootId;
         this.moduleName = moduleName;
-        this.resourceIndex = NativeImageResourceFileSystem.resolveResourceIndex(getResolvedResourceLookupPath(this.path), rootId, moduleName);
+        this.resourceIndex = RESOURCE_INDEX_UNINITIALIZED;
     }
 
     @Override
@@ -378,6 +382,7 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
     public URI toUri() {
         try {
             NativeImageResourcePath absolute = toAbsolutePath();
+            int uriRootId = fileSystem.resolveRootIdForUri(absolute.getResolvedPath(), rootId, moduleName);
             if (ClassRegistries.respectClassLoader()) {
                 byte[] resolvedPath = absolute.getResolvedPath();
                 int separator = indexOf(resolvedPath, (byte) '/');
@@ -386,9 +391,9 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
                 }
                 String host = NativeImageResourceFileSystem.getString(Arrays.copyOf(resolvedPath, separator));
                 String resourcePath = NativeImageResourceFileSystem.getString(Arrays.copyOfRange(resolvedPath, separator, resolvedPath.length));
-                return new URI(RESOURCE_PROTOCOL, moduleName, host, -1, NativeImageResourceFileSystemUtil.formatRootedResourcePathFromAbsolute(rootId, resourcePath), null, null);
+                return new URI(RESOURCE_PROTOCOL, moduleName, host, -1, NativeImageResourceFileSystemUtil.formatRootedResourcePathFromAbsolute(uriRootId, resourcePath), null, null);
             }
-            return new URI(RESOURCE_PROTOCOL, moduleName, NativeImageResourceFileSystemUtil.formatRootedResourcePathFromAbsolute(rootId, NativeImageResourceFileSystem.getString(
+            return new URI(RESOURCE_PROTOCOL, moduleName, NativeImageResourceFileSystemUtil.formatRootedResourcePathFromAbsolute(uriRootId, NativeImageResourceFileSystem.getString(
                             absolute.path)), null);
         } catch (URISyntaxException e) {
             throw new AssertionError(e);
@@ -566,6 +571,11 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
     }
 
     int getResourceIndex() {
+        if (resourceIndex == RESOURCE_INDEX_UNINITIALIZED) {
+            int resolvedResourceIndex = fileSystem.resolveResourceIndex(getResolvedPath(), rootId, moduleName);
+            assert resolvedResourceIndex != RESOURCE_INDEX_UNINITIALIZED;
+            resourceIndex = resolvedResourceIndex;
+        }
         return resourceIndex;
     }
 
@@ -633,7 +643,7 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
     }
 
     boolean exists() {
-        return fileSystem.exists(getResolvedPath(), resourceIndex);
+        return fileSystem.exists(getResolvedPath(), getResourceIndex());
     }
 
     FileStore getFileStore() throws IOException {
@@ -670,7 +680,7 @@ public class NativeImageResourcePath extends NativeImageResourcePathRepresentati
                     throw new UnsupportedOperationException();
             }
         }
-        fileSystem.checkAccess(getResolvedPath(), resourceIndex);
+        fileSystem.checkAccess(getResolvedPath(), getResourceIndex());
         if (x) {
             throw new AccessDeniedException(toString());
         }

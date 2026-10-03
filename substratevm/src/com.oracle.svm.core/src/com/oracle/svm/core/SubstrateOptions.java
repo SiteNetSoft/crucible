@@ -89,6 +89,7 @@ import jdk.graal.compiler.asm.amd64.AMD64Assembler;
 import jdk.graal.compiler.core.common.GraalOptions;
 import jdk.graal.compiler.core.common.NumUtil;
 import jdk.graal.compiler.core.phases.MidTier;
+import jdk.graal.compiler.duplication.phases.PullThroughPhiPhase;
 import jdk.graal.compiler.options.Option;
 import jdk.graal.compiler.options.OptionKey;
 import jdk.graal.compiler.options.OptionStability;
@@ -104,6 +105,10 @@ import jdk.vm.ci.code.CodeUtil;
 
 public class SubstrateOptions {
 
+    @Option(help = "Check for stack overflow in method prologue")//
+    public static final HostedOptionKey<Boolean> StackOverflowCheckInPrologue = new HostedOptionKey<>(true);
+    @Option(help = "Check for safepoints in method epilogue")//
+    public static final HostedOptionKey<Boolean> SafepointCheckInEpilogue = new HostedOptionKey<>(true);
     @Option(help = "Enable use of priority inlining during AOT compilation.")//
     public static final HostedOptionKey<Boolean> AOTPriorityInline = new HostedOptionKey<>(true);
     @Option(help = "Perform method-based checks during inlining.", type = OptionType.Debug)//
@@ -199,7 +204,6 @@ public class SubstrateOptions {
     public static final String IMAGE_MODULEPATH_PREFIX = "-imagemp";
     public static final String KEEP_ALIVE_PREFIX = "-keepalive";
     private static ValueUpdateHandler<OptimizationLevel> optimizeValueUpdateHandler;
-    public static OptionEnabledHandler<Boolean> imageLayerEnabledHandler;
     public static OptionEnabledHandler<Boolean> imageLayerCreateEnabledHandler;
 
     @Fold
@@ -348,6 +352,10 @@ public class SubstrateOptions {
         enable(ReduceImplicitExceptionStackTraceInformation, values);
         enable(GraalOptions.OptimizeLongJumps, values);
 
+        /* Control flow duplication almost always increases code size. */
+        disable(GraalOptions.OptDuplication, values);
+        disable(PullThroughPhiPhase.Options.OptPullThroughPhi, values);
+
         if (disableLoopOptimizations) {
             /*
              * Remove all loop optimizations that can increase code size, i.e., duplicate a loop
@@ -491,10 +499,6 @@ public class SubstrateOptions {
 
     public static void setOptimizeValueUpdateHandler(ValueUpdateHandler<OptimizationLevel> updateHandler) {
         SubstrateOptions.optimizeValueUpdateHandler = updateHandler;
-    }
-
-    public static void setImageLayerEnabledHandler(OptionEnabledHandler<Boolean> updateHandler) {
-        SubstrateOptions.imageLayerEnabledHandler = updateHandler;
     }
 
     public static void setImageLayerCreateEnabledHandler(OptionEnabledHandler<Boolean> updateHandler) {
@@ -891,11 +895,6 @@ public class SubstrateOptions {
     @Option(help = "Add additional header bytes to each object, for diagnostic purposes.", type = OptionType.Debug) //
     public static final HostedOptionKey<Integer> AdditionalHeaderBytes = new HostedOptionKey<>(0, SubstrateOptions::validateAdditionalHeaderBytes);
 
-    @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
-    @Option(help = "Allocate memory for identity hash codes only for those objects that need it. Every array and some instances are 8 bytes smaller " +
-                    "and the collector has less to copy; the first identityHashCode() of an object costs a little more. Serial GC only.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> OptionalIdentityHashCodes = new HostedOptionKey<>(true);
-
     @Option(help = "Compile System.arraycopy calls whose array types are known with the type and bounds checks inline, copying short arrays inline " +
                     "and longer ones through a copy routine for that element type, instead of one generic call that sorts out the types at run time.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> InlineExactArraycopy = new HostedOptionKey<>(true);
@@ -905,6 +904,27 @@ public class SubstrateOptions {
         if (value < 0 || value % 4 != 0) {
             throw UserError.invalidOptionValue(optionKey, value, "The value must be 0 or a positive multiple of 4.");
         }
+    }
+
+    @Option(help = "Allocate memory for identity hash codes only for those objects that need it.", type = Expert)//
+    public static final HostedOptionKey<Boolean> OptionalIdentityHashCodes = new HostedOptionKey<>(null, optionKey -> {
+        if (!Boolean.TRUE.equals(optionKey.getValue())) {
+            return;
+        }
+
+        if (!useSerialGC() && !useEpsilonGC()) {
+            throw UserError.abort("The option '" + optionKey.getName() + "' can only be used together with the serial ('--gc=serial') or the epsilon garbage collector ('--gc=epsilon').");
+        }
+        if (!canUseOptionalIdentityHashCodes()) {
+            throw UserError.abort("Option %s cannot be used together with %s or %s.",
+                            SubstrateOptionsParser.commandArgument(optionKey, "+"),
+                            SubstrateOptionsParser.commandArgument(ConcealedOptions.UseCompressedReferences, "-"),
+                            SubstrateOptionsParser.commandArgument(ConcealedOptions.UseCompressedReferenceShift, "-"));
+        }
+    });
+
+    public static boolean canUseOptionalIdentityHashCodes() {
+        return useCompressedReferences() && ConcealedOptions.UseCompressedReferenceShift.getValue();
     }
 
     @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
@@ -942,21 +962,23 @@ public class SubstrateOptions {
     public static final HostedOptionKey<Boolean> ParseRuntimeOptions = new HostedOptionKey<>(true);
 
     @Option(help = """
-                    Preserve legacy Java option handling at runtime.
+                    Enable strict handling of Java VM options at image run time.
 
-                    When true, only these Java options are consumed by the VM:
-                      - System properties with or without an explicit value (i.e. "-Dname=value" or "-Dname")
-                      - "-Xms", "-Xmx", "-Xmn" and "-Xss"
-                      - "-XX:"
-                    All other options are passed through to main or ignored for CreateJavaVM/graal_create_isolate.
+                    When disabled, the VM consumes only the historical options:
 
-                    When false, the VM parses all options passed via CreateJavaVM/graal_create_isolate.
-                    A recognized but unimplemented option reports an error and exits the VM.
-                    If the VM entry point is main, unrecognized options are passed through to main.
-                    Otherwise, an unrecognized option reports an error and exits the VM unless
-                    JNIJavaVMInitArgs.ignoreUnrecognized or graal_create_isolate_params_t.ignore_unrecognized_args
-                    is true in which case the unrecognized option is silently ignored.""", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> LegacyJavaOptionMode = new HostedOptionKey<>(true);
+                     * -Dname=value and -Dname
+                     * -Xms, -Xmx, -Xmn, -Xss
+                     * Native Image runtime -XX: options
+
+                    Furthermore:
+                     * Java-looking arguments are passed to application main, or
+                       silently ignored by JNI_CreateJavaVM / graal_create_isolate.
+                     * Direct -Djdk.module.* properties are treated as ordinary properties.
+
+                    When enabled, supported Java VM options are parsed, recognized but unsupported
+                    options are rejected, and `--` separates VM options from application arguments
+                    for Java main entry points.""", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> StrictRuntimeJavaOptions = new HostedOptionKey<>(false);
 
     @Option(help = "Enable wildcard expansion in command line arguments on Windows.")//
     public static final HostedOptionKey<Boolean> EnableWildcardExpansion = new HostedOptionKey<>(true);
@@ -1140,6 +1162,20 @@ public class SubstrateOptions {
         return SubstrateTarget.getArchitecture() instanceof AMD64 ? 32 : 16;
     }
 
+    private static void validateCodeAlignment(HostedOptionKey<Integer> optionKey) {
+        /*
+         * Executable memory can be committed directly, and therefore placed at a randomized
+         * address, whenever the virtual-memory granularity is a multiple of the requested
+         * alignment. Every supported runtime page size is a multiple of MINIMUM_PAGE_SIZE, so
+         * any divisor of it is compatible with randomized mappings on all supported systems.
+         */
+        if (RandomizeRuntimeCodeCache.getValue() && MINIMUM_PAGE_SIZE % runtimeCodeAlignment() != 0) {
+            throw UserError.invalidOptionValue(optionKey, optionKey.getValue(),
+                            String.format("Runtime code alignment must evenly divide the minimum supported runtime page size (%d bytes) when %s is enabled. Use a compatible alignment or disable runtime code cache randomization",
+                                            MINIMUM_PAGE_SIZE, SubstrateOptionsParser.commandArgument(RandomizeRuntimeCodeCache, "+")));
+        }
+    }
+
     @Platforms(Platform.HOSTED_ONLY.class)
     public static int buildTimeCodeAlignment(OptionValues options) {
         int value = ConcealedOptions.CodeAlignment.getValue(options);
@@ -1318,7 +1354,7 @@ public class SubstrateOptions {
          */
         @LayerVerifiedOption(kind = Kind.Changed, severity = Severity.Error)//
         @Option(help = "Alignment of AOT and JIT compiled code in bytes. The default of 0 automatically selects a suitable value.")//
-        public static final HostedOptionKey<Integer> CodeAlignment = new HostedOptionKey<>(0);
+        public static final HostedOptionKey<Integer> CodeAlignment = new HostedOptionKey<>(0, SubstrateOptions::validateCodeAlignment);
 
         @OptionMigrationMessage("Use the '-o' option instead.")//
         @Option(help = "Directory of the image file to be generated", type = OptionType.User)//
@@ -1850,4 +1886,7 @@ public class SubstrateOptions {
 
     @Option(help = "Emit fast path in monitor snippets", type = Expert) //
     public static final HostedOptionKey<Boolean> UseMonitorFastPath = new HostedOptionKey<>(true);
+
+    @Option(help = "Map the runtime code cache at pseudo-random addresses. This fragments the virtual address space, which can make subsequent reservations of very large contiguous ranges harder to satisfy.", type = Expert) //
+    public static final HostedOptionKey<Boolean> RandomizeRuntimeCodeCache = new HostedOptionKey<>(true);
 }
