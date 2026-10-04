@@ -283,6 +283,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
             if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
                 System.out.println("Crucible: hot counted loops passed over: " + new java.util.TreeMap<>(CrucibleLoopRangeSplitPhase.REJECTED));
                 CrucibleLoopRangeSplitPhase.SPLITS.forEach(split -> System.out.println("Crucible: split " + split));
+                CrucibleContextClonePhase.copyPaths().forEach(path -> System.out.println("Crucible: copy for " + path));
             }
             if (layouter != null) {
                 System.out.println(layouter.summary());
