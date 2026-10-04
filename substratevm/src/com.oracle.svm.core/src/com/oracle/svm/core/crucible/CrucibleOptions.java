@@ -65,6 +65,14 @@ public final class CrucibleOptions {
             if (newValue != null && !newValue.isEmpty()) {
                 /* Profiles are keyed by node source position, so they must be tracked to apply. */
                 GraalOptions.TrackNodeSourcePosition.update(values, true);
+                /*
+                 * Control flow duplication gives a value computed on a rarely taken path more than
+                 * one use, and the schedule then computes it above the branch. With a profile, such
+                 * a path can be inlined and fully unrolled first: BranchBench runs 21 times slower.
+                 */
+                if (!values.containsKey(GraalOptions.OptDuplication)) {
+                    GraalOptions.OptDuplication.update(values, false);
+                }
             }
         }
     };
