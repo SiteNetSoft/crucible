@@ -66,6 +66,8 @@ public final class CrucibleCallTree {
     public static final java.util.concurrent.atomic.AtomicLong TARGET_HITS_SINGLE = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong CONTEXT_LOOKUPS = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong CONTEXT_HITS = new java.util.concurrent.atomic.AtomicLong();
+    /** Calls in copies the samples said too little about, answered from the counted receivers along the same path. */
+    public static final java.util.concurrent.atomic.AtomicLong TARGET_COUNTED_FALLBACK = new java.util.concurrent.atomic.AtomicLong();
 
     private final Map<AnalysisMethod, Node> roots = new HashMap<>();
     private final HostedUniverse universe;
@@ -75,8 +77,17 @@ public final class CrucibleCallTree {
     private int unresolvedTarget;
     private boolean sampled;
     private int sampledStacks;
+    /**
+     * Where there are stacks: the tree built from the receiver counters alone, which knows where a
+     * call goes along a path the stacks caught too seldom; see {@link Node#profileFor}.
+     */
+    private CrucibleCallTree counted;
 
     public CrucibleCallTree(CrucibleProfile profile, HostedUniverse universe) {
+        this(profile, universe, false);
+    }
+
+    private CrucibleCallTree(CrucibleProfile profile, HostedUniverse universe, boolean countersOnly) {
         this.universe = universe;
         Map<String, AnalysisType> typesByName = new HashMap<>();
         for (HostedType type : universe.getTypes()) {
@@ -86,7 +97,10 @@ public final class CrucibleCallTree {
         for (HostedMethod method : universe.getMethods()) {
             methodsById.putIfAbsent(ProfileKey.methodId(method), method.wrapped);
         }
-        sampled = !profile.samples().isEmpty();
+        sampled = !countersOnly && !profile.samples().isEmpty();
+        if (sampled && CrucibleOptions.CrucibleSampledCountedFallback.getValue()) {
+            counted = new CrucibleCallTree(profile, universe, true);
+        }
         if (sampled) {
             /*
              * Stacks say everything the receiver counters do about where calls go, in every calling
@@ -446,7 +460,7 @@ public final class CrucibleCallTree {
             TARGET_LOOKUPS.incrementAndGet();
             List<Node> candidates = find(position);
             if (candidates == null || candidates.isEmpty()) {
-                return null;
+                return sampled ? countedProfileFor(hostedUniverse, position) : null;
             }
             if (sampled) {
                 if (!CrucibleOptions.CrucibleSampledTargetsOutsideCopies.getValue() && !inCopy()) {
@@ -469,7 +483,7 @@ public final class CrucibleCallTree {
                 }
                 if (seen < CrucibleOptions.CrucibleMinimumSamplesAtCall.getValue()) {
                     TARGET_TOO_FEW.incrementAndGet();
-                    return null;
+                    return countedProfileFor(hostedUniverse, position);
                 }
             }
             TARGET_HITS.incrementAndGet();
@@ -481,6 +495,47 @@ public final class CrucibleCallTree {
                 occurrences.put(hostedUniverse.lookup(candidate.method), candidate.subtreeCount());
             }
             return PGOUtils.createJavaMethodProfile(occurrences);
+        }
+
+        /**
+         * In a copy, where the stacks say too little about a call: the counted receivers of the call
+         * along the same path, from the longest end of the path the counted tree has. Without this
+         * the compiler takes the receivers pooled over every path, and a call a copy was made to
+         * narrow stays indirect.
+         */
+        private JavaMethodProfile countedProfileFor(HostedUniverse hostedUniverse, BytecodePosition position) {
+            if (counted == null || !inCopy()) {
+                return null;
+            }
+            List<Node> down = new ArrayList<>();
+            Node top = this;
+            for (; top.parent != null; top = top.parent) {
+                down.add(0, top);
+            }
+            int prefix = top.contextMethods.length;
+            AnalysisMethod[] methods = new AnalysisMethod[prefix + down.size()];
+            int[] bcis = new int[methods.length - 1];
+            System.arraycopy(top.contextMethods, 0, methods, 0, prefix);
+            System.arraycopy(top.contextBcis, 0, bcis, 0, prefix - 1);
+            for (int i = 0; i < down.size(); i++) {
+                methods[prefix + i] = down.get(i).method;
+                bcis[prefix + i - 1] = down.get(i).bci;
+            }
+            for (int start = 0; start < methods.length; start++) {
+                Node node = counted.roots.get(methods[start]);
+                for (int i = start; node != null && i + 1 < methods.length; i++) {
+                    List<Node> at = node.childrenAt(bcis[i]);
+                    node = at == null ? null : match(at, methods[i + 1]);
+                }
+                if (node != null) {
+                    JavaMethodProfile profile = node.profileFor(hostedUniverse, position);
+                    if (profile != null) {
+                        TARGET_COUNTED_FALLBACK.incrementAndGet();
+                    }
+                    return profile;
+                }
+            }
+            return null;
         }
 
         /** Whether this node is in a tree made by {@link #contextFor}, for a copy of a method. */

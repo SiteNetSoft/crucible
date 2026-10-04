@@ -176,6 +176,10 @@ public final class CrucibleOptions {
     @Option(help = "Fewest samples under a call for the sampled stacks to be believed about where it goes, in place of the counted receivers.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleMinimumSamplesAtCall = new HostedOptionKey<>(32);
 
+    @Option(help = "In a copy made for one caller, answer a call the sampled stacks say too little about from the counted receivers along the same path, " +
+                    "in place of the receivers counted over every path.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleSampledCountedFallback = new HostedOptionKey<>(false);
+
     @Option(help = "Tell the inliner where a call goes from the sampled stacks in methods compiled for everyone, and not only in copies made for one caller. " +
                     "Samples count time, so a receiver that is called often and returns quickly can be missing from them; outside a copy the counted receivers are complete.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleSampledTargetsOutsideCopies = new HostedOptionKey<>(true);

@@ -275,6 +275,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
             System.out.println("Crucible: calling contexts -- " + CrucibleCallTree.CONTEXT_HITS.get() + " of " + CrucibleCallTree.CONTEXT_LOOKUPS.get() +
                             " inlining paths found in the tree; " + CrucibleCallTree.TARGET_HITS.get() + " of " + CrucibleCallTree.TARGET_LOOKUPS.get() +
                             " calls had their targets in context, " + CrucibleCallTree.TARGET_HITS_SINGLE.get() + " of them a single target.");
+            if (CrucibleCallTree.TARGET_COUNTED_FALLBACK.get() > 0) {
+                System.out.println("Crucible: " + CrucibleCallTree.TARGET_COUNTED_FALLBACK.get() + " calls in copies answered from the counted receivers along their path.");
+            }
             System.out.println("Crucible: loop range split considered " + CrucibleLoopRangeSplitPhase.LOOPS_CONSIDERED.get() + " hot counted loops, split " +
                             CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks.");
             if (CrucibleOptions.CrucibleProfileDiagnostics.getValue()) {
