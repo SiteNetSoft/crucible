@@ -96,8 +96,11 @@ import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.ValuePhiNode;
 import jdk.graal.compiler.nodes.VirtualState;
 import jdk.graal.compiler.nodes.WithExceptionNode;
+import jdk.graal.compiler.nodes.calc.BinaryNode;
+import jdk.graal.compiler.nodes.calc.ConditionalNode;
 import jdk.graal.compiler.nodes.calc.FloatingNode;
 import jdk.graal.compiler.nodes.calc.IsNullNode;
+import jdk.graal.compiler.nodes.calc.UnaryNode;
 import jdk.graal.compiler.nodes.cfg.ControlFlowGraph;
 import jdk.graal.compiler.nodes.cfg.HIRBlock;
 import jdk.graal.compiler.nodes.debug.ControlFlowAnchored;
@@ -143,6 +146,9 @@ public class DuplicationUtil {
         //@formatter:off
         @Option(help = "", type = OptionType.Debug)
         public static final OptionKey<Boolean> VerifyDuplicationOperations = new OptionKey<>(false);
+        @Option(help = "Duplicates with a region the floating values computed before it that only the region uses, " +
+                        "which shared between the copies would be scheduled above all of them.", type = OptionType.Debug)
+        public static final OptionKey<Boolean> DuplicateRegionOnlyInputs = new OptionKey<>(false);
         //@formatter:on
     }
 
@@ -1052,6 +1058,41 @@ public class DuplicationUtil {
             }
             for (Node node : mergePhis) {
                 duplicatedNodes.remove(node);
+            }
+            if (Options.DuplicateRegionOnlyInputs.getValue(merge.getOptions())) {
+                addRegionOnlyInputs(fixedNodes);
+            }
+        }
+
+        /**
+         * A floating value computed from nodes before the region and used only by it is left
+         * outside the duplicated set, so after duplication it has uses in every copy and is
+         * scheduled where they all meet, above the branches the region was copied after: a value
+         * the region computed only on a rarely taken path is then computed on every path. Each
+         * such value, and what only it uses, goes with the region into each copy instead.
+         */
+        private void addRegionOnlyInputs(Collection<FixedNode> fixedNodes) {
+            boolean added = true;
+            while (added) {
+                added = false;
+                for (Node node : aboveBound) {
+                    /* Arithmetic and logic only: what is cheap to compute twice and has no identity. */
+                    boolean pure = node instanceof BinaryNode || node instanceof UnaryNode || node instanceof ConditionalNode || node instanceof LogicNode;
+                    if (duplicatedNodes.contains(node) || !pure || node.usages().isEmpty()) {
+                        continue;
+                    }
+                    boolean onlyRegion = true;
+                    for (Node usage : node.usages()) {
+                        if (usage instanceof VirtualState || !duplicatedNodes.contains(usage) && !(usage instanceof FixedNode && fixedNodes.contains(usage))) {
+                            onlyRegion = false;
+                            break;
+                        }
+                    }
+                    if (onlyRegion) {
+                        duplicatedNodes.add(node);
+                        added = true;
+                    }
+                }
             }
         }
 
