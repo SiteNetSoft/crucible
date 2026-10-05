@@ -208,7 +208,9 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
         if (parsed == null) {
             parsed = OptionValues.newOptionMap();
             String spec = CrucibleOptions.CrucibleHotMethodOptions.getValue();
-            if (CrucibleOptions.CrucibleHotInliningBudget.getValue()) {
+            boolean hotBudget = CrucibleOptions.CrucibleHotInliningBudget.hasBeenSet() ? CrucibleOptions.CrucibleHotInliningBudget.getValue()
+                            : CrucibleProfileFeature.profileHasSamples();
+            if (hotBudget) {
                 /* First, so that a value given in CrucibleHotMethodOptions as well wins over this one. */
                 spec = spec.isEmpty() ? HOT_INLINING_BUDGET : HOT_INLINING_BUDGET + ":" + spec;
             }
