@@ -69,9 +69,10 @@ public final class CrucibleOptions {
                  * Control flow duplication gives a value computed on a rarely taken path more than
                  * one use, and the schedule then computes it above the branch. With a profile, such
                  * a path can be inlined and fully unrolled first: BranchBench runs 21 times slower.
+                 * The sinking pass moves such values back onto the paths that use them.
                  */
-                if (!values.containsKey(GraalOptions.OptDuplication)) {
-                    GraalOptions.OptDuplication.update(values, false);
+                if (!values.containsKey(CrucibleSinkAfterDuplication)) {
+                    CrucibleSinkAfterDuplication.update(values, true);
                 }
             }
         }
@@ -239,7 +240,7 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);
 
     @Option(help = "After control flow duplication, copy arithmetic that only rarely run blocks use into each of them, where duplication " +
-                    "left it scheduled above the branches. Only with -H:+OptDuplication.", type = OptionType.Expert)//
+                    "left it scheduled above the branches. On with a profile unless set; only with -H:+OptDuplication.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleSinkAfterDuplication = new HostedOptionKey<>(false);
 
     @Option(help = "How lopsided a check inside a loop has to be before the loop's range is split around it.", type = OptionType.Expert)//
