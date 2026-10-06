@@ -238,6 +238,10 @@ public final class CrucibleOptions {
                     "the profile saw almost never fail.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleLoopRangeSplit = new HostedOptionKey<>(true);
 
+    @Option(help = "After control flow duplication, copy arithmetic that only rarely run blocks use into each of them, where duplication " +
+                    "left it scheduled above the branches. Only with -H:+OptDuplication.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleSinkAfterDuplication = new HostedOptionKey<>(false);
+
     @Option(help = "How lopsided a check inside a loop has to be before the loop's range is split around it.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumBias = new HostedOptionKey<>(0.99);
 

@@ -54,6 +54,7 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 import com.oracle.svm.hosted.phases.priorityinline.SubstratePriorityInliningPhase;
 
+import jdk.graal.compiler.duplication.phases.simulation.DuplicationPhase;
 import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.phases.common.IterativeConditionalEliminationPhase;
 import jdk.graal.compiler.nodes.loop.DefaultLoopPolicies;
@@ -239,6 +240,12 @@ public final class CrucibleProfileFeature implements InternalFeature {
                 inliner.add(new CrucibleContextClonePhase(universe));
             }
         }
+        if (CrucibleOptions.CrucibleSinkAfterDuplication.getValue()) {
+            var duplication = suites.getHighTier().findPhase(DuplicationPhase.class);
+            if (duplication != null) {
+                duplication.add(new CrucibleSinkPhase());
+            }
+        }
         if (CrucibleOptions.CrucibleLoopRangeSplit.getValue()) {
             /*
              * After unswitching, which has by then moved out the checks that do not depend on the
@@ -283,6 +290,10 @@ public final class CrucibleProfileFeature implements InternalFeature {
                             " calls had their targets in context, " + CrucibleCallTree.TARGET_HITS_SINGLE.get() + " of them a single target.");
             if (CrucibleCallTree.TARGET_COUNTED_FALLBACK.get() > 0) {
                 System.out.println("Crucible: " + CrucibleCallTree.TARGET_COUNTED_FALLBACK.get() + " calls in copies answered from the counted receivers along their path.");
+            }
+            if (CrucibleSinkPhase.VALUES_SUNK.get() > 0) {
+                System.out.println("Crucible: " + CrucibleSinkPhase.VALUES_SUNK.get() + " values moved onto the blocks that use them after duplication, " +
+                                CrucibleSinkPhase.NODES_COPIED.get() + " nodes copied.");
             }
             System.out.println("Crucible: loop range split considered " + CrucibleLoopRangeSplitPhase.LOOPS_CONSIDERED.get() + " hot counted loops, split " +
                             CrucibleLoopRangeSplitPhase.LOOPS_SPLIT.get() + ", folded " + CrucibleLoopRangeSplitPhase.CHECKS_FOLDED.get() + " checks.");
