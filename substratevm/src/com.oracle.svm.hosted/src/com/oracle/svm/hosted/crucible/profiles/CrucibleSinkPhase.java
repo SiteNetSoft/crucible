@@ -31,8 +31,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
+import org.graalvm.collections.MapCursor;
 
 import jdk.graal.compiler.graph.Node;
+import jdk.graal.compiler.nodes.AbstractBeginNode;
+import jdk.graal.compiler.nodes.ConstantNode;
 import jdk.graal.compiler.nodes.PhiNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.StructuredGraph.ScheduleResult;
@@ -40,6 +43,7 @@ import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.calc.BinaryNode;
 import jdk.graal.compiler.nodes.calc.UnaryNode;
 import jdk.graal.compiler.nodes.cfg.HIRBlock;
+import jdk.graal.compiler.nodes.extended.FixedValueAnchorNode;
 import jdk.graal.compiler.nodes.spi.CoreProviders;
 import jdk.graal.compiler.nodes.util.GraphUtil;
 import jdk.graal.compiler.phases.BasePhase;
@@ -167,8 +171,32 @@ public final class CrucibleSinkPhase extends BasePhase<CoreProviders> {
             if (subtree.size() < MIN_SUBTREE || subtree.size() > MAX_SUBTREE) {
                 continue;
             }
-            for (List<Node> uses : usesByBlock.getValues()) {
-                EconomicMap<Node, Node> copies = graph.addDuplicates(subtree, graph, subtree.size(), (EconomicMap<Node, Node>) null);
+            /*
+             * Copies of the same arithmetic on the same inputs are one value to value numbering,
+             * which would make them one node again, scheduled where it was. Each copy reads its
+             * inputs through an anchor at the start of its own block instead: the anchors differ,
+             * and the copy cannot float above them.
+             */
+            EconomicSet<Node> owned = EconomicSet.create(Equivalence.IDENTITY);
+            owned.addAll(subtree);
+            List<ValueNode> outside = new ArrayList<>();
+            for (Node member : subtree) {
+                for (Node input : member.inputs()) {
+                    if (!owned.contains(input) && !(input instanceof ConstantNode) && input instanceof ValueNode valueInput && !outside.contains(valueInput)) {
+                        outside.add(valueInput);
+                    }
+                }
+            }
+            for (MapCursor<HIRBlock, List<Node>> cursor = usesByBlock.getEntries(); cursor.advance();) {
+                List<Node> uses = cursor.getValue();
+                AbstractBeginNode begin = cursor.getKey().getBeginNode();
+                EconomicMap<Node, Node> anchored = EconomicMap.create(Equivalence.IDENTITY);
+                for (ValueNode input : outside) {
+                    FixedValueAnchorNode anchor = graph.add(new FixedValueAnchorNode(input));
+                    graph.addAfterFixed(begin, anchor);
+                    anchored.put(input, anchor);
+                }
+                EconomicMap<Node, Node> copies = graph.addDuplicates(subtree, graph, subtree.size(), anchored);
                 Node copy = copies.get(value);
                 for (Node usage : uses) {
                     usage.replaceAllInputs(value, copy);
