@@ -45,6 +45,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import jdk.graal.compiler.vmaccess.InvocationException;
 import org.graalvm.nativeimage.ImageInfo;
@@ -352,15 +354,35 @@ public final class GuestAccess implements VMAccess {
     }
 
     /**
+     * Creates a builder-side supplier backed by one instance of {@code supplierType} in this guest
+     * context. The returned supplier must not outlive this guest context.
+     *
+     * @param supplierType a concrete {@link java.util.function.BooleanSupplier} type
+     */
+    public BooleanSupplier createBooleanSupplier(ResolvedJavaType supplierType) {
+        JavaConstant supplier = instantiateBooleanSupplier(supplierType);
+        return () -> invokeBooleanSupplier(supplier);
+    }
+
+    /** Instantiates {@code supplierType} in the guest. */
+    private JavaConstant instantiateBooleanSupplier(ResolvedJavaType supplierType) {
+        ResolvedJavaMethod cons = JVMCIReflectionUtil.getDeclaredConstructor(false, supplierType);
+        return invoke(cons, null);
+    }
+
+    /** Invokes a guest {@link BooleanSupplier}. */
+    private boolean invokeBooleanSupplier(JavaConstant supplier) {
+        return invoke(elements.java_util_function_BooleanSupplier_getAsBoolean, supplier).asBoolean();
+    }
+
+    /**
      * Instantiates an instance of {@code supplierType} in the guest and invokes
      * {@link BooleanSupplier#getAsBoolean()} on it.
      *
      * @param supplierType a concrete {@link java.util.function.BooleanSupplier} type
      */
     public boolean callBooleanSupplier(ResolvedJavaType supplierType) {
-        ResolvedJavaMethod cons = JVMCIReflectionUtil.getDeclaredConstructor(false, supplierType);
-        JavaConstant supplier = invoke(cons, null);
-        return invoke(elements.java_util_function_BooleanSupplier_getAsBoolean, supplier).asBoolean();
+        return invokeBooleanSupplier(instantiateBooleanSupplier(supplierType));
     }
 
     /**
@@ -419,6 +441,87 @@ public final class GuestAccess implements VMAccess {
      */
     public JavaConstant asGuestString(String value) {
         return constantReflection.forString(value);
+    }
+
+    /**
+     * Converts the host strings in {@code values} to a guest string array and returns a reference to
+     * it as a {@link JavaConstant}.
+     */
+    public JavaConstant asGuestStringArray(String[] values) {
+        JavaConstant[] constants = new JavaConstant[values.length];
+        for (int i = 0; i < values.length; i++) {
+            constants[i] = asGuestString(values[i]);
+        }
+        return asArrayConstant(elements.java_lang_String, constants);
+    }
+
+    /**
+     * Decodes the elements of a guest array whose component type is assignable to
+     * {@code expectedComponentClass}.
+     */
+    public Stream<JavaConstant> asGuestArrayElements(JavaConstant array, ResolvedJavaType expectedComponentClass) {
+        if (array == null || array.isNull()) {
+            throw new IllegalArgumentException("Guest array must not be null.");
+        }
+        ResolvedJavaType arrayType = metaAccess.lookupJavaType(array);
+        if (arrayType == null || !arrayType.isArray() || arrayType.getComponentType() == null) {
+            throw new IllegalArgumentException("Expected a guest array, got " + array + ".");
+        }
+        ResolvedJavaType componentType = arrayType.getComponentType();
+        if (!expectedComponentClass.equals(componentType) && !expectedComponentClass.isAssignableFrom(componentType)) {
+            throw new IllegalArgumentException("Expected a guest array with component type " + expectedComponentClass.toJavaName() + ", got " + componentType.toJavaName() + ".");
+        }
+        Integer length = constantReflection.readArrayLength(array);
+        if (length == null) {
+            throw new IllegalArgumentException("Expected a guest array, got " + array + ".");
+        }
+        return IntStream.range(0, length).mapToObj(i -> {
+            JavaConstant element = constantReflection.readArrayElement(array, i);
+            if (element == null || element.isNull()) {
+                throw new IllegalArgumentException("Guest array element at index " + i + " must not be null.");
+            }
+            return element;
+        });
+    }
+
+    public ResolvedJavaType[] asResolvedJavaTypes(JavaConstant array) {
+        return asGuestArrayElements(array, elements.java_lang_Class).map(element -> {
+            ResolvedJavaType type = constantReflection.asJavaType(element);
+            if (type == null) {
+                throw new IllegalArgumentException("Guest array element is not a Class: %s.".formatted(describeGuestConstant(element)));
+            }
+            return type;
+        }).toArray(ResolvedJavaType[]::new);
+    }
+
+    public ResolvedJavaMethod[] asResolvedJavaMethods(JavaConstant array) {
+        return asGuestArrayElements(array, lookupType(Executable.class)).map(element -> {
+            ResolvedJavaMethod method = asResolvedJavaMethod(element);
+            if (method == null) {
+                throw new IllegalArgumentException("Guest array element is not an Executable: %s.".formatted(describeGuestConstant(element)));
+            }
+            return method;
+        }).toArray(ResolvedJavaMethod[]::new);
+    }
+
+    public ResolvedJavaField[] asResolvedJavaFields(JavaConstant array) {
+        return asGuestArrayElements(array, elements.java_lang_reflect_Field).map(element -> {
+            ResolvedJavaField field = asResolvedJavaField(element);
+            if (field == null) {
+                throw new IllegalArgumentException("Guest array element is not a Field: %s.".formatted(describeGuestConstant(element)));
+            }
+            return field;
+        }).toArray(ResolvedJavaField[]::new);
+    }
+
+    private String describeGuestConstant(JavaConstant constant) {
+        ResolvedJavaType guestType;
+        try {
+            guestType = metaAccess.lookupJavaType(constant);
+        } catch (RuntimeException ignored) {
+            guestType = null;
+        }
+        return guestType == null ? constant.toString() : "%s (resolved guest type: %s)".formatted(constant, guestType.toJavaName());
     }
 
     /**
@@ -721,6 +824,11 @@ public final class GuestAccess implements VMAccess {
     @Override
     public JavaConstant createHostProxy(Object hostTarget, ResolvedJavaType guestType) {
         return delegate.createHostProxy(hostTarget, guestType);
+    }
+
+    @Override
+    public JavaConstant createHostProxy(Object hostTarget, ResolvedJavaType guestType, Map<ResolvedJavaMethod, String> methodNameMappings) {
+        return delegate.createHostProxy(hostTarget, guestType, methodNameMappings);
     }
 
     @Override

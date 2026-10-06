@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@ package jdk.graal.compiler.core.phases;
 
 import jdk.graal.compiler.core.common.GraalOptions;
 import jdk.graal.compiler.core.common.SpectrePHTMitigations;
+import jdk.graal.compiler.duplication.phases.PullThroughPhiPhase;
 import jdk.graal.compiler.loop.phases.LoopFullUnrollPhase;
 import jdk.graal.compiler.loop.phases.LoopPartialUnrollPhase;
 import jdk.graal.compiler.loop.phases.LoopPredicationPhase;
@@ -46,6 +47,7 @@ import jdk.graal.compiler.phases.common.FrameStateAssignmentPhase;
 import jdk.graal.compiler.phases.common.GuardLoweringPhase;
 import jdk.graal.compiler.phases.common.InsertGuardFencesPhase;
 import jdk.graal.compiler.phases.common.IterativeConditionalEliminationPhase;
+import jdk.graal.compiler.phases.common.LateLockEliminationPhase;
 import jdk.graal.compiler.phases.common.LockEliminationPhase;
 import jdk.graal.compiler.phases.common.LoopSafepointInsertionPhase;
 import jdk.graal.compiler.phases.common.MidTierLoweringPhase;
@@ -133,6 +135,13 @@ public class MidTier extends BaseTier<MidTierContext> {
         }
 
         appendPhase(new FrameStateAssignmentPhase());
+
+        // Frame states enable nested elimination and lock coarsening across control flow.
+        appendPhase(new LateLockEliminationPhase());
+
+        if (PullThroughPhiPhase.Options.OptPullThroughPhi.getValue(options)) {
+            appendPhase(new PullThroughPhiPhase(canonicalizer));
+        }
 
         if (VectorIntrinsics.Options.Vectorization.getValue(options)) {
             appendPhase(new NodeVectorizationPhase(canonicalizer));

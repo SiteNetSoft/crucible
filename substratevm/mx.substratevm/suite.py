@@ -692,6 +692,7 @@ suite = {
             "javaCompliance" : "21+",
             "annotationProcessors": [
                 "compiler:GRAAL_PROCESSOR",
+                "SVM_PROCESSOR",
             ],
             "workingSets": "SVM",
             "jacoco" : "include",
@@ -1247,6 +1248,7 @@ suite = {
             ],
             "requiresConcealed" : {
                 "jdk.internal.vm.ci" : [
+                    "jdk.vm.ci.code.stack",
                     "jdk.vm.ci.meta",
                     "jdk.vm.ci.meta.annotation",
                 ],
@@ -1308,7 +1310,8 @@ suite = {
                     "sun.security.jca",
                 ],
                 "jdk.internal.vm.ci": [
-                    "jdk.vm.ci.meta"
+                    "jdk.vm.ci.meta",
+                    "jdk.vm.ci.meta.annotation"
                 ]
             },
             "checkstyle": "com.oracle.svm.test",
@@ -1491,6 +1494,7 @@ suite = {
             ],
             "requiresConcealed" : {
                 "jdk.internal.vm.ci" : [
+                    "jdk.vm.ci.code.stack",
                     "jdk.vm.ci.meta",
                     "jdk.vm.ci.meta.annotation",
                 ],
@@ -1564,6 +1568,8 @@ suite = {
             "sourceDirs": ["src"],
             "dependencies": [
                 "sdk:NATIVEIMAGE",
+                "SVM_GUEST_STAGING",
+                "SVM_SHARED",
             ],
             "requiresConcealed" : {
                 "java.base" : [
@@ -1573,22 +1579,6 @@ suite = {
             "checkstyle": "com.oracle.svm.core",
             "javaCompliance" : "21+",
             "annotationProcessors": [
-                "SVM_PROCESSOR",
-            ],
-            "workingSets": "SVM",
-            "jacoco" : "exclude",
-        },
-
-        "com.oracle.svm.thirdparty": {
-            "subDir": "src",
-            "sourceDirs": ["src"],
-            "dependencies": [
-                "sdk:NATIVEIMAGE",
-            ],
-            "checkstyle": "com.oracle.svm.core",
-            "javaCompliance" : "21+",
-            "annotationProcessors": [
-                "compiler:GRAAL_PROCESSOR",
                 "SVM_PROCESSOR",
             ],
             "workingSets": "SVM",
@@ -2300,10 +2290,9 @@ suite = {
 
         "LIBRARY_SUPPORT": {
             "subDir": "src",
-            "description" : "Native Image feature-based support for important non-JDK libraries and languages (e.g. gson, Groovy)",
+            "description" : "Native Image feature-based support for important non-JDK languages (e.g. Groovy)",
             "dependencies": [
                 "com.oracle.svm.polyglot",
-                "com.oracle.svm.thirdparty",
             ],
             "distDependencies": [
                 "sdk:NATIVEIMAGE",

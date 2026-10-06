@@ -2,10 +2,10 @@
 
 | Item | Value |
 |---|---|
-| Upstream baseline | `oracle/graal` tag `vm-25.3.4.1` |
+| Upstream baseline | `oracle/graal` tag `vm-25.4.4.1.1` |
 | Branch | `crucible/main` |
 | mx | 7.85.1 at `~/tools/mx` |
-| JDK | labsjdk-ce-latest `ce-25.0.4.1+1-jvmci-25.3-b22` at `~/.mx/jdks/labsjdk-ce-latest-jvmci-25.3-b22_amd64` |
+| JDK | labsjdk-ce-latest `ce-25.0.4.1.1+1-jvmci-25.4-b23` at `~/.mx/jdks/labsjdk-ce-latest-jvmci-25.4-b23_amd64` |
 | Host | Linux x86_64, gcc, make, zlib1g-dev |
 | Entry point | `source crucible/env.sh && cd substratevm && mx build` |
 | Smoke test | `crucible/samples/build.sh && crucible/samples/out/hellopgo` → `sum=45000000 hot=9000000 cold=1000000` |

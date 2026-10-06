@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,26 +37,41 @@ import com.oracle.truffle.compiler.TruffleCompilable;
 import com.oracle.truffle.compiler.TruffleCompilationTask;
 
 import jdk.graal.compiler.core.common.GraalBailoutException;
+import jdk.graal.compiler.core.common.NumUtil;
 import jdk.graal.compiler.debug.Assertions;
 import jdk.graal.compiler.debug.GraalError;
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeClass;
+import jdk.graal.compiler.graph.NodeInputList;
 import jdk.graal.compiler.graph.NodeSuccessorList;
 import jdk.graal.compiler.nodeinfo.NodeCycles;
 import jdk.graal.compiler.nodeinfo.NodeInfo;
 import jdk.graal.compiler.nodeinfo.NodeSize;
 import jdk.graal.compiler.nodeinfo.Verbosity;
+import jdk.graal.compiler.nodes.FrameState;
 import jdk.graal.compiler.nodes.Invoke;
+import jdk.graal.compiler.nodes.PiNode;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.ValueNode;
+import jdk.graal.compiler.nodes.java.ArrayLengthNode;
+import jdk.graal.compiler.nodes.java.LoadIndexedNode;
+import jdk.graal.compiler.nodes.virtual.AllocatedObjectNode;
+import jdk.graal.compiler.nodes.virtual.CommitAllocationNode;
+import jdk.graal.compiler.nodes.virtual.VirtualObjectNode;
+import jdk.graal.compiler.nodes.virtual.VirtualObjectState;
+import jdk.graal.compiler.nodes.cfg.ControlFlowGraph;
 import jdk.graal.compiler.phases.common.inlining.InliningUtil;
 import jdk.graal.compiler.phases.common.inlining.InliningUtil.InlineeReturnAction;
 import jdk.graal.compiler.phases.contract.NodeCostUtil;
+import jdk.graal.compiler.truffle.ConstantArgumentInfo;
+import jdk.graal.compiler.truffle.KnownTruffleTypes;
 import jdk.graal.compiler.truffle.PerformanceInformationHandler;
 import jdk.graal.compiler.truffle.TruffleCompilerOptions.PerformanceWarningKind;
 import jdk.graal.compiler.truffle.TruffleTierContext;
+import jdk.graal.compiler.truffle.nodes.frame.NewFrameNode;
 import jdk.graal.compiler.util.EconomicHashMap;
 import jdk.vm.ci.meta.JavaConstant;
+import jdk.vm.ci.meta.Signature;
 
 @NodeInfo(nameTemplate = "{p#directCallTarget}", cycles = NodeCycles.CYCLES_IGNORED, size = NodeSize.SIZE_IGNORED)
 public final class CallNode extends Node implements Comparable<CallNode> {
@@ -65,7 +80,7 @@ public final class CallNode extends Node implements Comparable<CallNode> {
     private JavaConstant callNode;
     private final TruffleCompilable directCallTarget;
     private final int truffleCallees;
-    private final double rootRelativeFrequency;
+    private double rootRelativeFrequency;
     private final int depth;
     private final int id;
     // Should be final, but needs to be mutable to be corrected if the language marks a non-trivial
@@ -133,6 +148,7 @@ public final class CallNode extends Node implements Comparable<CallNode> {
         addChildren(context, root, directInvokes);
         root.state = State.Inlined;
         callTree.getPolicy().afterExpand(root);
+        callTree.getPolicy().afterAddChildren(root);
         callTree.frontierSize = root.children.size();
         return root;
     }
@@ -143,18 +159,14 @@ public final class CallNode extends Node implements Comparable<CallNode> {
                 continue;
             }
             ValueNode nodeArgument = invoke.callTarget().arguments().get(1);
-            Integer callNodeCount = getCallCount(context, nodeArgument);
             TruffleCompilable constantTarget = resolveTargetReceiver(context, invoke);
             boolean forced = isInliningForced(context, nodeArgument);
-            double relativeFrequency = callNodeCount == null ? 1.0D : calculateFrequency(node.directCallTarget, callNodeCount);
-            double childFrequency = relativeFrequency * node.rootRelativeFrequency;
-            CallNode callNode = new CallNode(nodeArgument.asJavaConstant(), constantTarget, childFrequency, node.depth + 1, node.getCallTree().nextId(), forced);
+            CallNode callNode = new CallNode(nodeArgument.asJavaConstant(), constantTarget, node.rootRelativeFrequency, node.depth + 1, node.getCallTree().nextId(), forced);
             node.getCallTree().add(callNode);
             node.children.add(callNode);
             callNode.policyData = node.getPolicy().newCallNodeData(callNode);
             callNode.setInvokeOrRemove(invoke);
         }
-        node.getPolicy().afterAddChildren(node);
     }
 
     static TruffleCompilable resolveTargetReceiver(TruffleTierContext context, Invoke invoke) {
@@ -164,20 +176,6 @@ public final class CallNode extends Node implements Comparable<CallNode> {
         } else {
             throw GraalError.shouldNotReachHere("DirectCall without constant receiver should not be reachable.");
         }
-    }
-
-    static Integer getCallCount(TruffleTierContext context, ValueNode callNode) {
-        if (!callNode.isJavaConstant()) {
-            return null;
-        }
-        JavaConstant callCount = context.getConstantReflection().readFieldValue(context.types().OptimizedDirectCallNode_callCount, callNode.asJavaConstant());
-        if (callCount == null) {
-            // not a direct call node
-            return null;
-        } else {
-            return callCount.asInt();
-        }
-
     }
 
     static boolean isInliningForced(TruffleTierContext context, ValueNode callNode) {
@@ -193,8 +191,47 @@ public final class CallNode extends Node implements Comparable<CallNode> {
         }
     }
 
-    private static double calculateFrequency(TruffleCompilable target, int callNodeCount) {
-        return (double) Math.max(1, callNodeCount) / (double) Math.max(1, target.getCallCount());
+    /**
+     * Matches the active frequency restriction in
+     * {@link jdk.graal.compiler.phases.common.priorityinline.InliningMath#restrictFrequency(double)}.
+     */
+    private static double restrictFrequency(double frequency) {
+        assert NumUtil.assertNonNegativeDouble(frequency);
+        if (frequency < 0.01D) {
+            return 0.01D;
+        }
+        if (frequency > 100.0D) {
+            return 100.0D;
+        }
+        return frequency;
+    }
+
+    static double getLocalFrequency(ControlFlowGraph cfg, Invoke invoke) {
+        return restrictFrequency(cfg.blockFor(invoke.asFixedNode()).getRelativeFrequency());
+    }
+
+    /**
+     * Computes the frequencies of the direct children after graph enhancement. Trivial children
+     * may already have been expanded at this point, so their complete subtrees need to be rescaled.
+     */
+    public void updateChildFrequencies() {
+        ControlFlowGraph cfg = null;
+        for (CallNode child : children) {
+            if (child.state == State.Indirect || child.state == State.Removed) {
+                continue;
+            }
+            Invoke childInvoke = child.invoke;
+            if (childInvoke == null || !childInvoke.isAlive()) {
+                child.remove();
+                continue;
+            }
+            assert childInvoke.asNode().graph() == ir : "Invoke is not in the expanded graph: " + childInvoke;
+            if (cfg == null) {
+                cfg = ControlFlowGraph.newBuilder(ir).connectBlocks(true).computeFrequency(true).build();
+            }
+            double newFrequency = getLocalFrequency(cfg, childInvoke) * rootRelativeFrequency;
+            child.adjustSubtreeFrequency(newFrequency / child.rootRelativeFrequency);
+        }
     }
 
     public TruffleCompilable getDirectCallTarget() {
@@ -277,12 +314,86 @@ public final class CallNode extends Node implements Comparable<CallNode> {
         }
     }
 
+    public static boolean isArgumentArrayMutated(ValueNode array, Node ignored) {
+        for (Node usage : array.usages()) {
+            if (usage == ignored) {
+                continue;
+            }
+            if (usage instanceof PiNode piNode) {
+                if (isArgumentArrayMutated(piNode, ignored)) {
+                    return true;
+                } else {
+                    continue;
+                }
+            }
+            if (usage instanceof FrameState || usage instanceof VirtualObjectState) {
+                continue;
+            }
+            if (usage instanceof LoadIndexedNode) {
+                continue;
+            }
+            if (usage instanceof ArrayLengthNode) {
+                continue;
+            }
+            if (usage instanceof NewFrameNode) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isCallTargetCallSignature(Signature s) {
+        KnownTruffleTypes types = getCallTree().getGraphManager().rootContext().types();
+        return s.getParameterCount(false) == 2 &&
+                        s.getParameterType(0, types.Node).equals(types.Node) &&
+                        s.getParameterType(1, types.Node).equals(types.Object_Array) &&
+                        s.getReturnType(types.Node).equals(types.java_lang_Object);
+    }
+
+    public ConstantArgumentInfo[] findConstantGuestArguments() {
+        ConstantArgumentInfo[] result = null;
+        NodeInputList<ValueNode> arguments = invoke.callTarget().arguments();
+        assert isCallTargetCallSignature(invoke.getTargetMethod().getSignature());
+        if (arguments.get(2) instanceof AllocatedObjectNode allocatedArgsArray) {
+            if (isArgumentArrayMutated(allocatedArgsArray, invoke.callTarget())) {
+                return null;
+            }
+            CommitAllocationNode alloc = allocatedArgsArray.getCommit();
+            VirtualObjectNode argsArrayVirtualObject = allocatedArgsArray.getVirtualObject();
+            int valueOffset = 0;
+            for (VirtualObjectNode virtualObject : alloc.getVirtualObjects()) {
+                if (virtualObject == argsArrayVirtualObject) {
+                    break;
+                }
+                valueOffset += virtualObject.entryCount();
+            }
+            int argsArrayLen = argsArrayVirtualObject.entryCount();
+            List<ValueNode> arrElements = alloc.getValues().subList(valueOffset, valueOffset + argsArrayLen);
+            for (int i = 0; i < argsArrayLen; i++) {
+                ValueNode argument = arrElements.get(i);
+                ConstantArgumentInfo constantArgument = ConstantArgumentInfo.create(argument);
+                if (constantArgument != null) {
+                    if (result == null) {
+                        result = new ConstantArgumentInfo[argsArrayLen];
+                    }
+                    result[i] = constantArgument;
+                }
+            }
+        }
+        return result;
+    }
+
     public void expand() {
         if (state == State.Expanded) {
             /*
              * The CallNode may be already expanded for trivial call nodes which are expanded in the
              * afterExpand method.
              */
+            return;
+        }
+        if (!invoke.isAlive()) {
+            remove();
             return;
         }
         if (getDirectCallTarget() != null && !getDirectCallTarget().canBeInlined()) {
@@ -309,6 +420,7 @@ public final class CallNode extends Node implements Comparable<CallNode> {
         irAfterPE = entry.graphAfterPEForDebugDump;
         addIndirectChildren(entry);
         getPolicy().afterExpand(this);
+        getPolicy().afterAddChildren(this);
     }
 
     private void verifyTrivial(GraphManager.Entry entry) {
@@ -433,6 +545,17 @@ public final class CallNode extends Node implements Comparable<CallNode> {
 
     public double getRootRelativeFrequency() {
         return rootRelativeFrequency;
+    }
+
+    void setRootRelativeFrequency(double frequency) {
+        rootRelativeFrequency = frequency;
+    }
+
+    void adjustSubtreeFrequency(double factor) {
+        for (CallNode child : children) {
+            child.adjustSubtreeFrequency(factor);
+        }
+        rootRelativeFrequency *= factor;
     }
 
     public boolean isTrivial() {

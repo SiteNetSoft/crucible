@@ -97,6 +97,11 @@ public final class CrucibleContextClonePhase extends BasePhase<HighTierContext> 
         return CONTEXTS.size();
     }
 
+    /** The paths the copies were made for, sorted, for comparing two builds. */
+    public static java.util.List<String> copyPaths() {
+        return CONTEXTS.values().stream().map(CrucibleCallTree.Node::pathName).sorted().toList();
+    }
+
     @Override
     public Optional<NotApplicable> notApplicableTo(jdk.graal.compiler.nodes.GraphState graphState) {
         return ALWAYS_APPLICABLE;

@@ -44,6 +44,8 @@ import static com.oracle.truffle.dsl.processor.bytecode.generator.ElementHelpers
 import static com.oracle.truffle.dsl.processor.bytecode.generator.ElementHelpers.arrayOf;
 import static com.oracle.truffle.dsl.processor.bytecode.generator.ElementHelpers.generic;
 import static com.oracle.truffle.dsl.processor.generator.GeneratorUtils.createConstructorUsingFields;
+import static com.oracle.truffle.dsl.processor.bytecode.generator.BytecodeRootNodeElement.SourceInfoTable.emitDecodeVarintEntry;
+import static com.oracle.truffle.dsl.processor.bytecode.generator.BytecodeRootNodeElement.SourceInfoTable.emitInitCompressedSourceIterationVariables;
 import static com.oracle.truffle.dsl.processor.generator.GeneratorUtils.mergeSuppressWarnings;
 import static javax.lang.model.element.Modifier.FINAL;
 import static javax.lang.model.element.Modifier.PRIVATE;
@@ -77,6 +79,7 @@ import java.util.TreeMap;
 import java.util.function.IntBinaryOperator;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -105,12 +108,16 @@ import com.oracle.truffle.dsl.processor.bytecode.model.InstructionModel.Instruct
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionModel.InstructionImmediate;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionModel.InstructionImmediateEncoding;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionModel.InstructionKind;
+import com.oracle.truffle.dsl.processor.bytecode.model.InstructionPatternModel;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ImmediateReference;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.RewriteKind;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.RewriteSection;
+import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ResolvedBinding;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ResolvedImmediate;
 import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ResolvedInstructionPatternModel;
+import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ResolvedLiteral;
+import com.oracle.truffle.dsl.processor.bytecode.model.InstructionRewriteRuleModel.ResolvedWildcard;
 import com.oracle.truffle.dsl.processor.bytecode.model.OperationModel;
 import com.oracle.truffle.dsl.processor.bytecode.model.OperationModel.OperationArgument;
 import com.oracle.truffle.dsl.processor.bytecode.model.OperationModel.OperationKind;
@@ -134,6 +141,7 @@ final class BuilderElement extends AbstractElement {
     private final OperationStackElement operationStack = add(new OperationStackElement());
 
     private final BytecodeLocalImplElement bytecodeLocalImpl = add(new BytecodeLocalImplElement());
+    private final StackValueImplElement stackValueImpl = add(new StackValueImplElement());
     private final BytecodeLabelImplElement bytecodeLabelImpl = add(new BytecodeLabelImplElement());
 
     private final BytecodeDSLModel model;
@@ -142,6 +150,7 @@ final class BuilderElement extends AbstractElement {
 
     SerializationRootNodeElement serializationRootNode;
     private SerializationLocalElement serializationLocal;
+    private SerializationStackValueElement serializationStackValue;
     private SerializationLabelElement serializationLabel;
     private SerializationStateElement serializationElements;
     private DeserializationStateElement deserializationElement;
@@ -149,6 +158,8 @@ final class BuilderElement extends AbstractElement {
 
     private CodeExecutableElement validateLocalScope;
     private CodeExecutableElement validateMaterializedLocalScope;
+    private CodeExecutableElement validateStackValueScope;
+    private CodeExecutableElement validateBindStackValueOwner;
 
     private final BuilderSourceInfoTable builderSourceInfoTable = new BuilderSourceInfoTable();
     private OperationFields operationFields;
@@ -178,6 +189,7 @@ final class BuilderElement extends AbstractElement {
         this.builderSourceInfoTable.lazyInit();
         this.rootStackElement.lazyInit();
         this.bytecodeLocalImpl.lazyInit();
+        this.stackValueImpl.lazyInit();
         this.bytecodeLabelImpl.lazyInit();
 
         this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), model.languageClass, "language"));
@@ -198,6 +210,7 @@ final class BuilderElement extends AbstractElement {
         if (model.enableSerialization) {
             this.serializationRootNode = this.add(new SerializationRootNodeElement());
             this.serializationLocal = this.add(new SerializationLocalElement());
+            this.serializationStackValue = this.add(new SerializationStackValueElement());
             this.serializationLabel = this.add(new SerializationLabelElement());
             this.serializationElements = this.add(new SerializationStateElement());
             this.deserializationElement = this.add(new DeserializationStateElement());
@@ -906,6 +919,13 @@ final class BuilderElement extends AbstractElement {
                     b.end(); // if
 
                     b.startStatement().startCall("context.builtNodes.set").string("buffer.readInt()").string("node").end().end();
+                } else if (operation.kind == OperationKind.BIND_STACKVALUE) {
+                    b.startStatement().startCall("context.stackValues.add");
+                    b.startCall("end" + operation.builderName);
+                    for (int i = 0; i < operation.operationEndArguments.length; i++) {
+                        b.string(operation.getOperationEndArgumentName(i));
+                    }
+                    b.end(3);
                 } else {
                     b.startStatement().startCall("end" + operation.builderName);
                     for (int i = 0; i < operation.operationEndArguments.length; i++) {
@@ -973,6 +993,11 @@ final class BuilderElement extends AbstractElement {
                 after.end(); // for
                 after.end(); // if
                 break;
+            case STACK_VALUE:
+                String serializationStackValueCls = serializationStackValue.getSimpleName().toString();
+                serializationElements.writeShort(after, BytecodeRootNodeElement.safeCastShort(String.format("((%s) %s).contextDepth", serializationStackValueCls, argumentName)));
+                serializationElements.writeShort(after, BytecodeRootNodeElement.safeCastShort(String.format("((%s) %s).stackValueIndex", serializationStackValueCls, argumentName)));
+                break;
             case LABEL:
                 String serializationLabelCls = serializationLabel.getSimpleName().toString();
                 serializationElements.writeShort(after, BytecodeRootNodeElement.safeCastShort(String.format("((%s) %s).contextDepth", serializationLabelCls, argumentName)));
@@ -1034,6 +1059,9 @@ final class BuilderElement extends AbstractElement {
         switch (argument.kind()) {
             case LOCAL:
                 b.declaration(argType, argumentName, "context.getContext(buffer.readShort()).locals.get(buffer.readUnsignedShort())");
+                break;
+            case STACK_VALUE:
+                b.declaration(argType, argumentName, "context.getContext(buffer.readShort()).stackValues.get(buffer.readShort())");
                 break;
             case LABEL:
                 b.declaration(argType, argumentName, "context.getContext(buffer.readShort()).labels.get(buffer.readShort())");
@@ -1492,7 +1520,6 @@ final class BuilderElement extends AbstractElement {
         }
 
         switch (operation.kind) {
-            case ROOT:
             case BLOCK:
                 if (model.enableBlockScoping) {
                     b.declaration(operationStack.asType(), "parentScope", "state.getCurrentScope()");
@@ -1502,6 +1529,27 @@ final class BuilderElement extends AbstractElement {
             case STORE_LOCAL_MATERIALIZED:
             case LOAD_LOCAL_MATERIALIZED:
                 emitValidateLocalScope(b, operation);
+                break;
+            case STORE_STACKVALUE: /* LOAD_STACKVALUE handled by createEmit */
+                emitValidateStackValueScope(b, operation);
+                break;
+            case BIND_STACKVALUE:
+                b.declaration(type(int.class), "stackValueOwnerSp", UNINIT);
+                b.startFor().string("int i = state.operationSp - 1; i >= state.rootOperationSp; i--").end().startBlock();
+                b.startSwitch().string("state.operationStack[i].operation").end().startBlock();
+                b.startCase().tree(parent.createOperationConstant(model.sourceOperation)).end();
+                b.startCase().tree(parent.createOperationConstant(model.sourceSectionPrefixOperation)).end();
+                b.startCase().tree(parent.createOperationConstant(model.sourceSectionSuffixOperation)).end();
+                b.startCaseBlock();
+                b.lineComment("skip source operations");
+                b.statement("continue");
+                b.end();
+                b.end();
+                b.statement("stackValueOwnerSp = i");
+                b.statement("break");
+                b.end();
+                b.startStatement().startCall(getValidateBindStackValueOwner().getSimpleName().toString()).string("stackValueOwnerSp").end().end();
+                b.declaration(operationStack.asType(), "stackValueOwner", "state.operationStack[stackValueOwnerSp]");
                 break;
         }
 
@@ -1627,6 +1675,112 @@ final class BuilderElement extends AbstractElement {
         b.startStatement().startCall(getValidateLocalScope(materialized).getSimpleName().toString()).string(localName).end().end();
     }
 
+    private CodeExecutableElement getValidateStackValueScope() {
+        if (validateStackValueScope == null) {
+            validateStackValueScope = createValidateStackValueScope();
+            this.add(validateStackValueScope);
+        }
+        return validateStackValueScope;
+    }
+
+    private CodeExecutableElement createValidateStackValueScope() {
+        CodeExecutableElement method = new CodeExecutableElement(Set.of(PRIVATE), type(void.class), "validateStackValueScope");
+        method.addParameter(new CodeVariableElement(types.StackValue, "stackValue"));
+
+        CodeTreeBuilder b = method.createBuilder();
+
+        b.startDeclaration(stackValueImpl.asType(), "stackValueImpl");
+        b.cast(stackValueImpl.asType()).string("stackValue");
+        b.end();
+
+        b.declaration(operationStack.asType(), "rootOperation", "getCurrentRootOperationData()");
+        b.startIf().string(operationStack.read(model.rootOperation, "rootOperation", operationFields.index), " != stackValueImpl.rootIndex").end().startBlock();
+        b.startThrow().startCall("state.failArgument").doubleQuote("Stack value must belong to the current root node.").end().end();
+        b.end();
+
+        b.startIf().string("stackValueImpl.declaringOperationSp >= state.operationSp").end().startBlock();
+        b.startThrow().startCall("state.failArgument").doubleQuote("Stack value must belong to an active custom operation or Block in the current root node.").end().end();
+        b.end();
+
+        b.declaration(operationStack.asType(), "operation", "state.operationStack[stackValueImpl.declaringOperationSp]");
+        b.startIf().string("operation.sequenceNumber != stackValueImpl.declaringOp").end().startBlock();
+        b.startThrow().startCall("state.failArgument").doubleQuote("Stack value must belong to an active custom operation or Block in the current root node.").end().end();
+        b.end();
+
+        return method;
+    }
+
+    private void emitValidateStackValueScope(CodeTreeBuilder b, OperationModel operation) {
+        b.startStatement().startCall(getValidateStackValueScope().getSimpleName().toString()).string(operation.getOperationBeginArgumentName(0)).end().end();
+    }
+
+    private CodeExecutableElement getValidateBindStackValueOwner() {
+        if (validateBindStackValueOwner == null) {
+            validateBindStackValueOwner = createValidateBindStackValueOwner();
+            this.add(validateBindStackValueOwner);
+        }
+        return validateBindStackValueOwner;
+    }
+
+    private CodeExecutableElement createValidateBindStackValueOwner() {
+        CodeExecutableElement method = new CodeExecutableElement(Set.of(PRIVATE), type(void.class), "validateBindStackValueOwner");
+        method.addParameter(new CodeVariableElement(type(int.class), "stackValueOwnerSp"));
+        CodeTreeBuilder b = method.createBuilder();
+
+        record ValidateBindStackValueOwnerGroup(boolean allowed, int customVariadicIndex)
+                        implements
+                            Comparable<ValidateBindStackValueOwnerGroup> {
+            @Override
+            public int compareTo(ValidateBindStackValueOwnerGroup other) {
+                int result = Boolean.compare(allowed, other.allowed);
+                return result != 0 ? result : Integer.compare(customVariadicIndex, other.customVariadicIndex);
+            }
+        }
+
+        TreeMap<ValidateBindStackValueOwnerGroup, List<OperationModel>> operationsByGroup = model.getOperations().stream().collect(Collectors.groupingBy(
+                        op -> {
+                            boolean allowed = switch (op.kind) {
+                                case BLOCK, CUSTOM, CUSTOM_RETURN, CUSTOM_YIELD -> true;
+                                default -> false;
+                            };
+                            int customVariadicIndex = op.isCustomVariadic() ? op.numDynamicOperands() - 1 : -1;
+                            return new ValidateBindStackValueOwnerGroup(allowed, customVariadicIndex);
+                        }, TreeMap::new, Collectors.toList()));
+
+        b.declaration(operationStack.asType(), "stackValueOwner", "state.operationStack[stackValueOwnerSp]");
+        b.startSwitch().string("stackValueOwner.operation").end().startBlock();
+
+        for (var entry : operationsByGroup.entrySet()) {
+            ValidateBindStackValueOwnerGroup group = entry.getKey();
+            if (group.allowed && group.customVariadicIndex == -1) {
+                // Operation always supports stack value binding.
+                continue;
+            }
+
+            for (OperationModel operation : entry.getValue()) {
+                b.startCase().tree(parent.createOperationConstant(operation)).end();
+            }
+            b.startCaseBlock();
+            if (!group.allowed) {
+                // Operation does not support stack value binding.
+                b.startThrow().startCall("state.failState").doubleQuote("BindStackValue can only be used in a custom operation or Block.").end().end();
+            } else if (group.customVariadicIndex == 0) {
+                // Operand is always in variadic position.
+                b.startThrow().startCall("state.failState").doubleQuote("BindStackValue cannot be used in variadic operand position.").end().end();
+            } else {
+                // Operation may be in variadic position.
+                b.startIf().string("stackValueOwner.childCount >= ").string(group.customVariadicIndex).end().startBlock();
+                b.startThrow().startCall("state.failState").doubleQuote("BindStackValue cannot be used in variadic operand position.").end().end();
+                b.end();
+                b.statement("break");
+            }
+            b.end();
+        }
+        b.end();
+
+        return method;
+    }
+
     private CodeExecutableElement createBeginRoot(OperationModel rootOperation) {
         CodeExecutableElement ex = new CodeExecutableElement(Set.of(PUBLIC), type(void.class), "beginRoot");
         if (model.prolog != null && model.prolog.operation.operationBeginArguments.length != 0) {
@@ -1696,7 +1850,7 @@ final class BuilderElement extends AbstractElement {
                 }
 
                 Map<ConstantOperandModel, String> constantOperandValues = emitConstantOperands(b, model.prolog.operation);
-                buildEmitOperationInstruction(b, model.prolog.operation, constantOperandValues);
+                buildEmitOperationInstruction(b, model.prolog.operation, model.prolog.operation.instruction(), constantOperandValues, null);
             }
             if (model.epilogReturn != null) {
                 buildBegin(b, model.epilogReturn.operation);
@@ -1803,6 +1957,13 @@ final class BuilderElement extends AbstractElement {
             case CLEAR_LOCAL:
                 values.put(operationFields.local, "(BytecodeLocalImpl)" + operation.getOperationBeginArgumentName(0));
                 break;
+            case STORE_STACKVALUE:
+                values.put(operationFields.stackValue, "(StackValueImpl)" + operation.getOperationBeginArgumentName(0));
+                break;
+            case BIND_STACKVALUE:
+                values.put(operationFields.declaringOp, "stackValueOwner.sequenceNumber");
+                values.put(operationFields.declaringOperationSp, "stackValueOwnerSp");
+                break;
             case IF_THEN:
                 values.put(operationFields.thenReachable, "state.reachable");
                 break;
@@ -1869,6 +2030,7 @@ final class BuilderElement extends AbstractElement {
                 break;
             case BLOCK:
                 values.put(operationFields.startStackHeight, "state.currentStackHeight");
+                values.put(operationFields.numStackValues, "0");
                 break;
             case SOURCE:
                 String source = operation.getOperationBeginArgumentName(0);
@@ -2010,7 +2172,8 @@ final class BuilderElement extends AbstractElement {
         }
 
         Modifier visibility = operation.isPrivate ? PRIVATE : PUBLIC;
-        CodeExecutableElement ex = new CodeExecutableElement(Set.of(visibility), type(void.class), "end" + operation.builderName);
+        TypeMirror returnType = operation.kind == OperationKind.BIND_STACKVALUE ? types.StackValue : type(void.class);
+        CodeExecutableElement ex = new CodeExecutableElement(Set.of(visibility), returnType, "end" + operation.builderName);
 
         if (operation.kind == OperationKind.TAG) {
             ex.setVarArgs(true);
@@ -2024,9 +2187,13 @@ final class BuilderElement extends AbstractElement {
         addEndOperationDoc(operation, ex);
         CodeTreeBuilder b = ex.createBuilder();
 
+        /*
+         * Step 1 (Validation): Check that the operation is well-formed, that arguments are appropriate, etc.
+         * Return early if the operation is not enabled by the current parse config.
+         */
         if (operation.kind == OperationKind.TAG) {
             b.startIf().string("newTags.length == 0").end().startBlock();
-            b.startThrow().startCall("state.failArgument").doubleQuote("The tags parameter for beginTag must not be empty. Please specify at least one tag.").end().end();
+            b.startThrow().startCall("state.failArgument").doubleQuote("The tags parameter for endTag must not be empty. Please specify at least one tag.").end().end();
             b.end();
             b.startDeclaration(type(int.class), "encodedTags").startStaticCall(parent.configEncoder.asType(), "encodeTags").string("newTags").end().end();
             b.startIf().string("(encodedTags & this.tags) == 0").end().startBlock();
@@ -2041,7 +2208,14 @@ final class BuilderElement extends AbstractElement {
         if (model.enableSerialization && !operation.isInternal) {
             b.startIf().string("serialization != null").end().startBlock();
             createSerializeEnd(operation, b);
-            b.statement("return");
+            if (operation.kind == OperationKind.BIND_STACKVALUE) {
+                b.startReturn().startNew(serializationStackValue.asType());
+                b.string("serialization.depth");
+                b.string("serialization.stackValueCount++");
+                b.end(2);
+            } else {
+                b.statement("return");
+            }
             b.end();
         }
 
@@ -2060,24 +2234,17 @@ final class BuilderElement extends AbstractElement {
             b.end();
         }
 
-        switch (operation.kind) {
-            case FINALLY_HANDLER:
-                b.startStatement().startCall("endOperation");
-                b.tree(parent.createOperationConstant(operation));
-                b.end(2);
-                // FinallyHandler doesn't need to validate its children or call afterChild.
-                return ex;
-            case TRY_FINALLY:
-                b.startDeclaration(operationStack.asType(), "operation").startCall("verifyOperation");
-                b.tree(parent.createOperationConstant(operation));
-                b.end(2);
-                break;
-            default:
-                b.startDeclaration(operationStack.asType(), "operation").startCall("endOperation");
-                b.tree(parent.createOperationConstant(operation));
-                b.end(2);
-                break;
+        if (operation.kind == OperationKind.SOURCE || operation.kind == OperationKind.FINALLY_HANDLER) {
+            // These operations don't require any validation/completion code. Return early.
+            b.startStatement().startCall("endOperation");
+            b.tree(parent.createOperationConstant(operation));
+            b.end(2);
+            return ex;
         }
+        // Keep the entry on the stack. It should be popped later.
+        b.startDeclaration(operationStack.asType(), "operation").startCall("verifyOperation");
+        b.tree(parent.createOperationConstant(operation));
+        b.end(2);
 
         if (operation.kind == OperationKind.CUSTOM_SHORT_CIRCUIT) {
             // Short-circuiting operations should have at least one child.
@@ -2099,7 +2266,15 @@ final class BuilderElement extends AbstractElement {
             b.end();
         }
 
+        /*
+         * Step 2 (Completion): Emit code to complete the operation, emitting instructions, patching table entries, etc.
+         */
+        String operationBci = "-1";
         switch (operation.kind) {
+            case TAG:
+                emitCompleteEndTag(b, operation);
+                // Completion and cleanup are interleaved by emitCompleteEndTag. No more work to do.
+                return ex;
             case CUSTOM_SHORT_CIRCUIT:
                 InstructionModel shortCircuitInstruction = operation.instruction();
                 if (shortCircuitInstruction.shortCircuitModel.returnConvertedBoolean()) {
@@ -2107,7 +2282,8 @@ final class BuilderElement extends AbstractElement {
                      * All operands except the last are automatically converted when testing the
                      * short circuit condition. For the last operand we need to insert a conversion.
                      */
-                    buildEmitBooleanConverterInstruction(b, shortCircuitInstruction);
+                    buildEmitBooleanConverterInstruction(b, shortCircuitInstruction, "booleanConverterBci");
+                    operationBci = "booleanConverterBci";
                 }
                 // Go through the work list and fill in the branch target for each branch.
 
@@ -2148,37 +2324,19 @@ final class BuilderElement extends AbstractElement {
                     emitPrefixSourceInfo(b, "operation", operationStack.read(operation, operationFields.startBci), "state.bci");
                 }
                 break;
-            case SOURCE:
-                break;
-            case IF_THEN_ELSE:
-                b.statement("markReachable(", operationStack.read(operation, operationFields.thenReachable), " || ", operationStack.read(operation, operationFields.elseReachable),
-                                ")");
-                break;
-            case IF_THEN:
-            case WHILE:
-                b.lineComment("Control flow merged. Set state.reachable to the enclosing operation's reachability.");
-                b.statement("state.reachable = resolveReachable()");
-                break;
             case CONDITIONAL:
-                b.statement("markReachable(", operationStack.read(operation, operationFields.thenReachable), " || ", operationStack.read(operation, operationFields.elseReachable),
-                                ")");
+                b.startDeclaration(type(boolean.class), "reachable");
+                b.string(operationStack.read(operation, operationFields.thenReachable), " || ", operationStack.read(operation, operationFields.elseReachable));
+                b.end();
+                b.statement("state.reachable = reachable");
                 if (model.usesBoxingElimination()) {
-                    buildEmitInstruction(b, null, operation.instruction(), emitMergeConditionalArguments(operation.instruction()));
+                    buildEmitInstruction(b, "operationBci", operation.instruction(), emitMergeConditionalArguments(operation.instruction()));
+                    operationBci = "operationBci";
                 }
-                break;
-            case TRY_CATCH:
-                b.statement("markReachable(", operationStack.read(operation, operationFields.tryReachable), " || ", operationStack.read(operation, operationFields.catchReachable),
-                                ")");
                 break;
             case TRY_FINALLY:
                 emitFinallyHandlersAfterTry(b, operation);
                 emitPatchBranchFixupBci(b, operation, operationFields.endBranchFixupBci, "finally handler branch target");
-                b.statement("state.popOperation()");
-                b.statement("markReachable(", operationStack.read(operation, operationFields.tryReachable), ")");
-                break;
-            case TRY_CATCH_OTHERWISE:
-                b.statement("markReachable(", operationStack.read(operation, operationFields.tryReachable), " || ", operationStack.read(operation, operationFields.catchReachable),
-                                ")");
                 break;
             case RETURN:
                 String bci = "-1";
@@ -2186,8 +2344,7 @@ final class BuilderElement extends AbstractElement {
                     bci = operationStack.read(operation, operationFields.childBci);
                 }
                 emitBeforeEmitReturn(b, bci, operation, null);
-                buildEmitOperationInstruction(b, operation, null);
-                b.statement("markReachable(false)");
+                buildEmitOperationInstruction(b, operation, operation.instruction(), constantOperandValues, null);
                 break;
             case CUSTOM_RETURN:
                 int resultOperandIndex = operation.customModel.getResultOperandIndex();
@@ -2209,96 +2366,31 @@ final class BuilderElement extends AbstractElement {
                     }
                 }
                 emitBeforeEmitReturn(b, resultChildBci, operation, beforeEmitReturnBci);
-                buildEmitOperationInstruction(b, operation, operation.instruction(), beforeEmitReturnBci, constantOperandValues);
-                b.statement("markReachable(false)");
-                break;
-            case TAG:
-                b.declaration(parent.tagNode.asType(), "tagNode", operationStack.read(operation, operationFields.node));
-
-                b.startIf().string("(encodedTags & this.tags) != tagNode.tags").end().startBlock();
-                BytecodeRootNodeElement.emitThrowIllegalArgumentException(b, "The tags provided to endTag do not match the tags provided to the corresponding beginTag call.");
-                b.end();
-
-                b.lineComment("If this tag operation is nested in another, add it to the outer tag tree. Otherwise, it becomes a tag root.");
-                b.declaration(operationStack.asType(), "outerTag", "findOuterTag()");
-
-                // Otherwise, this tag is the root of a tag tree.
-                b.startIf().string("outerTag == null").end().startBlock();
-                b.startIf().string("state.tagRoots == null").end().startBlock();
-                b.statement("state.tagRoots = new ArrayList<>(3)");
-                b.end();
-                b.statement("state.tagRoots.add(tagNode)");
-                b.end().startElseBlock(); // if !outerTagFound
-
-                b.startIf().string(operationStack.read(model.tagOperation, "outerTag", operationFields.tagChildren), " == null").end().startBlock();
-                b.tree(operationStack.write(model.tagOperation, "outerTag", operationFields.tagChildren, "new ArrayList<>(3)"));
-                b.end();
-                b.statement(operationStack.read(model.tagOperation, "outerTag", operationFields.tagChildren), ".add(tagNode)");
-
-                b.end();
-
-                b.declaration(arrayOf(parent.tagNode.asType()), "children");
-                b.declaration(generic(type(List.class), parent.tagNode.asType()), "operationChildren", operationStack.read(operation, operationFields.tagChildren));
-
-                // Set the children array and adopt children.
-                b.startIf().string("operationChildren == null").end().startBlock();
-                b.statement("children = TagNode.EMPTY_ARRAY");
-                b.end().startElseBlock();
-                b.statement("children = new TagNode[operationChildren.size()]");
-                b.startFor().string("int i = 0; i < children.length; i++").end().startBlock();
-                b.statement("children[i] = tagNode.insert(operationChildren.get(i))");
-                b.end();
-                b.end();
-
-                b.statement("tagNode.children = children");
-                b.statement("tagNode.returnBci = state.bci");
-
-                b.startIf().string(operationStack.read(operation, operationFields.producedValue)).end().startBlock();
-                String tagLeaveChildBci = model.tagLeaveValueInstruction.getImmediate(ImmediateKind.RELATIVE_BYTECODE_INDEX) == null ? null : operationStack.read(operation, operationFields.childBci);
-                String[] args = buildTagLeaveArguments(model.tagLeaveValueInstruction, tagLeaveChildBci, "(short) 1");
-
-                b.startIf().string(operationStack.read(operation, operationFields.operationReachable)).end().startBlock();
-                /*
-                 * The tag leave is always reachable, because probes may decide to return at any
-                 * point and we need a point where we can continue.
-                 */
-                b.statement("markReachable(true)");
-                buildEmitInstruction(b, null, model.tagLeaveValueInstruction, args);
-                b.statement(doCreateExceptionHandler(operationStack.read(operation, operationFields.handlerStartBci), "state.bci", "HANDLER_TAG_EXCEPTIONAL",
-                                operationStack.read(operation, operationFields.nodeId),
-                                operationStack.read(operation, operationFields.startStackHeight)));
-                b.end().startElseBlock();
-                buildEmitInstruction(b, null, model.tagLeaveValueInstruction, args);
-                b.end();
-
-                emitCallAfterChild(b, operation, "true", "state.bci - " + model.tagLeaveValueInstruction.getInstructionLength());
-
-                b.end().startElseBlock();
-
-                b.startIf().string(operationStack.read(operation, operationFields.operationReachable)).end().startBlock();
-                /*
-                 * Leaving the tag leave is always reachable, because probes may decide to return at
-                 * any point and we need a point where we can continue.
-                 */
-                b.statement("markReachable(true)");
-                buildEmitInstruction(b, null, model.tagLeaveVoidInstruction, operationStack.read(operation, operationFields.nodeId));
-                b.statement(doCreateExceptionHandler(operationStack.read(operation, operationFields.handlerStartBci), "state.bci", "HANDLER_TAG_EXCEPTIONAL",
-                                operationStack.read(operation, operationFields.nodeId),
-                                operationStack.read(operation, operationFields.startStackHeight)));
-                b.end().startElseBlock();
-                buildEmitInstruction(b, null, model.tagLeaveVoidInstruction, operationStack.read(operation, operationFields.nodeId));
-                b.end();
-
-                emitCallAfterChild(b, operation, "false", "-1");
-
-                b.end();
-
+                buildEmitOperationInstruction(b, operation, operation.instruction(), constantOperandValues, beforeEmitReturnBci);
                 break;
             case BLOCK:
+                b.declaration(type(int.class), "numStackValues", operationStack.read(operation, operationFields.numStackValues));
                 b.startIf().string("!operation.validateDeclaredLabels()").end().startBlock();
                 b.startThrow().startCall("state.failState");
                 b.string("\"Operation Block ended without emitting one or more declared labels.\"");
                 b.end(2); // throw, call
+                b.end();
+
+                b.declaration(type(int.class), "cleanupCount", "numStackValues");
+                b.startIf().string(operationStack.read(operation, operationFields.producedValue), " && state.currentStackHeight == ",
+                                operationStack.read(operation, operationFields.startStackHeight), " + numStackValues").end().startBlock();
+                b.lineComment("Special case: the block result is the last bound stack value.");
+                b.statement("cleanupCount--");
+                b.end();
+
+                b.startIf().string("cleanupCount > 0").end().startBlock();
+                b.startIf().string(operationStack.read(operation, operationFields.producedValue)).end().startBlock();
+                buildEmitInstruction(b, null, model.storeStackValueInstruction, BytecodeRootNodeElement.safeCastShort("cleanupCount"));
+                b.statement("cleanupCount--");
+                b.end();
+                b.startFor().string("int i = 0; i < cleanupCount; i++").end().startBlock();
+                buildEmitInstruction(b, null, model.popInstruction, emitPopArguments("-1"));
+                b.end();
                 b.end();
 
                 if (model.enableBlockScoping) {
@@ -2307,11 +2399,32 @@ final class BuilderElement extends AbstractElement {
                 }
 
                 break;
+            case BIND_STACKVALUE:
+                b.startDeclaration(operationStack.asType(), "stackValueOwner");
+                b.string("state.operationStack[");
+                b.string(operationStack.read(operation, operationFields.declaringOperationSp));
+                b.string("]");
+                b.end();
+                b.startAssert().string("stackValueOwner.sequenceNumber == ", operationStack.read(operation, operationFields.declaringOp)).end();
+
+                b.startDeclaration(types.StackValue, "result").startNew(stackValueImpl.asType());
+                b.string(operationStack.read(model.rootOperation, "state.operationStack[state.rootOperationSp]", operationFields.index));
+                b.string(operationStack.read(operation, operationFields.declaringOp));
+                b.string(operationStack.read(operation, operationFields.declaringOperationSp));
+                b.string("state.currentStackHeight - 1");
+                b.end().end();
+
+                b.startIf().string("stackValueOwner.operation == ").tree(parent.createOperationConstant(model.blockOperation)).end().startBlock();
+                b.tree(operationStack.write(model.blockOperation, "stackValueOwner", operationFields.numStackValues,
+                                operationStack.read(model.blockOperation, "stackValueOwner", operationFields.numStackValues) + " + 1"));
+                b.end();
+                break;
             case YIELD, CUSTOM_YIELD:
                 if (model.enableTagInstrumentation) {
                     emitDoEmitTagYield(b, operation);
                 }
-                buildEmitOperationInstruction(b, operation, constantOperandValues);
+                buildEmitOperationInstructionAndDeclareBci(b, "continuationBci", operation, operation.instruction(), constantOperandValues, null);
+                operationBci = "continuationBci";
 
                 if (model.enableTagInstrumentation) {
                     b.declaration(type(int.class), "tagResumeBci", "doEmitTagResume()");
@@ -2329,16 +2442,49 @@ final class BuilderElement extends AbstractElement {
                                     }) //
                                     .findFirst() //
                                     .orElseThrow(() -> new AssertionError("no epilog return with stack offset 1"));
-                    buildEmitOperationInstruction(b, model.epilogReturn.operation, epilogInstruction, null, null);
+                    buildEmitOperationInstruction(b, model.epilogReturn.operation, epilogInstruction, constantOperandValues, null);
                 } else if (operation.hasInstruction()) {
-                    buildEmitOperationInstruction(b, operation, constantOperandValues);
+                    buildEmitOperationInstructionAndDeclareBci(b, "operationBci", operation, operation.instruction(), constantOperandValues, null);
+                    operationBci = "operationBci";
                 }
                 break;
         }
 
-        if (operation.kind == OperationKind.TAG) {
-            // handled in tag section
-        } else if (operation.isSourceOnly()) {
+        /*
+         * Step 3 (Cleanup): pop the completed operation from the stack and update metadata of the parent operation.
+         */
+        b.statement("state.popOperation()");
+        switch (operation.kind) {
+            case IF_THEN_ELSE:
+                b.statement("markReachable(", operationStack.read(operation, operationFields.thenReachable), " || ", operationStack.read(operation, operationFields.elseReachable),
+                                ")");
+                break;
+            case IF_THEN:
+            case WHILE:
+                b.lineComment("Control flow merged. Set state.reachable to the enclosing operation's reachability.");
+                b.statement("state.reachable = resolveReachable()");
+                break;
+            case CONDITIONAL:
+                // reachable is declared in step 2
+                b.statement("markReachable(reachable)");
+                break;
+            case TRY_CATCH:
+            case TRY_CATCH_OTHERWISE:
+                b.statement("markReachable(", operationStack.read(operation, operationFields.tryReachable), " || ", operationStack.read(operation, operationFields.catchReachable),
+                                ")");
+                break;
+            case TRY_FINALLY:
+                b.statement("markReachable(", operationStack.read(operation, operationFields.tryReachable), ")");
+                break;
+            case RETURN:
+            case CUSTOM_RETURN:
+                b.statement("markReachable(false)");
+                break;
+            default:
+                break;
+        }
+
+        if (operation.isSourceOnly()) {
             // Source operations are metadata-only and do not produce a child for their parent.
         } else if (operation.forwardsChildResult) {
             // Forward the operation's child result to its parent.
@@ -2347,6 +2493,9 @@ final class BuilderElement extends AbstractElement {
                 bci = operationStack.read(operation, operationFields.childBci);
             }
             emitCallAfterChild(b, operation, operationStack.read(operation, operationFields.producedValue), bci);
+        } else if (operation.kind == OperationKind.BIND_STACKVALUE) {
+            emitCallAfterChild(b, operation, "true", "-1");
+            b.startReturn().string("result").end();
         } else if (operation.kind == OperationKind.CUSTOM_SHORT_CIRCUIT) {
             b.declaration(type(int.class), "nextBci");
             b.startIf().string("operation.childCount <= 1").end().startBlock();
@@ -2354,8 +2503,8 @@ final class BuilderElement extends AbstractElement {
             b.startStatement().string("nextBci = ");
             ShortCircuitInstructionModel shortCircuitModel = operation.instruction().shortCircuitModel;
             if (shortCircuitModel.returnConvertedBoolean()) {
-                // We emit a boolean converter instruction above. Compute its bci.
-                b.string("state.bci - " + shortCircuitModel.booleanConverterInstruction().getInstructionLength());
+                // We emit a boolean converter instruction above. Use its bci.
+                b.string(operationBci);
             } else {
                 // The child bci points to the instruction producing this last value.
                 String childBci = "-1";
@@ -2368,32 +2517,16 @@ final class BuilderElement extends AbstractElement {
             b.end(); // if block
 
             b.startElseBlock();
-            b.lineComment("Multi child -> boxing elimination not possible use short-circuit bci to disable it.");
-
-            String shortCircuitBci = "-1";
-            if (model.usesBoxingElimination()) {
-                shortCircuitBci = operationStack.read(operation, operationFields.shortCircuitBci);
-            }
-            b.statement("nextBci = ", shortCircuitBci);
+            // BE not supported for short-circuit ops with multiple children.
+            b.statement("nextBci = -1");
             b.end();
 
             emitCallAfterChild(b, operation, "true", "nextBci");
         } else if (model.enableTagInstrumentation && (operation.kind == OperationKind.YIELD || operation.kind == OperationKind.CUSTOM_YIELD)) {
-            /*
-             * We don't BE yields/tag.resume, but the BE machinery needs a valid bci. Use the
-             * tag.resume bci if it was emitted, otherwise use the yield bci. Note: a leader bci was
-             * already requested at state.bci in buildEmitOperationInstruction, so yieldBci is safe from rewrites.
-             */
-            String yieldBci = "state.bci - " + operation.instruction().getInstructionLength();
-            emitCallAfterChild(b, operation, "true", "tagResumeBci != -1 ? tagResumeBci : " + yieldBci);
+            // We don't BE yields/tag.resume.
+            emitCallAfterChild(b, operation, "true", "-1");
         } else {
-            String nextBci;
-            if (operation.hasInstruction()) {
-                nextBci = "state.bci - " + operation.instructions.getFirst().getInstructionLength();
-            } else {
-                nextBci = "-1";
-            }
-            emitCallAfterChild(b, operation, String.valueOf(!operation.isVoid), nextBci);
+            emitCallAfterChild(b, operation, String.valueOf(!operation.isVoid), operationBci);
         }
 
         if (operation.isCustom() && !operation.customModel.implicitTags.isEmpty()) {
@@ -2406,7 +2539,92 @@ final class BuilderElement extends AbstractElement {
         return ex;
     }
 
-    static String childString(int numChildren) {
+    private void emitCompleteEndTag(CodeTreeBuilder b, OperationModel operation) {
+        b.declaration(parent.tagNode.asType(), "tagNode", operationStack.read(operation, operationFields.node));
+
+        b.startIf().string("(encodedTags & this.tags) != tagNode.tags").end().startBlock();
+        BytecodeRootNodeElement.emitThrowIllegalArgumentException(b, "The tags provided to endTag do not match the tags provided to the corresponding beginTag call.");
+        b.end();
+
+        b.lineComment("If this tag operation is nested in another, add it to the outer tag tree. Otherwise, it becomes a tag root.");
+        b.declaration(operationStack.asType(), "outerTag", "findOuterTag(state.operationSp - 2)");
+
+        // Otherwise, this tag is the root of a tag tree.
+        b.startIf().string("outerTag == null").end().startBlock();
+        b.startIf().string("state.tagRoots == null").end().startBlock();
+        b.statement("state.tagRoots = new ArrayList<>(3)");
+        b.end();
+        b.statement("state.tagRoots.add(tagNode)");
+        b.end().startElseBlock(); // if !outerTagFound
+
+        b.startIf().string(operationStack.read(model.tagOperation, "outerTag", operationFields.tagChildren), " == null").end().startBlock();
+        b.tree(operationStack.write(model.tagOperation, "outerTag", operationFields.tagChildren, "new ArrayList<>(3)"));
+        b.end();
+        b.statement(operationStack.read(model.tagOperation, "outerTag", operationFields.tagChildren), ".add(tagNode)");
+
+        b.end();
+
+        b.declaration(arrayOf(parent.tagNode.asType()), "children");
+        b.declaration(generic(type(List.class), parent.tagNode.asType()), "operationChildren", operationStack.read(operation, operationFields.tagChildren));
+
+        // Set the children array and adopt children.
+        b.startIf().string("operationChildren == null").end().startBlock();
+        b.statement("children = TagNode.EMPTY_ARRAY");
+        b.end().startElseBlock();
+        b.statement("children = new TagNode[operationChildren.size()]");
+        b.startFor().string("int i = 0; i < children.length; i++").end().startBlock();
+        b.statement("children[i] = tagNode.insert(operationChildren.get(i))");
+        b.end();
+        b.end();
+
+        b.statement("tagNode.children = children");
+        b.statement("tagNode.returnBci = state.bci");
+
+        b.startIf().string(operationStack.read(operation, operationFields.producedValue)).end().startBlock();
+        String tagLeaveChildBci = model.tagLeaveValueInstruction.getImmediate(ImmediateKind.RELATIVE_BYTECODE_INDEX) == null ? null : operationStack.read(operation, operationFields.childBci);
+        String[] args = buildTagLeaveArguments(model.tagLeaveValueInstruction, tagLeaveChildBci, "(short) 1");
+        b.declaration(type(int.class), "operationBci");
+
+        b.startIf().string(operationStack.read(operation, operationFields.operationReachable)).end().startBlock();
+        /*
+         * The tag leave is always reachable, because probes may decide to return at any
+         * point and we need a point where we can continue.
+         */
+        b.statement("markReachable(true)");
+        buildEmitInstructionWithStackEffect(b, "operationBci", false, model.tagLeaveValueInstruction, String.valueOf(model.tagLeaveValueInstruction.getStackEffect()), args);
+        b.statement(doCreateExceptionHandler(operationStack.read(operation, operationFields.handlerStartBci), "state.bci", "HANDLER_TAG_EXCEPTIONAL",
+                        operationStack.read(operation, operationFields.nodeId),
+                        operationStack.read(operation, operationFields.startStackHeight)));
+        b.end().startElseBlock();
+        buildEmitInstructionWithStackEffect(b, "operationBci", false, model.tagLeaveValueInstruction, String.valueOf(model.tagLeaveValueInstruction.getStackEffect()), args);
+        b.end();
+
+        b.statement("state.popOperation()");
+        emitCallAfterChild(b, operation, "true", "operationBci");
+
+        b.end().startElseBlock();
+
+        b.startIf().string(operationStack.read(operation, operationFields.operationReachable)).end().startBlock();
+        /*
+         * The tag leave is always reachable, because probes may decide to return at any
+         * point and we need a point where we can continue.
+         */
+        b.statement("markReachable(true)");
+        buildEmitInstruction(b, null, model.tagLeaveVoidInstruction, operationStack.read(operation, operationFields.nodeId));
+        b.statement(doCreateExceptionHandler(operationStack.read(operation, operationFields.handlerStartBci), "state.bci", "HANDLER_TAG_EXCEPTIONAL",
+                        operationStack.read(operation, operationFields.nodeId),
+                        operationStack.read(operation, operationFields.startStackHeight)));
+        b.end().startElseBlock();
+        buildEmitInstruction(b, null, model.tagLeaveVoidInstruction, operationStack.read(operation, operationFields.nodeId));
+        b.end();
+
+        b.statement("state.popOperation()");
+        emitCallAfterChild(b, operation, "false", "-1");
+
+        b.end();
+    }
+
+    private static String childString(int numChildren) {
         return numChildren + ((numChildren == 1) ? " child" : " children");
     }
 
@@ -2424,13 +2642,13 @@ final class BuilderElement extends AbstractElement {
 
     private CodeExecutableElement createFindOuterTag() {
         CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), operationStack.asType(), "findOuterTag");
+        ex.addParameter(new CodeVariableElement(type(int.class), "topOperationSp"));
         CodeTreeBuilder b = ex.createBuilder();
-        b.declaration(type(boolean.class), "outerTagFound", "false");
-        buildOperationStackWalk(b, () -> {
+        buildOperationStackWalk(b, "topOperationSp", "state.rootOperationSp", () -> {
             b.startIf().string("operation.operation == ").tree(parent.createOperationConstant(model.tagOperation)).end().startBlock();
             b.statement("return operation");
             b.end(); // if tag operation
-        });
+        }, "state");
 
         b.statement("return null");
 
@@ -2716,7 +2934,7 @@ final class BuilderElement extends AbstractElement {
             }
         }
 
-        buildEmitOperationInstruction(b, model.returnOperation, null);
+        buildEmitOperationInstruction(b, model.returnOperation, model.returnOperation.instruction(), null, null);
 
         b.startStatement().startCall("endOperation");
         b.tree(parent.createOperationConstant(rootOperation));
@@ -2995,7 +3213,11 @@ final class BuilderElement extends AbstractElement {
     }
 
     private void buildOperationStackWalk(CodeTreeBuilder b, String lowerLimit, Runnable r, String state) {
-        b.startFor().string("int i = ", state, ".operationSp - 1; i >= ", lowerLimit, "; i--").end().startBlock();
+        buildOperationStackWalk(b, state + ".operationSp - 1", lowerLimit, r, state);
+    }
+
+    private void buildOperationStackWalk(CodeTreeBuilder b, String upperLimit, String lowerLimit, Runnable r, String state) {
+        b.startFor().string("int i = ", upperLimit, "; i >= ", lowerLimit, "; i--").end().startBlock();
         b.declaration(operationStack.asType(), "operation", state + ".operationStack[i]");
         b.startIf().string("operation.operation == ").tree(parent.createOperationConstant(model.finallyHandlerOperation)).end().startBlock();
         b.startAssign("i").string(operationStack.read(List.of(model.finallyHandlerOperation), operationFields.finallyOperationSp)).end();
@@ -3148,16 +3370,39 @@ final class BuilderElement extends AbstractElement {
         b.end();
     }
 
-    private void buildEmitOperationInstruction(CodeTreeBuilder b, OperationModel operation, Map<ConstantOperandModel, String> constantOperandValues) {
-        buildEmitOperationInstruction(b, operation, operation.instruction(), null, constantOperandValues);
+    /**
+     * Emits an instruction without capturing its bci.
+     * @see #buildEmitInstruction(CodeTreeBuilder, String, InstructionModel, String...)
+     */
+    private void buildEmitOperationInstruction(CodeTreeBuilder b, OperationModel operation, InstructionModel instruction,
+                    Map<ConstantOperandModel, String> constantOperandValues, String customChildBci) {
+        buildEmitOperationInstruction(b, null, false, operation, instruction, constantOperandValues, customChildBci);
+    }
+
+    /**
+     * Emits an instruction and assigns its bci to an existing local {@code emittedBciLocal}.
+     * @see #buildEmitInstruction
+     */
+    private void buildEmitOperationInstructionAndAssignBci(CodeTreeBuilder b, String emittedBciLocal, OperationModel operation, InstructionModel instruction,
+                    Map<ConstantOperandModel, String> constantOperandValues, String customChildBci) {
+        buildEmitOperationInstruction(b, emittedBciLocal, false, operation, instruction, constantOperandValues, customChildBci);
+    }
+
+    /**
+     * Emits an instruction and assigns its bci to a newly declared local {@code emittedBciLocal}.
+     * @see #buildEmitInstruction
+     */
+    private void buildEmitOperationInstructionAndDeclareBci(CodeTreeBuilder b, String emittedBciLocal, OperationModel operation, InstructionModel instruction,
+                    Map<ConstantOperandModel, String> constantOperandValues, String customChildBci) {
+        buildEmitOperationInstruction(b, emittedBciLocal, true, operation, instruction, constantOperandValues, customChildBci);
     }
 
     /**
      * Emits the instruction associated with the given operation.
      * {@code customChildBci} is passed to buildCustomInitializer to communicate child bci's for exceptional cases with custom operations where the child bci is not in the operation stack.
      */
-    private void buildEmitOperationInstruction(CodeTreeBuilder b, OperationModel operation, InstructionModel instruction, String customChildBci,
-                    Map<ConstantOperandModel, String> constantOperandValues) {
+    private void buildEmitOperationInstruction(CodeTreeBuilder b, String emittedBciLocal, boolean declareEmittedBci, OperationModel operation, InstructionModel instruction,
+                    Map<ConstantOperandModel, String> constantOperandValues, String customChildBci) {
         String[] args = switch (operation.kind) {
             case LOAD_LOCAL -> {
                 List<String> immediates = new ArrayList<>();
@@ -3203,6 +3448,16 @@ final class BuilderElement extends AbstractElement {
             case RETURN, LOAD_NULL -> new String[]{};
             case LOAD_ARGUMENT -> new String[]{BytecodeRootNodeElement.safeCastShort(operation.getOperationBeginArgumentName(0))};
             case LOAD_CONSTANT -> new String[]{"state.addConstant(" + operation.getOperationBeginArgumentName(0) + ")"};
+            case LOAD_STACKVALUE, STORE_STACKVALUE -> {
+                b.startDeclaration(stackValueImpl.asType(), "stackValueImpl");
+                if (operation.kind == OperationKind.LOAD_STACKVALUE) {
+                    b.cast(stackValueImpl.asType()).string(operation.getOperationBeginArgumentName(0));
+                } else {
+                    b.string(operationStack.read(operation, operationFields.stackValue));
+                }
+                b.end();
+                yield new String[]{BytecodeRootNodeElement.safeCastShort("state.currentStackHeight - 1 - stackValueImpl.stackHeight")};
+            }
             case YIELD -> {
                 b.declaration(type(int.class), "constantPoolIndex", "state.allocateContinuationConstant()");
                 yield new String[]{"constantPoolIndex"};
@@ -3215,15 +3470,29 @@ final class BuilderElement extends AbstractElement {
         switch (operation.kind) {
             case CUSTOM_YIELD:
             case YIELD:
-                buildEmitInstruction(b, "continuationBci", instruction, args);
+                if (emittedBciLocal == null) {
+                    throw new AssertionError("caller should supply a local name to store the continuation bci");
+                }
+                buildEmitInstructionWithStackEffect(b, emittedBciLocal, declareEmittedBci, instruction, String.valueOf(instruction.getStackEffect()), args);
                 b.startStatement().startCall("state.doEmitContinuation");
-                b.string("constantPoolIndex").string("continuationBci != -1 ? continuationBci + " + instruction.getInstructionLength() + " : -1");
+                b.string("constantPoolIndex").string(emittedBciLocal + " != -1 ? state.bci : -1");
                 b.string("state.currentStackHeight");
                 b.end(2); // statement + call
                 emitRequestLeaderBci(b, "start of continuation resume block");
                 break;
+            case LOAD_STACKVALUE:
+                if (declareEmittedBci) {
+                    b.declaration(type(int.class), emittedBciLocal);
+                }
+                // Special case: instead of load.stackvalue(0), emit dup.
+                b.startIf().string("state.currentStackHeight == stackValueImpl.stackHeight + 1").end().startBlock();
+                buildEmitInstructionWithStackEffect(b, emittedBciLocal, false, model.dupInstruction, String.valueOf(model.dupInstruction.getStackEffect()));
+                b.end().startElseBlock();
+                buildEmitInstructionWithStackEffect(b, emittedBciLocal, false, instruction, String.valueOf(instruction.getStackEffect()), args);
+                b.end();
+                break;
             default:
-                buildEmitInstruction(b, null, instruction, args);
+                buildEmitInstructionWithStackEffect(b, emittedBciLocal, declareEmittedBci, instruction, String.valueOf(instruction.getStackEffect()), args);
                 break;
         }
 
@@ -3241,17 +3510,21 @@ final class BuilderElement extends AbstractElement {
         b.end();
 
         b.declaration(operationStack.asType(), "operation", "state.peekOperation()");
+        b.declaration(type(int.class), "stackValueCount");
 
         b.startIf().string("operation.operation == ").tree(parent.createOperationConstant(model.blockOperation)).end().startBlock();
-        b.startAssert().string("state.currentStackHeight == ", operationStack.read(model.blockOperation, "operation", operationFields.startStackHeight)).end();
+        b.startAssign("stackValueCount").string(operationStack.read(model.blockOperation, "operation", operationFields.numStackValues)).end();
+        b.startAssert().string("state.currentStackHeight == ", operationStack.read(model.blockOperation, "operation", operationFields.startStackHeight), " + ",
+                        "stackValueCount").end();
         b.end().startElseBlock();
         b.startAssert().string("operation.operation == ").tree(parent.createOperationConstant(model.rootOperation)).end();
         b.startAssert().string("state.currentStackHeight == 0").end();
+        b.statement("stackValueCount = 0");
         b.end();
 
         b.startStatement().startCall("state.resolveUnresolvedLabel");
         b.string("labelImpl");
-        b.string("state.currentStackHeight");
+        b.string("stackValueCount");
         b.end(2);
     }
 
@@ -3283,10 +3556,13 @@ final class BuilderElement extends AbstractElement {
 
         b.declaration(operationStack.asType(), "operation", "state.operationStack[declaringOperationSp]");
 
+        b.declaration(type(int.class), "targetStackValueCount");
         b.startIf().string("operation.operation == ").tree(parent.createOperationConstant(model.blockOperation)).end().startBlock();
-        b.startAssign("targetStackHeight").string(operationStack.read(model.blockOperation, "operation", operationFields.startStackHeight)).end();
+        b.startAssign("targetStackValueCount").string(operationStack.read(model.blockOperation, "operation", operationFields.numStackValues)).end();
+        b.startAssign("targetStackHeight").string(operationStack.read(model.blockOperation, "operation", operationFields.startStackHeight), " + targetStackValueCount").end();
         b.end().startElseBlock();
         b.startAssert().string("operation.operation == ").tree(parent.createOperationConstant(model.rootOperation)).end();
+        b.statement("targetStackValueCount = 0");
         b.startAssign("targetStackHeight").string("0").end();
         b.end();
 
@@ -3312,12 +3588,13 @@ final class BuilderElement extends AbstractElement {
         b.startStatement().startCall("state.registerUnresolvedLabel");
         b.string("labelImpl");
         b.string("branchTargetBci + " + model.branchInstruction.getImmediate(ImmediateKind.BYTECODE_INDEX).offset());
+        b.string("targetStackValueCount");
         b.end(2);
         emitRequestLeaderBci(b, "branch marks end of current basic block");
         b.end();
     }
 
-    private void buildEmitLoadException(CodeTreeBuilder b, OperationModel operation) {
+    private void buildEmitLoadException(CodeTreeBuilder b, OperationModel operation, String emittedBciLocal) {
         b.declaration(type(int.class), "exceptionStackHeight", UNINIT);
         b.string("loop: ");
         buildOperationStackWalk(b, () -> {
@@ -3347,7 +3624,7 @@ final class BuilderElement extends AbstractElement {
         b.startThrow().startCall("state.failState").doubleQuote("LoadException can only be used in the catch operation of a TryCatch/TryCatchOtherwise operation in the current root.").end().end();
         b.end();
 
-        buildEmitInstruction(b, null, operation.instruction(), "safeCastShort(exceptionStackHeight)");
+        buildEmitInstruction(b, emittedBciLocal, operation.instruction(), "safeCastShort(exceptionStackHeight)");
     }
 
     private CodeExecutableElement createValidateRootOperationBegin() {
@@ -3441,13 +3718,19 @@ final class BuilderElement extends AbstractElement {
 
         if (operation.kind == OperationKind.LOAD_LOCAL || operation.kind == OperationKind.CLEAR_LOCAL) {
             emitValidateLocalScope(b, operation);
+        } else if (operation.kind == OperationKind.LOAD_STACKVALUE) {
+            emitValidateStackValueScope(b, operation);
         }
 
+        String operationBci = "-1";
         // emit the instruction
         switch (operation.kind) {
             case LABEL -> buildEmitLabel(b, operation);
             case BRANCH -> buildEmitBranch(b, operation);
-            case LOAD_EXCEPTION -> buildEmitLoadException(b, operation);
+            case LOAD_EXCEPTION -> {
+                buildEmitLoadException(b, operation, "operationBci");
+                operationBci = "operationBci";
+            }
             case CUSTOM_YIELD -> {
                 if (operation.instruction().signature.dynamicOperandCount() != 0) {
                     throw new AssertionError("expected custom yield to have 0 dynamic operands: " + operation.instruction());
@@ -3456,7 +3739,8 @@ final class BuilderElement extends AbstractElement {
                 if (model.enableTagInstrumentation) {
                     b.statement("doEmitTagYieldNull()");
                 }
-                buildEmitOperationInstruction(b, operation, constantOperandValues);
+                buildEmitOperationInstructionAndDeclareBci(b, "continuationBci", operation, operation.instruction(), constantOperandValues, null);
+                operationBci = "continuationBci";
                 if (model.enableTagInstrumentation) {
                     b.statement("doEmitTagResume()");
                 }
@@ -3465,7 +3749,8 @@ final class BuilderElement extends AbstractElement {
                 if (!operation.hasInstruction()) {
                     throw new AssertionError("operation did not have instruction");
                 }
-                buildEmitOperationInstruction(b, operation, constantOperandValues);
+                buildEmitOperationInstructionAndDeclareBci(b, "operationBci", operation, operation.instruction(), constantOperandValues, null);
+                operationBci = "operationBci";
             }
         }
 
@@ -3479,7 +3764,7 @@ final class BuilderElement extends AbstractElement {
                 break;
         }
 
-        emitCallAfterChild(b, operation, String.valueOf(!operation.isVoid), operation.hasInstruction() ? "state.bci - " + operation.instruction().getInstructionLength() : "-1");
+        emitCallAfterChild(b, operation, String.valueOf(!operation.isVoid), operationBci);
 
         if (operation.isCustom() && !operation.customModel.implicitTags.isEmpty()) {
             VariableElement tagConstants = lookupTagConstant(operation.customModel.implicitTags);
@@ -3730,7 +4015,8 @@ final class BuilderElement extends AbstractElement {
         Map<EqualityCodeTree, List<OperationModel>> caseGrouping = EqualityCodeTree.group(p, model.getOperationsWithChildren(), (OperationModel op, CodeTreeBuilder b) -> {
             switch (op.kind) {
                 case BLOCK -> {
-                    b.startIf().string(operationStack.read(op, operationFields.producedValue)).end().startBlock();
+                    b.startIf().string(operationStack.read(op, operationFields.producedValue), " && state.currentStackHeight > ",
+                                    operationStack.read(op, operationFields.startStackHeight), " + ", operationStack.read(op, operationFields.numStackValues)).end().startBlock();
 
                     String childBci = "-1";
                     if (model.usesBoxingElimination()) {
@@ -3766,7 +4052,7 @@ final class BuilderElement extends AbstractElement {
                         if (!shortCircuitModel.producesBoolean()) {
                             buildEmitInstruction(b, null, model.dupInstruction);
                         }
-                        buildEmitBooleanConverterInstruction(b, op.instruction());
+                        buildEmitBooleanConverterInstruction(b, op.instruction(), null);
                     }
 
                     // Emit the boolean check.
@@ -3926,7 +4212,7 @@ final class BuilderElement extends AbstractElement {
         b.end();
     }
 
-    private void buildEmitBooleanConverterInstruction(CodeTreeBuilder b, InstructionModel shortCircuitInstruction) {
+    private void buildEmitBooleanConverterInstruction(CodeTreeBuilder b, InstructionModel shortCircuitInstruction, String emittedBciLocal) {
         InstructionModel booleanConverter = shortCircuitInstruction.shortCircuitModel.booleanConverterInstruction();
 
         List<InstructionImmediate> immediates = booleanConverter.getImmediates();
@@ -3941,9 +4227,6 @@ final class BuilderElement extends AbstractElement {
                 case RELATIVE_BYTECODE_INDEX -> {
                     if (shortCircuitInstruction.shortCircuitModel.producesBoolean()) {
                         b.statement("int childBci = ", operationStack.read(shortCircuitInstruction.operation, operationFields.childBci));
-                        b.startAssert();
-                        b.string("childBci != " + UNINIT);
-                        b.end();
                     } else {
                         b.lineComment("Boxing elimination not supported for converter operations if the value is returned.");
                         b.statement("int childBci = -1");
@@ -3955,7 +4238,7 @@ final class BuilderElement extends AbstractElement {
                 default -> throw new AssertionError(String.format("Boolean converter instruction had unexpected encoding: %s", immediates));
             };
         }
-        buildEmitInstruction(b, null, booleanConverter, args);
+        buildEmitInstruction(b, emittedBciLocal, booleanConverter, args);
     }
 
     private CodeExecutableElement createAfterChild() {
@@ -5310,10 +5593,7 @@ final class BuilderElement extends AbstractElement {
         List<InstructionModel> epilogReturnInstructions = model.epilogReturn.operation.instructions;
         if (epilogReturnInstructions.size() == 1) {
             InstructionModel instruction = epilogReturnInstructions.get(0);
-            buildEmitOperationInstruction(b, model.epilogReturn.operation, instruction, childBci, null);
-            if (childBci != null) {
-                b.startAssign(childBci).string("state.bci - " + instruction.getInstructionLength()).end();
-            }
+            buildEmitOperationInstructionAndAssignBci(b, childBci, model.epilogReturn.operation, instruction, null, childBci);
             return;
         }
 
@@ -5325,10 +5605,7 @@ final class BuilderElement extends AbstractElement {
                 throw new AssertionError("Missing return epilog result stack offset: " + instruction);
             }
             b.startCase().tree(offset.tree()).end().startCaseBlock();
-            buildEmitOperationInstruction(b, model.epilogReturn.operation, instruction, childBci, null);
-            if (childBci != null) {
-                b.startAssign(childBci).string("state.bci - " + instruction.getInstructionLength()).end();
-            }
+            buildEmitOperationInstructionAndAssignBci(b, childBci, model.epilogReturn.operation, instruction, null, childBci);
             b.statement("break");
             b.end();
         }
@@ -5379,6 +5656,7 @@ final class BuilderElement extends AbstractElement {
     }
 
     final class RootStackElement extends CodeTypeElement {
+        static final String NAME = "RootStackElement";
 
         final Map<DoEmitInstructionKey, CodeExecutableElement> doEmitInstructionMethods = new TreeMap<>();
         final Map<InstructionEncoding, CodeExecutableElement> doRewriteStepMethods = new TreeMap<>();
@@ -5399,7 +5677,7 @@ final class BuilderElement extends AbstractElement {
         private CodeExecutableElement fixStableBciDeltasBeforeRewriteMethod;
 
         RootStackElement() {
-            super(Set.of(PRIVATE, STATIC, FINAL), ElementKind.CLASS, null, "RootStackElement");
+            super(Set.of(PRIVATE, STATIC, FINAL), ElementKind.CLASS, null, NAME);
 
             TypeMirror referenceType = generic(SoftReference.class, this.asType());
             TypeMirror deque = generic(type(ThreadLocal.class), referenceType);
@@ -5498,13 +5776,12 @@ final class BuilderElement extends AbstractElement {
                     this.fixStableBciDeltasBeforeRewriteMethod = createFixStableBciDeltasBeforeRewrite();
                     this.fixBuilderStateBeforeRewriteMethod = createFixBuilderStateBeforeRewrite();
                 }
-                for (int i = 0; i < model.instructionRewriterModel.rules.length; i++) {
-                    var rule = model.instructionRewriterModel.rules[i];
+                for (var rule : model.instructionRewriterModel.rules) {
                     if (rule.getRewriteKind() == RewriteKind.SECTIONED) {
-                        remapBciMethods.put(rule, createRemapBciMethod(rule, i));
+                        remapBciMethods.put(rule, createRemapBciMethod(rule));
                     }
                     DFAModel.DFAState acceptingState = model.instructionRewriterModel.dfa.getAcceptingState(rule);
-                    applyRewriteRuleMethods.put(rule, createApplyRewriteRule(rule, acceptingState, i));
+                    applyRewriteRuleMethods.put(rule, createApplyRewriteRule(rule, acceptingState));
                 }
             }
 
@@ -6423,11 +6700,11 @@ final class BuilderElement extends AbstractElement {
             return ex;
         }
 
-        private CodeExecutableElement createRemapBciMethod(InstructionRewriteRuleModel rewriteRule, int ruleIndex) {
+        private CodeExecutableElement createRemapBciMethod(InstructionRewriteRuleModel rewriteRule) {
             if (rewriteRule.getRewriteKind() != RewriteKind.SECTIONED) {
                 throw new AssertionError("Unsupported rewrite rule kind: " + rewriteRule.getRewriteKind());
             }
-            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE, STATIC), type(int.class), "remapBciRule" + ruleIndex);
+            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE, STATIC), type(int.class), "remapBciRule" + rewriteRule.getIndex());
             ex.addParameter(new CodeVariableElement(type(int.class), "startBci"));
             ex.addParameter(new CodeVariableElement(type(int.class), "bci"));
             BytecodeRootNodeElement.addJavadoc(ex, List.of(
@@ -6436,42 +6713,53 @@ final class BuilderElement extends AbstractElement {
 
             CodeTreeBuilder b = ex.createBuilder();
             b.lineComment("Before the rewritten range.");
-            b.startIf().string("bci <= startBci").end().startBlock();
+            b.startIf().string("bci < startBci").end().startBlock();
             b.startReturn().string("bci").end();
             b.end();
 
             int oldOffset = 0;
-            int deletedSoFar = 0;
+            int newOffset = 0;
             for (RewriteSection section : rewriteRule.getSections()) {
-                int sectionLength = getRewriteSectionLength(section);
-                int sectionEnd = oldOffset + sectionLength;
-                int rewrittenSectionStart = oldOffset - deletedSoFar;
-                String sectionText = formatRewriteSection(section);
+                int oldSectionLength = getRewriteSectionLength(section);
+                int newSectionLength = getRewriteSectionReplacementLength(section);
+                int oldSectionEnd = oldOffset + oldSectionLength;
+                String sectionText = formatRewriteSection(section.patterns());
                 switch (section.kind()) {
                     case IDENTITY -> {
                         b.lineComment("In `" + sectionText + "` (kept).");
-                        b.startIf().string("bci <= startBci + " + sectionEnd).end().startBlock();
-                        b.startReturn().string(formatBciOffset("bci", -deletedSoFar)).end();
+                        b.startIf().string("bci < startBci + " + oldSectionEnd).end().startBlock();
+                        b.startReturn().string(formatBciOffset("bci", newOffset - oldOffset)).end();
+                        b.end();
+                    }
+                    case REPLACE -> {
+                        String replacementText = formatRewriteSection(section.replacementPatterns());
+                        b.lineComment("At start of `" + sectionText + "` (replaced by `" + replacementText + "`).");
+                        b.startIf().string("bci == ", formatBciOffset("startBci", oldOffset)).end().startBlock();
+                        b.startReturn().string(formatBciOffset("startBci", newOffset)).end();
+                        b.end();
+                        b.lineComment("In `" + sectionText + "` (replaced by `" + replacementText + "`).");
+                        b.startIf().string("bci < startBci + " + oldSectionEnd).end().startBlock();
+                        b.startThrow().startNew(type(AssertionError.class)).doubleQuote("Cannot remap bci inside replaced rewrite section.").end().end();
                         b.end();
                     }
                     case DELETE -> {
                         b.lineComment("In `" + sectionText + "` (deleted).");
-                        b.startIf().string("bci <= startBci + " + sectionEnd).end().startBlock();
-                        b.startReturn().string(formatBciOffset("startBci", rewrittenSectionStart)).end();
+                        b.startIf().string("bci < startBci + " + oldSectionEnd).end().startBlock();
+                        b.startReturn().string(formatBciOffset("startBci", newOffset)).end();
                         b.end();
-                        deletedSoFar += sectionLength;
                     }
                 }
-                oldOffset = sectionEnd;
+                oldOffset += oldSectionLength;
+                newOffset += newSectionLength;
             }
 
             b.lineComment("After the rewritten range.");
-            b.startReturn().string(formatBciOffset("bci", -deletedSoFar)).end();
+            b.startReturn().string(formatBciOffset("bci", newOffset - oldOffset)).end();
             return ex;
         }
 
-        private CodeExecutableElement createApplyRewriteRule(InstructionRewriteRuleModel rewriteRule, DFAModel.DFAState acceptingState, int ruleIndex) {
-            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), type(int.class), "applyRewriteRuleRule" + ruleIndex);
+        private CodeExecutableElement createApplyRewriteRule(InstructionRewriteRuleModel rewriteRule, DFAModel.DFAState acceptingState) {
+            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), type(int.class), "applyRewriteRule" + rewriteRule.getIndex());
             ex.addParameter(new CodeVariableElement(type(int.class), "oldInstructionBci"));
             CodeTreeBuilder doc = ex.createDocBuilder();
             doc.startJavadoc().string("Applies the following rewrite rule:").newLine();
@@ -6515,23 +6803,30 @@ final class BuilderElement extends AbstractElement {
             // Step 3: Check rewrite conditions.
             if (rewriteRule.hasImmediateConstraints()) {
                 b.startIf();
-                boolean firstCondition = true;
+                List<CodeTree> conditions = new ArrayList<>();
                 for (int i = 0; i < rewriteRule.lhs.length; i++) {
                     ResolvedInstructionPatternModel resolvedPattern = rewriteRule.lhs[i];
                     for (int j = 0; j < resolvedPattern.immediates().length; j++) {
                         ResolvedImmediate resolvedImmediate = resolvedPattern.immediates()[j];
-                        if (resolvedImmediate != null && resolvedImmediate.constraint() != null) {
-                            if (!firstCondition) {
-                                b.string(" || ");
-                            }
-                            firstCondition = false;
-                            b.variable(immediateLocals.get(resolvedImmediate.name()));
-                            b.string(" != ");
-                            b.tree(BytecodeRootNodeElement.readImmediateWithOffset("bc", "startBci", resolvedImmediate.immediate(),
-                                            getImmediateOffsetInPattern(rewriteRule, new ImmediateReference(i, j))));
+                        CodeTree condition = createImmediateConstraintCondition(rewriteRule, immediateLocals, resolvedImmediate, new ImmediateReference(i, j));
+                        if (condition != null) {
+                            conditions.add(condition);
                         }
                     }
                 }
+                if (conditions.isEmpty()) {
+                    throw new AssertionError("Expected at least one immediate constraint for rewrite rule " + rewriteRule);
+                }
+
+                boolean firstCondition = true;
+                for (CodeTree condition : conditions) {
+                    if (!firstCondition) {
+                        b.string(" || ");
+                    }
+                    firstCondition = false;
+                    b.tree(condition);
+                }
+
                 b.end().startBlock();
                 b.lineComment("No rewrite performed. Update the rewrite state and continue.");
                 b.startAssign(instructionRewriteState);
@@ -6551,24 +6846,24 @@ final class BuilderElement extends AbstractElement {
                 b.startStatement().startCall(null, fixBuilderStateBeforeRewriteMethod).string("startBci").string(remapMethodReference).end(2);
                 int rewrittenLength = 0;
                 for (RewriteSection section : rewriteRule.getSections()) {
-                    int sectionLength = getRewriteSectionLength(section);
-                    switch (section.kind()) {
-                        case IDENTITY -> rewrittenLength += sectionLength;
-                        case DELETE -> {
-                            b.startStatement().startCall(null, recordStableBciDelta);
-                            b.string(formatBciOffset("startBci", rewrittenLength));
-                            b.string(Integer.toString(sectionLength));
-                            b.end(2);
-                        }
+                    int oldSectionLength = getRewriteSectionLength(section);
+                    int newSectionLength = getRewriteSectionReplacementLength(section);
+                    int delta = oldSectionLength - newSectionLength;
+                    if (delta != 0) {
+                        b.startStatement().startCall(null, recordStableBciDelta);
+                        b.string(formatBciOffset("startBci", rewrittenLength + newSectionLength));
+                        b.string(Integer.toString(delta));
+                        b.end(2);
                     }
+                    rewrittenLength += newSectionLength;
                 }
             } else {
                 throw new AssertionError("Unsupported rewrite rule kind: " + rewriteRule.getRewriteKind());
             }
 
             /*
-             * Note: The lhs and rhs have the same net stack effect, but one side may use more
-             * temporary stack space. The builder must allocate enough stack space for either
+             * Note: The lhs and rhs usually have the same net stack effect, but one side may use
+             * more temporary stack space. The builder must allocate enough stack space for either
              * instruction sequence to ensure a stable frame size.
              *
              * In other words, even if the rhs uses less stack space than the lhs, we cannot
@@ -6597,9 +6892,18 @@ final class BuilderElement extends AbstractElement {
             // Then, emit each instruction on the RHS.
             for (int i = 0; i < rewriteRule.rhs.length; i++) {
                 ResolvedInstructionPatternModel resolvedPattern = rewriteRule.rhs[i];
+                boolean isLastInstruction = i == rewriteRule.rhs.length - 1;
+                int emittedStackEffect = resolvedPattern.instruction().getStackEffect();
 
-                if (i == rewriteRule.rhs.length - 1) {
-                    b.startReturn(); // return last instruction bci
+                if (isLastInstruction && rewriteRule.endsWithReturn() && rewriteRule.lhsStackEffect() != rewriteRule.rhsStackEffect()) {
+                    int valuesLeftOnStack = rewriteRule.rhsStackEffect() - rewriteRule.lhsStackEffect();
+                    emittedStackEffect -= valuesLeftOnStack;
+                    b.lineComment("The rewrite leaves " + valuesLeftOnStack + " value(s) on the stack, which is OK since the sequence ends in a return.");
+                    b.lineComment("Use a stack effect of " + emittedStackEffect + " to restore the stack height expected by the builder.");
+                }
+
+                if (isLastInstruction && rewriteRule.returnFinalInstructionBci()) {
+                    b.startReturn(); // return final instruction bci
                 } else {
                     b.startStatement();
                 }
@@ -6607,20 +6911,26 @@ final class BuilderElement extends AbstractElement {
                 // The doEmitInstruction method may not exist yet; just reference it by name.
                 b.startCall(getDoEmitInstructionName(resolvedPattern.instruction().getInstructionEncoding(), false));
                 b.tree(parent.createInstructionConstant(resolvedPattern.instruction()));
-                b.string(resolvedPattern.instruction().getStackEffect());
+                b.string(Integer.toString(emittedStackEffect));
                 for (var resolvedImmediate : resolvedPattern.immediates()) {
-                    CodeVariableElement immediateLocal = immediateLocals.get(resolvedImmediate.name());
-                    if (resolvedImmediate.immediate().kind().isUnsigned()) {
-                        b.string(BytecodeRootNodeElement.safeCastUnsignedShort(immediateLocal.getName().toString()));
+                    if (resolvedImmediate instanceof ResolvedBinding binding) {
+                        CodeVariableElement immediateLocal = immediateLocals.get(binding.name());
+                        if (resolvedImmediate.immediate().kind().isUnsigned()) {
+                            b.string(BytecodeRootNodeElement.safeCastUnsignedShort(immediateLocal.getName()));
+                        } else {
+                            b.variable(immediateLocal);
+                        }
+                    } else if (resolvedImmediate instanceof ResolvedLiteral literal) {
+                        b.string(formatImmediateLiteral(literal));
                     } else {
-                        b.variable(immediateLocal);
+                        throw new AssertionError("Only bound immediates are supported on the rhs of rewrite rules.");
                     }
                 }
                 b.end(2);
 
                 b.end(); // return / statement
             }
-            if (rewriteRule.rhs.length == 0) {
+            if (!rewriteRule.returnFinalInstructionBci()) {
                 b.startReturn().string("-1").end();
             }
 
@@ -6628,20 +6938,32 @@ final class BuilderElement extends AbstractElement {
         }
 
         private static int getRewriteSectionLength(RewriteSection section) {
+            return getInstructionPatternLength(section.patterns());
+        }
+
+        private static int getRewriteSectionReplacementLength(RewriteSection section) {
+            return switch (section.kind()) {
+                case DELETE -> 0;
+                case IDENTITY -> getRewriteSectionLength(section);
+                case REPLACE -> getInstructionPatternLength(section.replacementPatterns());
+            };
+        }
+
+        private static int getInstructionPatternLength(InstructionPatternModel[] patterns) {
             int length = 0;
-            for (var pattern : section.patterns()) {
+            for (var pattern : patterns) {
                 length += pattern.instruction().getInstructionLength();
             }
             return length;
         }
 
-        private static String formatRewriteSection(RewriteSection section) {
+        private static String formatRewriteSection(InstructionPatternModel[] patterns) {
             StringBuilder result = new StringBuilder();
-            for (int i = 0; i < section.patterns().length; i++) {
+            for (int i = 0; i < patterns.length; i++) {
                 if (i != 0) {
                     result.append(' ');
                 }
-                result.append(section.patterns()[i]);
+                result.append(patterns[i]);
             }
             return result.toString();
         }
@@ -6810,52 +7132,52 @@ final class BuilderElement extends AbstractElement {
             CodeTreeBuilder b = ex.createBuilder();
 
             buildOperationStackWalk(b, "rootOperationSp", () -> {
+                Map<EqualityCodeTree, List<OperationModel>> caseGrouping = EqualityCodeTree.group(b, model.getOperations(), (OperationModel operation, CodeTreeBuilder group) -> {
+                    emitRemapOperationBcis(group, operation);
+                    group.statement("break");
+                });
+
                 b.startSwitch().string("operation.operation").end().startBlock();
-
-                Collection<OperationModel> tryOperations = List.of(model.tryFinallyOperation, model.tryCatchOtherwiseOperation, model.tryCatchOperation);
-                for (OperationModel tryOperation : tryOperations) {
-                    b.startCase().tree(parent.createOperationConstant(tryOperation)).end();
-                }
-                b.startCaseBlock();
-                b.startIf().string("operation.childCount == 0 /* still in try */").end().startBlock();
-                b.declaration(type(int.class), "tryStartBci", operationStack.read(tryOperations, operationFields.tryStartBci));
-                b.startIf().string("startBci < tryStartBci").end().startBlock();
-                b.tree(operationStack.write(tryOperations, operationFields.tryStartBci, "remapBci.applyAsInt(startBci, tryStartBci)"));
-                b.end();
-                b.end();
-                b.statement("break");
-                b.end();
-
-                Collection<OperationModel> sourceSectionOperations = List.of(model.sourceSectionPrefixOperation, model.sourceSectionSuffixOperation);
-                for (OperationModel sourceSectionOperation : sourceSectionOperations) {
-                    b.startCase().tree(parent.createOperationConstant(sourceSectionOperation)).end();
-                }
-                b.startCaseBlock();
-                b.declaration(type(int.class), "sourceStartBci", operationStack.read(sourceSectionOperations, operationFields.startBci));
-                b.startIf().string("startBci < sourceStartBci").end().startBlock();
-                b.tree(operationStack.write(sourceSectionOperations, operationFields.startBci, "remapBci.applyAsInt(startBci, sourceStartBci)"));
-                b.end();
-                b.statement("break");
-                b.end();
-
-                Collection<OperationModel> variadicOperations = model.getCustomVariadicOperations();
-                if (!variadicOperations.isEmpty()) {
-                    for (OperationModel variadicOperation : variadicOperations) {
-                        b.startCase().tree(parent.createOperationConstant(variadicOperation)).end();
+                for (var entry : caseGrouping.entrySet()) {
+                    for (OperationModel operation : entry.getValue()) {
+                        b.startCase().tree(parent.createOperationConstant(operation)).end();
                     }
-                    b.startCaseBlock();
-                    b.declaration(type(int.class), "createVariadicBci", operationStack.read(variadicOperations, operationFields.createVariadicBci));
-                    b.startIf().string("createVariadicBci != ", UNINIT, " && startBci < createVariadicBci").end().startBlock();
-                    b.tree(operationStack.write(variadicOperations, operationFields.createVariadicBci, "remapBci.applyAsInt(startBci, createVariadicBci)"));
-                    b.end();
-                    b.statement("break");
+                    b.startBlock();
+                    b.tree(entry.getKey().getTree());
                     b.end();
                 }
-
                 b.end(); // switch
             }, "this");
 
             return ex;
+        }
+
+        private void emitRemapOperationBcis(CodeTreeBuilder b, OperationModel operation) {
+            if (operation == model.tryFinallyOperation || operation == model.tryCatchOtherwiseOperation || operation == model.tryCatchOperation) {
+                b.startIf().string("operation.childCount == 0 /* still in try */").end().startBlock();
+                b.declaration(type(int.class), "tryStartBci", operationStack.read(operation, operationFields.tryStartBci));
+                b.startIf().string("startBci < tryStartBci").end().startBlock();
+                b.tree(operationStack.write(operation, operationFields.tryStartBci, "remapBci.applyAsInt(startBci, tryStartBci)"));
+                b.end();
+                b.end();
+            } else if (operation == model.sourceSectionPrefixOperation || operation == model.sourceSectionSuffixOperation) {
+                b.declaration(type(int.class), "sourceStartBci", operationStack.read(operation, operationFields.startBci));
+                b.startIf().string("startBci < sourceStartBci").end().startBlock();
+                b.tree(operationStack.write(operation, operationFields.startBci, "remapBci.applyAsInt(startBci, sourceStartBci)"));
+                b.end();
+            } else if (operation.isCustomVariadic()) {
+                b.declaration(type(int.class), "createVariadicBci", operationStack.read(operation, operationFields.createVariadicBci));
+                b.startIf().string("createVariadicBci != ", UNINIT, " && startBci < createVariadicBci").end().startBlock();
+                b.tree(operationStack.write(operation, operationFields.createVariadicBci, "remapBci.applyAsInt(startBci, createVariadicBci)"));
+                b.end();
+            }
+            for (OperationField childBciField : operationStack.variables.operationToField.get(operation).stream().filter((field) -> field.childBci).toList()) {
+                String childBciName = childBciField.name + "ToRemap";
+                b.declaration(type(int.class), childBciName, operationStack.read(operation, childBciField));
+                b.startIf().string(childBciName, " != ", UNINIT, " && ", childBciName, " != -1 && startBci < ", childBciName).end().startBlock();
+                b.tree(operationStack.write(operation, childBciField, "remapBci.applyAsInt(startBci, " + childBciName + ")"));
+                b.end();
+            }
         }
 
         private CodeExecutableElement createFixStableBciDeltasBeforeRewrite() {
@@ -6946,22 +7268,53 @@ final class BuilderElement extends AbstractElement {
             return getInstructionOffsetInPattern(rewriteRule, immediateReference.instructionIndex()) + immediate.offset();
         }
 
+        private CodeTree createImmediateConstraintCondition(InstructionRewriteRuleModel rewriteRule, Map<String, CodeVariableElement> immediateLocals, ResolvedImmediate resolvedImmediate,
+                        ImmediateReference immediateReference) {
+            CodeTreeBuilder b = CodeTreeBuilder.createBuilder();
+            if (resolvedImmediate instanceof ResolvedBinding binding && binding.constraint() != null) {
+                b.variable(immediateLocals.get(binding.name()));
+            } else if (resolvedImmediate instanceof ResolvedLiteral literal) {
+                b.string(formatImmediateLiteral(literal));
+            } else {
+                return null;
+            }
+            CodeTree readImmediate = BytecodeRootNodeElement.readImmediateWithOffset("bc", "startBci", resolvedImmediate.immediate(), getImmediateOffsetInPattern(rewriteRule, immediateReference));
+            b.string(" != ").tree(readImmediate);
+            return b.build();
+        }
+
+        private static String formatImmediateLiteral(ResolvedLiteral literal) {
+            long value = literal.value();
+            ImmediateWidth width = literal.immediate().encoding().width();
+            return switch (width) {
+                case NONE -> throw new AssertionError("Non-encoded immediates cannot be used in instruction patterns.");
+                case BYTE -> "(byte) " + value;
+                case SHORT -> "(short) " + value;
+                case INT -> Long.toString(value);
+                case LONG -> value + "L";
+            };
+        }
+
         private Map<String, ImmediateReference> getImmediatesToLoad(InstructionRewriteRuleModel rewriteRule) {
             Map<String, ImmediateReference> result = new HashMap<>();
             for (ResolvedInstructionPatternModel instructionPattern : rewriteRule.lhs) {
                 for (ResolvedImmediate immediatePattern : instructionPattern.immediates()) {
-                    if (immediatePattern == null || immediatePattern.constraint() == null) {
-                        continue;
+                    if (immediatePattern instanceof ResolvedBinding binding && binding.constraint() != null) {
+                        result.put(binding.name(), binding.constraint());
                     }
-                    result.put(immediatePattern.name(), immediatePattern.constraint());
                 }
             }
             for (ResolvedInstructionPatternModel instructionPattern : rewriteRule.rhs) {
                 for (ResolvedImmediate immediatePattern : instructionPattern.immediates()) {
-                    if (immediatePattern.constraint() == null) {
+                    if (immediatePattern instanceof ResolvedWildcard) {
                         throw new AssertionError("All immediates on the rhs of a rewrite rule should be bound.");
                     }
-                    result.put(immediatePattern.name(), immediatePattern.constraint());
+                    if (immediatePattern instanceof ResolvedBinding binding) {
+                        if (binding.constraint() == null) {
+                            throw new AssertionError("All immediate bindings on the rhs of a rewrite rule should be bound.");
+                        }
+                        result.put(binding.name(), binding.constraint());
+                    }
                 }
             }
             return result;
@@ -6971,14 +7324,18 @@ final class BuilderElement extends AbstractElement {
             CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), type(void.class), "registerUnresolvedLabel");
             ex.addParameter(new CodeVariableElement(types.BytecodeLabel, "label"));
             ex.addParameter(new CodeVariableElement(type(int.class), "immediateBci"));
+            ex.addParameter(new CodeVariableElement(type(int.class), "stackValueCount"));
 
             CodeTreeBuilder b = ex.createBuilder();
             b.statement("BytecodeLabelImpl impl = (BytecodeLabelImpl) label");
 
             b.startIf().string("impl.unresolved0 == -1").end().startBlock();
+            b.statement("impl.numStackValuesAtFirstBranch = stackValueCount");
             b.statement("impl.unresolved0 = immediateBci");
             b.statement("return");
             b.end();
+
+            b.startAssert().string("impl.numStackValuesAtFirstBranch <= stackValueCount").end();
 
             b.startIf().string("impl.unresolved1 == -1").end().startBlock();
             b.statement("impl.unresolved1 = immediateBci");
@@ -6999,7 +7356,7 @@ final class BuilderElement extends AbstractElement {
         private CodeExecutableElement createResolveUnresolvedLabel() {
             CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), type(void.class), "resolveUnresolvedLabel");
             ex.addParameter(new CodeVariableElement(types.BytecodeLabel, "label"));
-            ex.addParameter(new CodeVariableElement(type(int.class), "stackHeight"));
+            ex.addParameter(new CodeVariableElement(type(int.class), "stackValueCount"));
 
             CodeTreeBuilder b = ex.createBuilder();
             b.statement("BytecodeLabelImpl impl = (BytecodeLabelImpl) label");
@@ -7007,6 +7364,14 @@ final class BuilderElement extends AbstractElement {
             b.statement("impl.bci = ", requestLeaderBci("this", "label definition"));
 
             b.startIf().string("impl.unresolved0 != -1").end().startBlock();
+            b.startIf().string("impl.numStackValuesAtFirstBranch < stackValueCount").end().startBlock();
+            b.startThrow().startCall("failState");
+            b.doubleQuote("Cannot branch to a label with more live stack values than at the branch. The branch at bytecode index %d has %d live stack values, but the label has %d.");
+            b.string(formatBciOffset("impl.unresolved0", -model.branchInstruction.getImmediate(ImmediateKind.BYTECODE_INDEX).offset()));
+            b.string("impl.numStackValuesAtFirstBranch");
+            b.string("stackValueCount");
+            b.end().end();
+            b.end();
             b.statement(BytecodeRootNodeElement.writeInt("this.bc", "impl.unresolved0", "impl.bci"));
             b.end();
 
@@ -7074,6 +7439,7 @@ final class BuilderElement extends AbstractElement {
         private static final int BUILDER_METHOD_PARAM_COUNT = 1 + SourceInfoTable.NUM_ATTRIBUTES;
         private static final int SUFFIX_NEXT_NODE_ID_ATTRIBUTE = 0;
         private static final int SUFFIX_NEXT_PATCH_INDEX_ATTRIBUTE = 1;
+        private static final int MAX_COMPRESSED_SOURCE_INFO_ENTRY_LENGTH = 1 + (3 + SourceInfoTable.NUM_ATTRIBUTES) * 5;
 
         private final CodeVariableElement sourceSectionSuffixTag;
         private final Map<SourceSectionKind, CodeVariableElement> tags;
@@ -7108,6 +7474,9 @@ final class BuilderElement extends AbstractElement {
             }
             BuilderElement.this.addAll(createEndPrefixBeginSuffixBuilderMethods());
 
+            if (model.enableCompressedSources) {
+                BuilderElement.this.add(createAppendVarint());
+            }
             BuilderElement.this.add(createFinalizeSourceInfoTable());
             BuilderElement.this.add(createDoEmitRootSourceInfo());
             rootStackElement.add(createDoEmitSourceInfo());
@@ -7277,9 +7646,9 @@ final class BuilderElement extends AbstractElement {
             b.statement("this.sourceInfo = Arrays.copyOf(this.sourceInfo, this.sourceInfo.length * 2)");
             b.end();
 
-            b.statement(writeElement("this.sourceInfo", "index", parent.sourceInfoTable.sourceOffset, "sourceIndex"));
             b.statement(writeElement("this.sourceInfo", "index", parent.sourceInfoTable.startBciOffset, "startBci"));
             b.statement(writeElement("this.sourceInfo", "index", parent.sourceInfoTable.endBciOffset, "endBci"));
+            b.statement(writeElement("this.sourceInfo", "index", parent.sourceInfoTable.sourceOffset, "sourceIndex"));
             for (int i = 0; i < SourceInfoTable.NUM_ATTRIBUTES; i++) {
                 b.statement(writeElement("this.sourceInfo", "index", parent.sourceInfoTable.attributeOffsets.get(i), attrParams.get(i)));
             }
@@ -7293,9 +7662,64 @@ final class BuilderElement extends AbstractElement {
             return ex;
         }
 
+        // @formatter:off
+        // The current encoding for compressed sources looks like:
+        // +-------------+------+--------------------------------------------------------+
+        // | Field       | Size | Meaning                                                |
+        // +-------------+------+--------------------------------------------------------+
+        // | entryLength | 1    | byte length of this whole entry, including this byte   |
+        // | startBci    | var  | unsigned start BCI                                     |
+        // | endBci      | var  | unsigned(endBci - startBci)                            |
+        // | sourceIndex | var  | unsigned index                                         |
+        // | attr1       | var  | unsigned(attr1 + 2)                                    |
+        // | attr2       | var  | unsigned(attr2 + 2)                                    |
+        // | ...                                                                         |
+        // | attrN       | var  | unsigned(attrN + 2)                                    |
+        // +-------------+------+--------------------------------------------------------+
+        // Entries start at index 0 and each entry is prefixed by a one-byte length for the entire entry.
+        // Varints are written most-significant 7-bit group first; the high bit marks continuation.
+        // Additionally, attributes use -1 to indicate unavailable info and -2 to indicate unspecified attributes.
+        // Thus, zero encodes -2, one encodes -1, and the value of every attribute is shifted by 2.
+        // @formatter:on
         private CodeExecutableElement createFinalizeSourceInfoTable() {
-            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), arrayOf(type(int.class)), "finalizeSourceInfoTable");
-            ex.addParameter(new CodeVariableElement(arrayOf(type(int.class)), "builderSourceInfo"));
+            if (!model.enableCompressedSources) {
+                CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), arrayOf(type(int.class)), "finalizeSourceInfoTable");
+                ex.addParameter(new CodeVariableElement(arrayOf(type(int.class)), "builderSourceInfo"));
+                ex.addParameter(new CodeVariableElement(type(int.class), "builderTableLength"));
+                BytecodeRootNodeElement.addJavadoc(ex, "Converts the builder source info table into a source info table that can be used by the bytecode interpreter.");
+
+                CodeTreeBuilder b = ex.createBuilder();
+
+                b.startAssert().string("builderTableLength % ").variable(entryLengthVariable).string(" == 0").end();
+
+                b.startDeclaration(type(int.class), "length");
+                b.startParentheses().string("builderTableLength / ").variable(entryLengthVariable).end().string(" * ").variable(parent.sourceInfoTable.entryLengthVariable);
+                b.end();
+
+                b.startDeclaration(arrayOf(type(int.class)), "sourceInfo");
+                b.startNewArray(arrayOf(type(int.class)), CodeTreeBuilder.singleString("length")).end();
+                b.end();
+
+                b.declaration(type(int.class), "i", "0");
+                b.declaration(type(int.class), "j", "0");
+
+                b.startWhile().string("i < builderTableLength").end().startBlock();
+                b.startStatement().startStaticCall(type(System.class), "arraycopy");
+                b.string("builderSourceInfo").string("i");
+                b.string("sourceInfo").string("j");
+                b.variable(parent.sourceInfoTable.entryLengthVariable);
+                b.end(2);
+                b.startStatement().string("i += ").variable(entryLengthVariable).end();
+                b.startStatement().string("j += ").variable(parent.sourceInfoTable.entryLengthVariable).end();
+                b.end();
+
+                b.startReturn().string("sourceInfo").end();
+
+                return ex;
+            }
+
+            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE), arrayOf(type(byte.class)), "finalizeSourceInfoTable");
+            ex.addParameter(new CodeVariableElement(arrayOf(type(int.class)), "sourceInfo"));
             ex.addParameter(new CodeVariableElement(type(int.class), "builderTableLength"));
             BytecodeRootNodeElement.addJavadoc(ex, "Converts the builder source info table into a compressed source info table that can be used by the bytecode interpreter.");
 
@@ -7303,30 +7727,65 @@ final class BuilderElement extends AbstractElement {
 
             b.startAssert().string("builderTableLength % ").variable(entryLengthVariable).string(" == 0").end();
 
-            b.startDeclaration(type(int.class), "length");
-            b.startParentheses().string("builderTableLength / ").variable(entryLengthVariable).end().string(" * ").variable(parent.sourceInfoTable.entryLengthVariable);
-            b.end();
-
-            b.startDeclaration(arrayOf(type(int.class)), "sourceInfo");
-            b.startNewArray(arrayOf(type(int.class)), CodeTreeBuilder.singleString("length")).end();
-            b.end();
-
-            b.declaration(type(int.class), "i", "0");
-            b.declaration(type(int.class), "j", "0");
-
-            b.startWhile().string("i < builderTableLength").end().startBlock();
-            b.startStatement().startStaticCall(type(System.class), "arraycopy");
-            b.string("builderSourceInfo").string("i");
-            b.string("sourceInfo").string("j");
-            b.variable(parent.sourceInfoTable.entryLengthVariable);
+            b.declaration(arrayOf(type(byte.class)), "compressedSourceInfo", "new byte[Math.max(16, builderTableLength)]");
+            b.declaration(type(int.class), "compressedSourceInfoIndex", "0");
+            b.declaration(type(int.class), "maxCompressedSourceInfoEntryLength", Integer.toString(MAX_COMPRESSED_SOURCE_INFO_ENTRY_LENGTH));
+            b.startFor().string("int entryIndex = 0; entryIndex < builderTableLength; entryIndex += ").variable(entryLengthVariable).end().startBlock();
+            b.startIf().string("compressedSourceInfoIndex + maxCompressedSourceInfoEntryLength > compressedSourceInfo.length").end().startBlock();
+            b.startAssign("compressedSourceInfo").startStaticCall(type(Arrays.class), "copyOf");
+            b.string("compressedSourceInfo");
+            b.startStaticCall(type(Math.class), "max").string("compressedSourceInfo.length * 2").string("compressedSourceInfoIndex + maxCompressedSourceInfoEntryLength").end();
             b.end(2);
-            b.startStatement().string("i += ").variable(entryLengthVariable).end();
-            b.startStatement().string("j += ").variable(parent.sourceInfoTable.entryLengthVariable).end();
             b.end();
+            b.declaration(type(int.class), "entryStartIndex", "compressedSourceInfoIndex");
+            b.declaration(type(int.class), "entryLengthIndex", "compressedSourceInfoIndex++");
+            b.declaration(type(int.class), "startBci", SourceInfoTable.loadElement("sourceInfo", "entryIndex", parent.sourceInfoTable.startBciOffset));
+            b.declaration(type(int.class), "endBci", SourceInfoTable.loadElement("sourceInfo", "entryIndex", parent.sourceInfoTable.endBciOffset));
+            emitAppendCompressedSourceInfoElement(b, "startBci", false);
+            b.declaration(type(int.class), "endBciDelta", "endBci - startBci");
+            emitAppendCompressedSourceInfoElement(b, "endBciDelta", false);
+            emitAppendCompressedSourceInfoElement(b, SourceInfoTable.loadElement("sourceInfo", "entryIndex", parent.sourceInfoTable.sourceOffset).toString(), false);
+            b.declaration(type(int.class), "attrStart", "compressedSourceInfoIndex");
+            for (int i = 0; i < SourceInfoTable.NUM_ATTRIBUTES; i++) {
+                emitAppendCompressedSourceInfoElement(b, SourceInfoTable.loadElement("sourceInfo", "entryIndex", parent.sourceInfoTable.attributeOffsets.get(i)).toString(), true);
+            }
 
-            b.startReturn().string("sourceInfo").end();
+            b.startIf().tree(SourceInfoTable.loadElement("sourceInfo", "entryIndex", tagOffset)).string(" == ").variable(sourceSectionSuffixTag).end().startBlock();
+            b.startAssert().string("entryIndex + ").variable(entryLengthVariable).string(" == builderTableLength").end();
+            b.lineComment("Reserve the maximum attribute encoding size for this suffix entry, which may be patched later.");
+            b.statement("compressedSourceInfoIndex = attrStart + " + SourceInfoTable.NUM_ATTRIBUTES * 5);
+            b.end();
+            b.declaration(type(int.class), "entryLength", "compressedSourceInfoIndex - entryStartIndex");
+            b.startAssert().string("entryLength <= 0xFF").end();
+            b.statement("compressedSourceInfo[entryLengthIndex] = (byte) entryLength");
+            b.end();
+            b.startReturn().startStaticCall(type(Arrays.class), "copyOf").string("compressedSourceInfo").string("compressedSourceInfoIndex").end().end();
 
             return ex;
+        }
+
+        private CodeExecutableElement createAppendVarint() {
+            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PRIVATE, STATIC), type(int.class), "appendVarint");
+            ex.addParameter(new CodeVariableElement(arrayOf(type(byte.class)), "info"));
+            ex.addParameter(new CodeVariableElement(type(int.class), "index"));
+            ex.addParameter(new CodeVariableElement(type(int.class), "encoded"));
+            CodeTreeBuilder b = ex.createBuilder();
+            b.declaration(type(int.class), "writeIndex", "index");
+            b.declaration(type(int.class), "encodedBytes", "1");
+            b.startFor().string("int remaining = encoded >>> 7; remaining != 0; remaining >>>= 7").end().startBlock();
+            b.statement("encodedBytes++");
+            b.end();
+            b.startFor().string("int shift = (encodedBytes - 1) * 7; shift > 0; shift -= 7").end().startBlock();
+            b.statement("info[writeIndex++] = (byte) (((encoded >>> shift) & 0x7F) | 0x80)");
+            b.end();
+            b.statement("info[writeIndex++] = (byte) (encoded & 0x7F)");
+            b.startReturn().string("writeIndex").end();
+            return ex;
+        }
+
+        private void emitAppendCompressedSourceInfoElement(CodeTreeBuilder b, String value, boolean needsAttributeOffset) {
+            String encoded = needsAttributeOffset ? "(" + value + " + 2)" : value;
+            b.statement("compressedSourceInfoIndex = appendVarint(compressedSourceInfo, compressedSourceInfoIndex, " + encoded + ")");
         }
 
         private CodeExecutableElement createDoEmitRootSourceInfo() {
@@ -7416,18 +7875,55 @@ final class BuilderElement extends AbstractElement {
             b.statement(writeElement("info", "patchIndex", tagOffset, "tag"));
 
             b.end().startElseBlock();
-            b.lineComment("Patch already-built root node's source info table.");
-            b.declaration(type(int[].class), "info", "nodes.get(nodeId).bytecode.sourceInfo");
+            if (!model.enableCompressedSources) {
+                b.lineComment("Patch already-built root node's source info table.");
+                b.declaration(type(int[].class), "info", "nodes.get(nodeId).bytecode.sourceInfo");
 
-            b.startAssert().string("patchIndex % ").variable(entryLengthVariable).string(" == 0").end();
-            b.startDeclaration(type(int.class), "finalizedPatchIndex");
-            b.string("(patchIndex / ").variable(entryLengthVariable).string(") * ").variable(parent.sourceInfoTable.entryLengthVariable);
-            b.end();
+                b.startAssert().string("patchIndex % ").variable(entryLengthVariable).string(" == 0").end();
+                b.startDeclaration(type(int.class), "finalizedPatchIndex");
+                b.string("(patchIndex / ").variable(entryLengthVariable).string(") * ").variable(parent.sourceInfoTable.entryLengthVariable);
+                b.end();
 
-            b.startAssign("nextNodeId").tree(SourceInfoTable.loadElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(SUFFIX_NEXT_NODE_ID_ATTRIBUTE))).end();
-            b.startAssign("nextPatchIndex").tree(SourceInfoTable.loadElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(SUFFIX_NEXT_PATCH_INDEX_ATTRIBUTE))).end();
-            for (int i = 0; i < SourceInfoTable.NUM_ATTRIBUTES; i++) {
-                b.statement(writeElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(i), dataParams.get(i)));
+                if (SourceInfoTable.NUM_ATTRIBUTES < 2) {
+                    throw new AssertionError("need at least 2 attributes in the source info table to patch suffix source sections.");
+                }
+                b.startAssign("nextNodeId").tree(SourceInfoTable.loadElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(0))).end();
+                b.startAssign("nextPatchIndex").tree(SourceInfoTable.loadElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(1))).end();
+                for (int i = 0; i < SourceInfoTable.NUM_ATTRIBUTES; i++) {
+                    b.statement(writeElement("info", "finalizedPatchIndex", parent.sourceInfoTable.attributeOffsets.get(i), dataParams.get(i)));
+                }
+            } else {
+                b.lineComment("Patch already-built root node's compressed source info table.");
+                b.declaration(parent.asType(), "patchedNode", "nodes.get(nodeId)");
+                b.declaration(type(byte[].class), "info", "patchedNode.bytecode.sourceInfo");
+
+                b.declaration(type(int.class), "finalizedPatchIndex", "0");
+                b.declaration(type(int.class), "entryEnd", "0");
+                b.startFor().string("int scanIndex = 0; scanIndex < info.length;").end().startBlock();
+                b.statement("finalizedPatchIndex = scanIndex");
+                b.statement("entryEnd = scanIndex + (info[scanIndex] & 0xFF)");
+                b.statement("scanIndex = entryEnd");
+                b.end();
+                b.startAssert().string("entryEnd == info.length").end();
+
+                emitInitCompressedSourceIterationVariables(b, type(int.class), "index", "finalizedPatchIndex + 1");
+                emitDecodeVarintEntry(b, "info", "index");
+                emitDecodeVarintEntry(b, "info", "index");
+                emitDecodeVarintEntry(b, "info", "index");
+                b.declaration(type(int.class), "payloadStart", "index");
+
+                if (SourceInfoTable.NUM_ATTRIBUTES < 2) {
+                    throw new AssertionError("need at least 2 attributes in the source info table to patch suffix source sections.");
+                }
+                emitDecodeVarintEntry(b, "info", "index");
+                b.statement("nextNodeId = (int) decoded - 2");
+                CodeTree decodedPatchIndex = emitDecodeVarintEntry(b, "info", "index", null);
+                b.startAssign("nextPatchIndex").tree(decodedPatchIndex).string(" - 2").end();
+                b.declaration(type(int.class), "writeIndex", "payloadStart");
+                for (int i = 0; i < SourceInfoTable.NUM_ATTRIBUTES; i++) {
+                    emitWriteCompressedPatchAttribute(b, "info", "writeIndex", dataParams.get(i).getSimpleName().toString());
+                }
+                b.startAssert().string("writeIndex <= entryEnd").end();
             }
 
             b.end();
@@ -7437,6 +7933,25 @@ final class BuilderElement extends AbstractElement {
             b.end();
 
             return ex;
+        }
+
+        private void emitWriteCompressedPatchAttribute(CodeTreeBuilder b, String array, String indexVar, String value) {
+            emitWriteCompressedPatchValue(b, array, indexVar, value, true);
+        }
+
+        private void emitWriteCompressedPatchValue(CodeTreeBuilder b, String array, String indexVar, String value, boolean offsetAttribute) {
+            b.startBlock();
+            b.declaration(type(int.class), "encodedValue", offsetAttribute ? "(" + value + " + 2)" : value);
+            b.declaration(type(int.class), "encodedBytes", "1");
+            b.startFor().string("int remaining = encodedValue >>> 7; remaining != 0; remaining >>>= 7").end().startBlock();
+            b.statement("encodedBytes++");
+            b.end();
+            b.startAssert().string(indexVar + " + encodedBytes <= " + array + ".length").end();
+            b.startFor().string("int shift = (encodedBytes - 1) * 7; shift > 0; shift -= 7").end().startBlock();
+            b.statement(array + "[" + indexVar + "++] = (byte) (((encodedValue >>> shift) & 0x7F) | 0x80)");
+            b.end();
+            b.statement(array + "[" + indexVar + "++] = (byte) (encodedValue & 0x7F)");
+            b.end();
         }
 
         private CodeExecutableElement createSourceInfoMatches() {
@@ -7531,7 +8046,7 @@ final class BuilderElement extends AbstractElement {
 
         private final OperationField index = field(type(int.class), "index").asFinal();
         private final OperationField producedValue = field(type(boolean.class), "producedValue").withInitializer("false");
-        private final OperationField childBci = field(type(int.class), "childBci").withInitializer(UNINIT);
+        private final OperationField childBci = field(type(int.class), "childBci").withInitializer(UNINIT).asChildBci();
         private final OperationField shortCircuitBci = field(type(int.class), "shortCircuitBci").withInitializer(UNINIT);
         private final OperationField reachable = field(type(boolean.class), "reachable").withInitializer("true");
         private final OperationField prologBci = field(type(int.class), "prologBci").withInitializer(UNINIT);
@@ -7554,6 +8069,9 @@ final class BuilderElement extends AbstractElement {
                         .withDoc("Encodes the index of the root enclosing this source section (or -1 if there is no enclosing root).");
 
         private final OperationField local = field(bytecodeLocalImpl.asType(), "local");
+        private final OperationField stackValue = field(stackValueImpl.asType(), "stackValue");
+        private final OperationField declaringOp = field(type(int.class), "declaringOp").asFinal();
+        private final OperationField declaringOperationSp = field(type(int.class), "declaringOperationSp").asFinal();
 
         private final OperationField thenReachable = field(type(boolean.class), "thenReachable");
         private final OperationField elseReachable = field(type(boolean.class), "elseReachable");
@@ -7599,6 +8117,7 @@ final class BuilderElement extends AbstractElement {
 
         private final OperationField frameOffset = field(type(int.class), "frameOffset").withInitializer("0");
         private final OperationField numLocals = field(type(int.class), "numLocals").withInitializer("0");
+        private final OperationField numStackValues = field(type(int.class), "numStackValues");
         private final OperationField locals = field(type(int[].class), "locals").//
                         skipInitialization(true).//
                         dynamicType(false).//
@@ -7648,6 +8167,7 @@ final class BuilderElement extends AbstractElement {
                     break;
                 case BLOCK:
                     fields.add(startStackHeight); // init
+                    fields.add(numStackValues); // init
                     fields.add(producedValue);
                     if (model.usesBoxingElimination()) {
                         fields.add(childBci);
@@ -7703,6 +8223,13 @@ final class BuilderElement extends AbstractElement {
                     if (model.usesBoxingElimination()) {
                         fields.add(childBci);
                     }
+                    break;
+                case STORE_STACKVALUE:
+                    fields.add(stackValue); // init
+                    break;
+                case BIND_STACKVALUE:
+                    fields.add(declaringOp); // init
+                    fields.add(declaringOperationSp); // init
                     break;
                 case CLEAR_LOCAL:
                     fields.add(local); // init
@@ -7793,7 +8320,7 @@ final class BuilderElement extends AbstractElement {
             // ensure child bcis created
             if (create) {
                 for (int i = childBcis.size(); i < childIndex + 1; i++) {
-                    childBcis.add(field(type(int.class), getChildBciName(i)).withInitializer(UNINIT));
+                    childBcis.add(field(type(int.class), getChildBciName(i)).withInitializer(UNINIT).asChildBci());
                 }
             }
             return childBcis.get(childIndex);
@@ -8391,6 +8918,7 @@ final class BuilderElement extends AbstractElement {
 
         boolean skipInitialization;
         boolean dynamicType;
+        boolean childBci;
 
         OperationField lengthField;
         boolean isLengthField;
@@ -8412,6 +8940,11 @@ final class BuilderElement extends AbstractElement {
          */
         OperationField asFinal() {
             this.isFinal = true;
+            return this;
+        }
+
+        OperationField asChildBci() {
+            this.childBci = true;
             return this;
         }
 
@@ -8521,6 +9054,45 @@ final class BuilderElement extends AbstractElement {
         }
     }
 
+    final class StackValueImplElement extends CodeTypeElement {
+
+        StackValueImplElement() {
+            super(Set.of(PRIVATE, STATIC, FINAL), ElementKind.CLASS, null, "StackValueImpl");
+        }
+
+        void lazyInit() {
+            this.setSuperClass(types.StackValue);
+
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "rootIndex"));
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "declaringOp"));
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "declaringOperationSp"));
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "stackHeight"));
+
+            CodeExecutableElement constructor = this.add(createConstructorUsingFields(Set.of(), this, null));
+            CodeTree tree = constructor.getBodyTree();
+            CodeTreeBuilder b = constructor.createBuilder();
+            b.startStatement().startSuperCall().staticReference(parent.bytecodeRootNodesImpl.asType(), "VISIBLE_TOKEN").end().end();
+            b.tree(tree);
+
+            this.add(createToString());
+        }
+
+        private CodeExecutableElement createToString() {
+            CodeExecutableElement ex = new CodeExecutableElement(Set.of(PUBLIC), type(String.class), "toString");
+            CodeTreeBuilder b = ex.createBuilder();
+
+            b.startReturn().doubleQuote("StackValue[stackHeight=");
+            b.string(" + stackHeight + ");
+            b.doubleQuote(", declaringOp=");
+            b.string(" + declaringOp + ");
+            b.doubleQuote(", rootIndex=");
+            b.string(" + rootIndex + ");
+            b.doubleQuote("]");
+            b.end();
+            return ex;
+        }
+    }
+
     final class BytecodeLabelImplElement extends CodeTypeElement {
 
         BytecodeLabelImplElement() {
@@ -8537,6 +9109,11 @@ final class BuilderElement extends AbstractElement {
             CodeExecutableElement constructor = createConstructorUsingFields(Set.of(), this, null);
             this.add(new CodeVariableElement(type(int.class), "unresolved0")).createInitBuilder().string("-1");
             this.add(new CodeVariableElement(type(int.class), "unresolved1")).createInitBuilder().string("-1");
+            CodeVariableElement numStackValuesAtFirstBranch = this.add(new CodeVariableElement(type(int.class), "numStackValuesAtFirstBranch"));
+            BytecodeRootNodeElement.addJavadoc(numStackValuesAtFirstBranch, List.of(
+                            "The declaring operation cannot bind stack values between branch and label emission (if the branch is taken, the stack values would be uninitialized).",
+                            "We record the number of stack values at the first branch and report an error if the number of stack values at label emission exceeds it.",
+                            "We only need to track the count of the first branch since stack value counts grow monotonically."));
             this.add(new CodeVariableElement(type(int.class), "unresolvedCount"));
             this.add(new CodeVariableElement(type(int[].class), "unresolvedArray"));
 
@@ -8670,6 +9247,21 @@ final class BuilderElement extends AbstractElement {
         }
     }
 
+    final class SerializationStackValueElement extends CodeTypeElement {
+        SerializationStackValueElement() {
+            super(Set.of(PRIVATE, STATIC, FINAL), ElementKind.CLASS, null, "SerializationStackValue");
+            this.setSuperClass(types.StackValue);
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "contextDepth"));
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), type(int.class), "stackValueIndex"));
+
+            CodeExecutableElement constructor = this.add(createConstructorUsingFields(Set.of(), this, null));
+            CodeTree tree = constructor.getBodyTree();
+            CodeTreeBuilder b = constructor.createBuilder();
+            b.startStatement().startSuperCall().staticReference(parent.bytecodeRootNodesImpl.asType(), "VISIBLE_TOKEN").end().end();
+            b.tree(tree);
+        }
+    }
+
     final class SerializationLabelElement extends CodeTypeElement {
         SerializationLabelElement() {
             super(Set.of(PRIVATE, STATIC, FINAL), ElementKind.CLASS, null, "SerializationLabel");
@@ -8717,6 +9309,7 @@ final class BuilderElement extends AbstractElement {
             rootStack.createInitBuilder().startNew("ArrayDeque<>").end();
 
             addField(this, Set.of(PRIVATE), int.class, "localCount");
+            addField(this, Set.of(PRIVATE), int.class, "stackValueCount");
             addField(this, Set.of(PRIVATE), int.class, "rootCount");
             addField(this, Set.of(PRIVATE), int.class, "finallyGeneratorCount");
 
@@ -8897,6 +9490,8 @@ final class BuilderElement extends AbstractElement {
             this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), generic(context.getDeclaredType(ArrayList.class), types.BytecodeLabel), "labels")).//
                             createInitBuilder().startNew("ArrayList<>").end();
             this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), generic(context.getDeclaredType(ArrayList.class), types.BytecodeLocal), "locals")).//
+                            createInitBuilder().startNew("ArrayList<>").end();
+            this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), generic(context.getDeclaredType(ArrayList.class), types.StackValue), "stackValues")).//
                             createInitBuilder().startNew("ArrayList<>").end();
             this.add(new CodeVariableElement(Set.of(PRIVATE, FINAL), generic(ArrayList.class, Runnable.class), "finallyGenerators")).//
                             createInitBuilder().startNew("ArrayList<>").end();

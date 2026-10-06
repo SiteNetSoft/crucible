@@ -227,6 +227,7 @@ import com.oracle.svm.hosted.code.HostedRuntimeConfigurationBuilder;
 import com.oracle.svm.hosted.code.NativeMethodSubstitutionProcessor;
 import com.oracle.svm.hosted.code.RestrictHeapAccessCalleesImpl;
 import com.oracle.svm.hosted.code.SubstrateGraphMakerFactory;
+import com.oracle.svm.hosted.diagnostic.HostedHeapDumpHandler;
 import com.oracle.svm.hosted.heap.ObservableImageHeapMapProviderImpl;
 import com.oracle.svm.hosted.heap.SVMImageHeapScanner;
 import com.oracle.svm.hosted.heap.SVMImageHeapVerifier;
@@ -284,7 +285,6 @@ import com.oracle.svm.shared.util.ReflectionUtil.ReflectionUtilError;
 import com.oracle.svm.shared.util.StringUtil;
 import com.oracle.svm.shared.util.SubstrateUtil;
 import com.oracle.svm.shared.util.VMError;
-import com.oracle.svm.util.GuestAnnotationAccess;
 import com.oracle.svm.util.GuestAccess;
 import com.oracle.svm.util.ImageBuildStatistics;
 import com.oracle.svm.util.JVMCIReflectionUtil;
@@ -550,7 +550,7 @@ public class NativeImageGenerator {
      * Executes the image build. Only one image can be built with this generator.
      */
     public void run(Map<ResolvedJavaMethod, CEntryPointData> entryPoints,
-                    ResolvedJavaMethod javaMainMethod, String imageName,
+                    ResolvedJavaType javaMainClass, ResolvedJavaMethod javaMainMethod, String imageName,
                     NativeImageKind k,
                     SubstitutionProcessor harnessSubstitutions,
                     EconomicSet<String> allOptionNames, TimerCollection timerCollection) {
@@ -608,7 +608,7 @@ public class NativeImageGenerator {
             }
             ImageSingletons.add(TemporaryBuildDirectoryProvider.class, tempDirectoryProvider);
 
-            doRun(entryPoints, javaMainMethod, imageName, k, harnessSubstitutions);
+            doRun(entryPoints, javaMainClass, javaMainMethod, imageName, k, harnessSubstitutions);
         } finally {
             reporter.ensureCreationStageEndCompleted();
         }
@@ -647,7 +647,7 @@ public class NativeImageGenerator {
      * @param javaMainMethod application Java main method to install before analysis, or {@code null}
      *            when the selected entry point already is a C entry point
      */
-    protected void doRun(Map<ResolvedJavaMethod, CEntryPointData> entryPoints, ResolvedJavaMethod javaMainMethod, String imageName, NativeImageKind k,
+    protected void doRun(Map<ResolvedJavaMethod, CEntryPointData> entryPoints, ResolvedJavaType javaMainClass, ResolvedJavaMethod javaMainMethod, String imageName, NativeImageKind k,
                     SubstitutionProcessor harnessSubstitutions) {
         List<HostedMethod> hostedEntryPoints = new ArrayList<>();
 
@@ -655,7 +655,7 @@ public class NativeImageGenerator {
 
         try (DebugContext debug = new Builder(options, new GraalDebugHandlersFactory(GuestAccess.get().getSnippetReflection())).build();
                         DebugCloseable _ = () -> featureHandler.forEachFeature(Feature::cleanup)) {
-            setupNativeImage(options, entryPoints, javaMainMethod, imageName, harnessSubstitutions, debug);
+            setupNativeImage(options, entryPoints, javaMainClass, javaMainMethod, imageName, harnessSubstitutions, debug);
 
             boolean returnAfterAnalysis = runPointsToAnalysis(imageName, options, debug);
             if (returnAfterAnalysis) {
@@ -846,6 +846,9 @@ public class NativeImageGenerator {
                 Path tmpDir = ImageSingletons.lookup(TemporaryBuildDirectoryProvider.class).getTemporaryBuildDirectory();
                 LinkerInvocation inv = image.write(debug, generatedFiles(HostedOptionValues.singleton().get()), tmpDir, imageName, beforeConfig);
                 if (NativeImageOptions.ExitAfterRelocatableImageWrite.getValue()) {
+                    if (ImageSingletons.contains(HostedHeapDumpHandler.class)) {
+                        HostedHeapDumpHandler.singleton().dumpAfterImageWrite();
+                    }
                     return;
                 }
 
@@ -857,6 +860,9 @@ public class NativeImageGenerator {
                 } catch (Exception e) {
                     imageDiskFileSize = -1; // we can't read a disk file size
                 }
+                if (ImageSingletons.contains(HostedHeapDumpHandler.class)) {
+                    HostedHeapDumpHandler.singleton().dumpAfterImageWrite();
+                }
             }
             try (StopTimer _ = TimerCollection.createTimerAndStart(TimerCollection.Registry.ARCHIVE_LAYER)) {
                 if (ImageLayerBuildingSupport.buildingSharedLayer()) {
@@ -866,6 +872,9 @@ public class NativeImageGenerator {
             }
             reporter.printCreationEnd(image.getImageFileSize(), heap.getCurrentLayerObjectCount(), image.getImageHeapSize(), image.getCodeSize(), numCompilations, image.getDebugInfoSize(),
                             imageDiskFileSize);
+            if (ImageSingletons.contains(HostedHeapDumpHandler.class)) {
+                HostedHeapDumpHandler.singleton().dumpBuildEnd();
+            }
         }
     }
 
@@ -1038,7 +1047,7 @@ public class NativeImageGenerator {
      * Installs image-builder state, including Java-main support when {@code javaMainMethod} is not
      * {@code null}, before analysis starts.
      */
-    protected void setupNativeImage(OptionValues options, Map<ResolvedJavaMethod, CEntryPointData> entryPoints, ResolvedJavaMethod javaMainMethod,
+    protected void setupNativeImage(OptionValues options, Map<ResolvedJavaMethod, CEntryPointData> entryPoints, ResolvedJavaType javaMainClass, ResolvedJavaMethod javaMainMethod,
                     String imageName, SubstitutionProcessor harnessSubstitutions, DebugContext debug) {
         try (Indent _ = debug.logAndIndent("setup native-image builder")) {
             try (StopTimer _ = TimerCollection.createTimerAndStart(TimerCollection.Registry.SETUP)) {
@@ -1053,7 +1062,7 @@ public class NativeImageGenerator {
                 FutureDefaultsOptions.parseAndVerifyOptions();
                 GuestImageGeneratorSupport.installArgsSupport();
                 if (javaMainMethod != null) {
-                    installJavaMainSupport(javaMainMethod);
+                    installJavaMainSupport(javaMainClass, javaMainMethod);
                 }
 
                 Providers originalProviders = GuestAccess.get().getProviders();
@@ -1129,14 +1138,14 @@ public class NativeImageGenerator {
                 Boolean useSharedLayerGraphs = LayeredImageOptions.UseSharedLayerGraphs.getValue();
                 Boolean useSharedLayerStrengthenedGraphs = LayeredImageOptions.UseSharedLayerStrengthenedGraphs.getValue();
                 if (ImageLayerBuildingSupport.buildingSharedLayer()) {
-                    SVMImageLayerWriter imageLayerWriter = HostedConfiguration.instance().createSVMImageLayerWriter(imageLayerSnapshotUtil, useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
+                    SVMImageLayerWriter imageLayerWriter = new SVMImageLayerWriter(imageLayerSnapshotUtil, useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
                     HostedImageLayerBuildingSupport.singleton().setWriter(imageLayerWriter);
                 }
 
                 if (ImageLayerBuildingSupport.buildingExtensionLayer()) {
                     HostedImageLayerBuildingSupport imageLayerBuildingSupport = HostedImageLayerBuildingSupport.singleton();
-                    SVMImageLayerLoader imageLayerLoader = HostedConfiguration.instance().createSVMImageLayerLoader(imageLayerSnapshotUtil, imageLayerBuildingSupport,
-                                    useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
+                    SVMImageLayerLoader imageLayerLoader = new SVMImageLayerLoader(imageLayerSnapshotUtil, imageLayerBuildingSupport, imageLayerBuildingSupport.getSnapshot(),
+                                    imageLayerBuildingSupport.getLoadLayerArchiveSupport().getSnapshotGraphsPath(), useSharedLayerGraphs, useSharedLayerStrengthenedGraphs);
                     imageLayerBuildingSupport.setLoader(imageLayerLoader);
                     CGlobalDataFeature.singleton().getAppLayerCGlobalTracking().initializePriorLayerCGlobals();
                 }
@@ -1261,8 +1270,8 @@ public class NativeImageGenerator {
     /**
      * Installs the Java-main support selected by this image generator.
      */
-    protected void installJavaMainSupport(ResolvedJavaMethod javaMainMethod) {
-        GuestImageGeneratorSupport.installJavaMainSupport(javaMainMethod);
+    protected void installJavaMainSupport(ResolvedJavaType javaMainClass, ResolvedJavaMethod javaMainMethod) {
+        GuestImageGeneratorSupport.installJavaMainSupport(javaMainClass, javaMainMethod);
     }
 
     /**
@@ -1488,6 +1497,13 @@ public class NativeImageGenerator {
 
         bb.addRootMethod(ReflectionUtil.lookupMethod(SubstrateArraycopySnippets.class, "doArraycopy",
                         Object.class, int.class, Object.class, int.class, int.class), true, rootMethodReason);
+        if (SubstrateOptions.InlineExactArraycopy.getValue()) {
+            /* The exact copy stubs are called from nodes that are only lowered after analysis. */
+            for (String stub : new String[]{"arraycopyBoolean", "arraycopyByte", "arraycopyShort", "arraycopyChar", "arraycopyInt", "arraycopyFloat", "arraycopyLong", "arraycopyDouble",
+                            "arraycopyObject"}) {
+                bb.addRootMethod(ReflectionUtil.lookupMethod(SubstrateArraycopySnippets.class, stub, Object.class, int.class, Object.class, int.class, int.class), true, rootMethodReason);
+            }
+        }
         bb.addRootMethod(ReflectionUtil.lookupMethod(Object.class, "getClass"), true, rootMethodReason);
         for (JavaKind kind : JavaKind.values()) {
             if (kind.isPrimitive() && kind != JavaKind.Void) {
@@ -1629,7 +1645,7 @@ public class NativeImageGenerator {
             if (!m.isStatic()) {
                 throw UserError.abort("Entry point method %s is not static. Add a static modifier to the method.", m.format("%H.%n"));
             }
-            CEntryPointGuestValue cEntryPoint = CEntryPointGuestValue.from(GuestAnnotationAccess.getAnnotationValue(m, CEntryPoint.class));
+            CEntryPointGuestValue cEntryPoint = CEntryPointGuestValue.get(m);
             if (GuestAccess.get().callBooleanSupplier(cEntryPoint.include())) {
                 entryPoints.put(m, CEntryPointData.create(m));
             }

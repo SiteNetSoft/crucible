@@ -60,7 +60,7 @@ public final class HeapParameters {
         if (!SubstrateUtil.isPowerOf2(alignedChunkSize)) {
             throw UserError.abort("AlignedHeapChunkSize (%d) should be a power of 2.", alignedChunkSize);
         }
-        long maxLargeArrayThreshold = alignedChunkSize - RememberedSet.get().getHeaderSizeOfAlignedChunk().rawValue() + 1;
+        long maxLargeArrayThreshold = getMaxLargeArrayThreshold();
         if (SerialAndEpsilonGCOptions.AlignedHeapChunkSize.hasBeenSet() && !SerialAndEpsilonGCOptions.LargeArrayThreshold.hasBeenSet()) {
             throw UserError.abort("When setting AlignedHeapChunkSize, LargeArrayThreshold should be explicitly set to a value between 1 " +
                             "and the usable size of an aligned chunk + 1 (currently %d).", maxLargeArrayThreshold);
@@ -144,9 +144,22 @@ public final class HeapParameters {
         return UnalignedHeapChunk.getChunkSizeForObject(HeapParameters.getLargeArrayThreshold());
     }
 
+    /**
+     * Unless it is set, the threshold is the most an aligned chunk can take: arrays below it share
+     * chunks that the collector keeps for reuse, where one of their own is committed when the array
+     * is allocated and uncommitted when it dies.
+     */
     @Fold
     public static UnsignedWord getLargeArrayThreshold() {
+        if (!SerialAndEpsilonGCOptions.LargeArrayThreshold.hasBeenSet()) {
+            return Word.unsigned(getMaxLargeArrayThreshold());
+        }
         return Word.unsigned(SerialAndEpsilonGCOptions.LargeArrayThreshold.getValue());
+    }
+
+    @Fold
+    static long getMaxLargeArrayThreshold() {
+        return getAlignedHeapChunkSize().rawValue() - RememberedSet.get().getHeaderSizeOfAlignedChunk().rawValue() + 1;
     }
 
     private static void validateMaxMetaSpaceSize(long alignedChunkSize) {

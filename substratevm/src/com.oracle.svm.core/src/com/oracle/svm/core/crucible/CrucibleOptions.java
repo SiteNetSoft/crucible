@@ -65,6 +65,14 @@ public final class CrucibleOptions {
             if (newValue != null && !newValue.isEmpty()) {
                 /* Profiles are keyed by node source position, so they must be tracked to apply. */
                 GraalOptions.TrackNodeSourcePosition.update(values, true);
+                /*
+                 * Control flow duplication gives a value computed on a rarely taken path more than
+                 * one use, and the schedule then computes it above the branch. With a profile, such
+                 * a path can be inlined and fully unrolled first: BranchBench runs 21 times slower.
+                 */
+                if (!values.containsKey(GraalOptions.OptDuplication)) {
+                    GraalOptions.OptDuplication.update(values, false);
+                }
             }
         }
     };
@@ -168,9 +176,13 @@ public final class CrucibleOptions {
     @Option(help = "Fewest samples under a call for the sampled stacks to be believed about where it goes, in place of the counted receivers.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleMinimumSamplesAtCall = new HostedOptionKey<>(32);
 
+    @Option(help = "In a copy made for one caller, answer a call the sampled stacks say too little about from the counted receivers along the same path, " +
+                    "in place of the receivers counted over every path.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleSampledCountedFallback = new HostedOptionKey<>(true);
+
     @Option(help = "Tell the inliner where a call goes from the sampled stacks in methods compiled for everyone, and not only in copies made for one caller. " +
                     "Samples count time, so a receiver that is called often and returns quickly can be missing from them; outside a copy the counted receivers are complete.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> CrucibleSampledTargetsOutsideCopies = new HostedOptionKey<>(true);
+    public static final HostedOptionKey<Boolean> CrucibleSampledTargetsOutsideCopies = new HostedOptionKey<>(false);
     @Option(help = "In a recording image, count a receiver type inline when it is the one the site saw last, and call the runtime only for a new one.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleInlineReceiverCounts = new HostedOptionKey<>(true);
 
@@ -200,7 +212,8 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Double> CrucibleContextMinimumShare = new HostedOptionKey<>(0.001);
 
     @Option(help = "Give the methods the run spent its time in, and the copies made of methods for one caller, the priority inliner's larger budget " +
-                    "that Oracle GraalVM's builder gives a hot compilation unit. Pays with sampled stacks and copies; without copies it can cost.", type = OptionType.User)//
+                    "that Oracle GraalVM's builder gives a hot compilation unit. Pays with sampled stacks and copies; without copies it can cost. " +
+                    "On by default when the profile has sampled stacks.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleHotInliningBudget = new HostedOptionKey<>(false);
 
     @Option(help = "How many times a call counts for more in the inliner's eyes when one of its arguments is an object allocated for it, " +

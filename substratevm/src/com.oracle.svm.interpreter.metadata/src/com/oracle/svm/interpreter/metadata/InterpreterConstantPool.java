@@ -37,7 +37,6 @@ import java.util.function.Function;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 
-import com.oracle.svm.guest.staging.core.heap.UnknownObjectField;
 import com.oracle.svm.core.hub.DynamicHub;
 import com.oracle.svm.core.hub.crema.CremaSupport;
 import com.oracle.svm.core.hub.registry.SymbolsSupport;
@@ -51,6 +50,7 @@ import com.oracle.svm.espresso.classfile.descriptors.Symbol;
 import com.oracle.svm.espresso.classfile.descriptors.Type;
 import com.oracle.svm.espresso.classfile.descriptors.TypeSymbols;
 import com.oracle.svm.espresso.shared.resolver.CallKind;
+import com.oracle.svm.guest.staging.core.heap.UnknownObjectField;
 import com.oracle.svm.interpreter.metadata.serialization.VisibleForSerialization;
 import com.oracle.svm.shared.BuildPhaseProvider.AfterAnalysis;
 import com.oracle.svm.shared.NeverInline;
@@ -365,7 +365,6 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
     }
 
     protected Object resolve(int cpi, @SuppressWarnings("unused") InterpreterResolvedObjectType accessingClass) {
-        assert Thread.holdsLock(this);
         assert cpi != 0; // guaranteed by the caller
 
         @SuppressWarnings("unused")
@@ -385,25 +384,34 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
     }
 
     public Object resolvedAt(int cpi, InterpreterResolvedObjectType accessingClass) {
+        return resolvedAt(cpi, accessingClass, true);
+    }
+
+    public Object resolvedAt(int cpi, InterpreterResolvedObjectType accessingClass, boolean allowStickyFailure) {
         Object entry = cachedEntries[cpi];
         if (isUnresolved(entry)) {
-            entry = forceResolveAt(cpi, accessingClass);
+            entry = forceResolveAt(cpi, accessingClass, allowStickyFailure);
         }
         return entry;
     }
 
     @NeverInline("Interpreter handler slow path")
-    private synchronized Object forceResolveAt(int cpi, InterpreterResolvedObjectType accessingClass) {
-        // TODO(peterssen): GR-68611 Avoid deadlocks when hitting breakpoints (JDWP debugger)
-        // during class resolution.
-        /*
-         * Class resolution can run arbitrary code (not in the to-be resolved class <clinit>
-         * but) in the user class loaders where it can hit a breakpoint (JDWP debugger), causing
-         * a deadlock.
-         */
+    private Object forceResolveAt(int cpi, InterpreterResolvedObjectType accessingClass) {
+        return forceResolveAt(cpi, accessingClass, true);
+    }
+
+    private Object forceResolveAt(int cpi, InterpreterResolvedObjectType accessingClass, boolean allowStickyFailure) {
         Object entry = cachedEntries[cpi];
         if (isUnresolved(entry)) {
-            cachedEntries[cpi] = entry = resolve(cpi, accessingClass);
+            Object resolved = resolve(cpi, accessingClass);
+            if (!allowStickyFailure && resolved instanceof StickyConstantError) {
+                return resolved;
+            }
+            Object witness = UNSAFE.compareAndExchangeReference(cachedEntries, objectArrayOffset(cpi), entry, resolved);
+            if (witness != entry) {
+                return witness;
+            }
+            return resolved;
         }
         return entry;
     }
@@ -495,19 +503,20 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
         };
     }
 
+    /**
+     * Cached invoke linkage together with the handler-ready call shape. {@link #argumentKinds}
+     * contains one {@link JavaKind#getBasicType() basic type} per Java argument, including the
+     * receiver at index zero when {@link #hasReceiver} is true, and {@link #returnKind} uses the
+     * same encoding.
+     */
     public static final class LinkedInvoke {
         public final InterpreterResolvedJavaType symbolicHolder;
         public final InterpreterResolvedJavaMethod seedMethod;
         public final CallKind callKind;
         public final Object appendix;
-        /*
-         * Call-shape data derived from the linked seed method and invoke opcode. Cached here so the
-         * cached invoke path can use the published LinkedInvoke without re-querying stable method
-         * and signature metadata on every execution.
-         */
-        public final InterpreterUnresolvedSignature signature;
-        public final JavaKind returnKind;
-        public final int parameterSlots;
+        public final byte[] argumentKinds;
+        public final byte returnKind;
+        public final short argumentCount;
         public final boolean hasReceiver;
         public final boolean requiresSymbolicTypeCheck;
 
@@ -516,15 +525,26 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
             this.seedMethod = seedMethod;
             this.callKind = callKind;
             this.appendix = appendix;
-            this.signature = seedMethod.getSignature();
-            this.returnKind = signature.getReturnKind();
+            InterpreterUnresolvedSignature signature = seedMethod.getSignature();
+            this.returnKind = (byte) signature.getReturnKind().getBasicType();
             this.hasReceiver = !seedMethod.isStatic();
-            this.parameterSlots = signature.slotsForParameters(hasReceiver);
             this.requiresSymbolicTypeCheck = requiresInterfaceReceiverCheck;
+
+            int count = signature.getParameterCount(hasReceiver);
+            assert count <= 256;
+            this.argumentCount = (short) count;
+            this.argumentKinds = new byte[count];
+            int argumentIndex = 0;
+            if (hasReceiver) {
+                argumentKinds[argumentIndex++] = (byte) JavaKind.Object.getBasicType();
+            }
+            for (int parameterIndex = 0; parameterIndex < signature.getParameterCount(false); parameterIndex++) {
+                argumentKinds[argumentIndex++] = (byte) signature.getParameterKind(parameterIndex).getBasicType();
+            }
         }
     }
 
-    private static final class LinkedInvokeCacheEntry {
+    protected static final class LinkedInvokeCacheEntry {
         final InterpreterResolvedJavaMethod resolvedMethod;
         /*
          * A classfile can reuse the same CONSTANT_Methodref for different invoke bytecodes. For
@@ -605,14 +625,24 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
     }
 
     public InterpreterResolvedObjectType resolvedTypeAt(InterpreterResolvedObjectType accessingKlass, int cpi) {
-        Object resolvedEntry = resolvedAt(cpi, accessingKlass);
+        return resolvedTypeAt(accessingKlass, cpi, true);
+    }
+
+    public InterpreterResolvedObjectType resolvedTypeAt(InterpreterResolvedObjectType accessingKlass, int cpi, boolean allowStickyFailures) {
+        Object resolvedEntry = resolvedAt(cpi, accessingKlass, allowStickyFailures);
         assert resolvedEntry != null;
+        if (resolvedEntry instanceof StickyConstantError savedError) {
+            throw savedError.throwOnAccess();
+        }
         return (InterpreterResolvedObjectType) resolvedEntry;
     }
 
     public InterpreterResolvedObjectType uncheckedResolvedTypeAt(InterpreterResolvedObjectType accessingKlass, int cpi) {
         Object resolvedEntry = uncheckedResolvedAt(cpi, accessingKlass);
         assert resolvedEntry != null;
+        if (resolvedEntry instanceof StickyConstantError savedError) {
+            throw savedError.throwOnAccess();
+        }
         return (InterpreterResolvedObjectType) resolvedEntry;
     }
 
@@ -639,18 +669,19 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
 
     /**
      * This is stored in the constant pool when a "sticky" failure happens while resolving a DYNAMIC
-     * entry. It is used to throw the correct exception on subsequent accesses to that entry.
+     * or CLASS entry. It is used to throw the correct exception on subsequent accesses to that
+     * entry.
      */
-    public static final class DynamicConstantError {
+    public static final class StickyConstantError {
         private final LinkageError originalException;
         private Constructor<? extends LinkageError> cachedConstructor;
 
-        public DynamicConstantError(LinkageError originalException) {
+        public StickyConstantError(LinkageError originalException) {
             this.originalException = originalException;
         }
 
         /**
-         * Throws an exception when a failed DYNAMIC entry is accessed again. It tries to create a
+         * Throws an exception when a failed DYNAMIC or CLASS entry is accessed again. It tries to create a
          * fresh exception to give an accurate stack trace.
          */
         LinkageError throwOnAccess() {
@@ -703,7 +734,7 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
 
     public Object resolvedDynamicConstantAt(int cpi, InterpreterResolvedObjectType accessingClass) {
         Object resolvedEntry = resolvedAt(cpi, accessingClass);
-        if (resolvedEntry instanceof DynamicConstantError savedError) {
+        if (resolvedEntry instanceof StickyConstantError savedError) {
             throw savedError.throwOnAccess();
         }
         if (resolvedEntry == NULL_DYNAMIC_CONSTANT_SENTINEL) {
@@ -714,7 +745,7 @@ public class InterpreterConstantPool extends ConstantPool implements jdk.vm.ci.m
 
     public Object uncheckedResolvedDynamicConstantAt(int cpi, InterpreterResolvedObjectType accessingClass) {
         Object resolvedEntry = uncheckedResolvedAt(cpi, accessingClass);
-        if (resolvedEntry instanceof DynamicConstantError savedError) {
+        if (resolvedEntry instanceof StickyConstantError savedError) {
             throw savedError.throwOnAccess();
         }
         if (resolvedEntry == NULL_DYNAMIC_CONSTANT_SENTINEL) {

@@ -55,10 +55,8 @@ import com.oracle.graal.pointsto.meta.AnalysisMethod;
 import com.oracle.graal.pointsto.meta.AnalysisUniverse;
 import com.oracle.svm.configure.ConfigurationFile;
 import com.oracle.svm.configure.ReflectionConfigurationParser;
-import com.oracle.svm.shared.BuildPhaseProvider;
 import com.oracle.svm.core.ParsingReason;
 import com.oracle.svm.core.SubstrateOptions;
-import com.oracle.svm.core.annotate.Delete;
 import com.oracle.svm.core.configure.ConfigurationFiles;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.fieldvaluetransformer.FieldValueTransformerWithAvailability;
@@ -73,6 +71,7 @@ import com.oracle.svm.core.reflect.SubstrateAccessor;
 import com.oracle.svm.core.reflect.SubstrateConstructorAccessor;
 import com.oracle.svm.core.reflect.SubstrateMethodAccessor;
 import com.oracle.svm.core.reflect.target.ReflectionSubstitutionSupport;
+import com.oracle.svm.hosted.DeleteGuestValue;
 import com.oracle.svm.hosted.FeatureImpl;
 import com.oracle.svm.hosted.FeatureImpl.BeforeCompilationAccessImpl;
 import com.oracle.svm.hosted.FeatureImpl.DuringAnalysisAccessImpl;
@@ -89,6 +88,7 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.reflect.proxy.DynamicProxyFeature;
 import com.oracle.svm.hosted.snippets.ReflectionPlugins;
 import com.oracle.svm.hosted.substitute.AnnotationSubstitutionProcessor;
+import com.oracle.svm.shared.BuildPhaseProvider;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
 import com.oracle.svm.shared.option.HostedOptionKey;
 import com.oracle.svm.shared.singletons.traits.BuiltinTraits.BuildtimeAccessOnly;
@@ -98,7 +98,6 @@ import com.oracle.svm.shared.singletons.traits.SingletonTraits;
 import com.oracle.svm.shared.util.ModuleSupport;
 import com.oracle.svm.shared.util.ReflectionUtil;
 import com.oracle.svm.shared.util.VMError;
-import com.oracle.svm.util.GuestAnnotationAccess;
 import com.oracle.svm.util.GuestAccess;
 import com.oracle.svm.util.JVMCIReflectionUtil;
 import com.oracle.svm.util.OriginalFieldProvider;
@@ -181,6 +180,14 @@ public class ReflectionFeature implements InternalFeature, ReflectionSubstitutio
         return accessors.computeIfAbsent(key, this::createAccessor);
     }
 
+    public static Method findCallerSensitiveAdapterMethod(Method method) {
+        try {
+            return (Method) findCallerSensitiveAdapterMethod.invoke(null, method);
+        } catch (ReflectiveOperationException ex) {
+            throw VMError.shouldNotReachHere(ex);
+        }
+    }
+
     /**
      * Creates the accessor instances for {@link SubstrateMethodAccessor invoking a method } or
      * {@link SubstrateConstructorAccessor allocating a new instance} using reflection. The accessor
@@ -214,14 +221,10 @@ public class ReflectionFeature implements InternalFeature, ReflectionSubstitutio
                 /* Method handles must not be invoked via reflection. */
                 expandSignature = asMethodRef(analysisAccess.getMetaAccess().lookupJavaMethod(methodHandleInvokeErrorMethod));
             } else {
-                try {
-                    Method adapter = (Method) findCallerSensitiveAdapterMethod.invoke(null, member);
-                    if (adapter != null) {
-                        target = adapter;
-                        callerSensitiveAdapter = true;
-                    }
-                } catch (ReflectiveOperationException ex) {
-                    throw VMError.shouldNotReachHere(ex);
+                Method adapter = findCallerSensitiveAdapterMethod(target);
+                if (adapter != null) {
+                    target = adapter;
+                    callerSensitiveAdapter = true;
                 }
                 expandSignature = createExpandSignatureMethod(target, callerSensitiveAdapter);
                 targetMethod = analysisAccess.getMetaAccess().lookupJavaMethod(target);
@@ -467,7 +470,7 @@ public class ReflectionFeature implements InternalFeature, ReflectionSubstitutio
     @Override
     public String getDeletionReason(Field reflectionField) {
         ResolvedJavaField field = metaAccess.lookupJavaField(reflectionField);
-        Delete annotation = GuestAnnotationAccess.getAnnotation(field, Delete.class);
+        DeleteGuestValue annotation = DeleteGuestValue.get(field);
         return annotation != null ? annotation.value() : null;
     }
 

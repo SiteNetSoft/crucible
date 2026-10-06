@@ -561,6 +561,16 @@ class BaristaNativeImageBenchmarkSuite(mx_sdk_benchmark.BaristaBenchmarkSuite, m
                     "working_dir": "/",
                     "fd_limit": 4096,
                 }
+                # Quarkus Tika loads JDK shared libraries at run time. They are
+                # emitted next to the application image and must be included in
+                # GraalHost's verified set. They are not needed by the other
+                # Barista benchmarks.
+                if suite.benchmarkName() == "quarkus-tika":
+                    graalhost_config["env"] = {"LD_LIBRARY_PATH": str(output_dir)}
+                    graalhost_config["fsmappings"].extend(
+                        {"concrete": str(library), "virt": str(library), "verif": True}
+                        for library in sorted(output_dir.glob("lib*.so"))
+                    )
                 json.dump(graalhost_config, graalhost_config_handle, indent=4)
 
             graalhost_cmd = ["graalhost", "--enable_resolving_env_refs", f"--run_config=@{graalhost_config_file}", "--log_to=syslog", "--run"]
@@ -1064,7 +1074,7 @@ class SpecJVM2008NativeImageBenchmarkSuite(mx_sdk_benchmark.SpecJvm2008Benchmark
 
     def extra_image_build_argument(self, benchmark, args):
         # The reason to add `-H:CompilationExpirationPeriod` is that we encounter non-deterministic compiler crash due to expiration (GR-50701).
-        return super().extra_image_build_argument(benchmark, args) + ['-H:CompilationExpirationPeriod=600', '-H:-LegacyJavaOptionMode']
+        return super().extra_image_build_argument(benchmark, args) + ['-H:CompilationExpirationPeriod=600', '-H:+StrictRuntimeJavaOptions']
 
     def extra_run_arg(self, benchmark, args, image_run_args):
         image_run_args = super().extra_run_arg(benchmark, args, image_run_args)

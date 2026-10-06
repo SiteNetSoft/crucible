@@ -403,6 +403,7 @@ public class TruffleTypes {
     public static final String BytecodeEncodingException_Name = "com.oracle.truffle.api.bytecode.BytecodeEncodingException";
     public static final String BytecodeLabel_Name = "com.oracle.truffle.api.bytecode.BytecodeLabel";
     public static final String BytecodeLocal_Name = "com.oracle.truffle.api.bytecode.BytecodeLocal";
+    public static final String StackValue_Name = "com.oracle.truffle.api.bytecode.StackValue";
     public static final String BytecodeParser_Name = "com.oracle.truffle.api.bytecode.BytecodeParser";
     public static final String BytecodeRootNode_Name = "com.oracle.truffle.api.bytecode.BytecodeRootNode";
     public static final String BytecodeRootNodes_Name = "com.oracle.truffle.api.bytecode.BytecodeRootNodes";
@@ -479,6 +480,7 @@ public class TruffleTypes {
     public final DeclaredType BytecodeConfig_Builder = c.getDeclaredTypeOptional(BytecodeConfig_Builder_Name);
     public final DeclaredType BytecodeLabel = c.getDeclaredTypeOptional(BytecodeLabel_Name);
     public final DeclaredType BytecodeLocal = c.getDeclaredTypeOptional(BytecodeLocal_Name);
+    public final DeclaredType StackValue = c.getDeclaredTypeOptional(StackValue_Name);
     public final DeclaredType BytecodeParser = c.getDeclaredTypeOptional(BytecodeParser_Name);
     public final DeclaredType BytecodeRootNode = c.getDeclaredTypeOptional(BytecodeRootNode_Name);
     public final DeclaredType BytecodeRootNodes = c.getDeclaredTypeOptional(BytecodeRootNodes_Name);
@@ -641,11 +643,9 @@ public class TruffleTypes {
     // OM API
     public static final String DynamicObjectFactory_Name = "com.oracle.truffle.api.object.DynamicObjectFactory";
     public static final String DynamicObject_Name = "com.oracle.truffle.api.object.DynamicObject";
-    public static final String ObjectType_Name = "com.oracle.truffle.api.object.ObjectType";
 
     public final DeclaredType DynamicObjectFactory = c.getDeclaredTypeOptional(DynamicObjectFactory_Name);
     public final DeclaredType DynamicObject = c.getDeclaredTypeOptional(DynamicObject_Name);
-    public final DeclaredType ObjectType = c.getDeclaredTypeOptional(ObjectType_Name);
 
     // Utilities API
     public static final String TruffleWeakReference_Name = "com.oracle.truffle.api.utilities.TruffleWeakReference";

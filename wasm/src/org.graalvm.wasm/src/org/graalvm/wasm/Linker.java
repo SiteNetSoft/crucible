@@ -56,6 +56,7 @@ import static org.graalvm.wasm.WasmType.F64_TYPE;
 import static org.graalvm.wasm.WasmType.I32_TYPE;
 import static org.graalvm.wasm.WasmType.I64_TYPE;
 import static org.graalvm.wasm.WasmType.V128_TYPE;
+import static org.graalvm.wasm.constants.Sizes.NO_MEMORY_MAXIMUM;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -85,8 +86,6 @@ import org.graalvm.wasm.Linker.ResolutionDag.InitializeTableSym;
 import org.graalvm.wasm.Linker.ResolutionDag.Resolver;
 import org.graalvm.wasm.Linker.ResolutionDag.Sym;
 import org.graalvm.wasm.api.ExecuteHostFunctionNode;
-import org.graalvm.wasm.types.ReferenceType;
-import org.graalvm.wasm.vector.Vector128;
 import org.graalvm.wasm.array.WasmArray;
 import org.graalvm.wasm.array.WasmFloat32Array;
 import org.graalvm.wasm.array.WasmFloat64Array;
@@ -104,10 +103,13 @@ import org.graalvm.wasm.exception.WasmException;
 import org.graalvm.wasm.globals.WasmGlobal;
 import org.graalvm.wasm.memory.WasmMemory;
 import org.graalvm.wasm.memory.WasmMemoryLibrary;
+import org.graalvm.wasm.nodes.WasmReturnCallNode;
 import org.graalvm.wasm.struct.WasmStruct;
 import org.graalvm.wasm.struct.WasmStructAccess;
 import org.graalvm.wasm.types.DefinedType;
+import org.graalvm.wasm.types.ReferenceType;
 import org.graalvm.wasm.types.ValueType;
+import org.graalvm.wasm.vector.Vector128;
 
 import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.CompilerDirectives;
@@ -274,19 +276,22 @@ public class Linker {
                 final WasmContext currentContext = WasmContext.get(null);
                 final WasmContext functionInstanceContext = functionInstance.context();
                 if (functionInstanceContext == currentContext) {
-                    instance.target(start.index()).call(WasmArguments.create(functionInstance.moduleInstance()));
+                    final Object result = instance.target(start.index()).call(WasmArguments.create(functionInstance.moduleInstance()));
+                    WasmReturnCallNode.maybeCallStatic(result);
                 } else {
                     // Enter function's context when it is not from the current one
                     TruffleContext truffleContext = functionInstance.getTruffleContext();
                     Object prev = truffleContext.enter(null);
                     try {
-                        instance.target(start.index()).call(WasmArguments.create(functionInstance.moduleInstance()));
+                        final Object result = instance.target(start.index()).call(WasmArguments.create(functionInstance.moduleInstance()));
+                        WasmReturnCallNode.maybeCallStatic(result);
                     } finally {
                         truffleContext.leave(null, prev);
                     }
                 }
             } else {
-                instance.target(start.index()).call(WasmArguments.create(instance));
+                final Object result = instance.target(start.index()).call(WasmArguments.create(instance));
+                WasmReturnCallNode.maybeCallStatic(result);
             }
         }
     }
@@ -485,11 +490,12 @@ public class Linker {
                 importedMemory = importedInstance.memory(exportedMemoryIndex);
             }
             // Rules for limits matching:
-            // https://webassembly.github.io/spec/core/exec/modules.html#limits
-            // If no max size is declared, then declaredMaxSize value will be
-            // MAX_TABLE_DECLARATION_SIZE, so this condition will pass.
+            // https://webassembly.github.io/spec/core/valid/matching.html#limits
             assertUnsignedLongLessOrEqual(declaredMinSize, importedMemory.minSize(), Failure.INCOMPATIBLE_IMPORT_TYPE);
-            assertUnsignedLongGreaterOrEqual(declaredMaxSize, importedMemory.declaredMaxSize(), Failure.INCOMPATIBLE_IMPORT_TYPE);
+            if (declaredMaxSize != NO_MEMORY_MAXIMUM) {
+                Assert.assertTrue(importedMemory.hasDeclaredMaxSize(), Failure.INCOMPATIBLE_IMPORT_TYPE);
+                assertUnsignedLongGreaterOrEqual(declaredMaxSize, importedMemory.declaredMaxSize(), Failure.INCOMPATIBLE_IMPORT_TYPE);
+            }
             if (typeIndex64 != importedMemory.hasIndexType64()) {
                 Assert.fail(Failure.INCOMPATIBLE_IMPORT_TYPE, "index types of memory import do not match");
             }

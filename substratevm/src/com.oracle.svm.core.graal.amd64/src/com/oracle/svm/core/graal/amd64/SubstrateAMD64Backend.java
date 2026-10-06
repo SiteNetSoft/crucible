@@ -37,6 +37,7 @@ import static jdk.vm.ci.amd64.AMD64.rsp;
 import static jdk.vm.ci.amd64.AMD64.CPUFeature.AVX;
 import static jdk.vm.ci.code.ValueUtil.asRegister;
 import static jdk.vm.ci.code.ValueUtil.isRegister;
+import static jdk.vm.ci.code.ValueUtil.isStackSlot;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -51,7 +52,9 @@ import org.graalvm.nativeimage.Platforms;
 
 import com.oracle.svm.core.CGlobalDataPointerSingleton;
 import com.oracle.svm.core.CPUFeatureAccess;
+import com.oracle.svm.core.CalleeSavedRegisters;
 import com.oracle.svm.core.FrameAccess;
+import com.oracle.svm.core.InterpreterJNIUpcallStubGuestValue;
 import com.oracle.svm.core.ReservedRegisters;
 import com.oracle.svm.core.SubstrateControlFlowIntegrity;
 import com.oracle.svm.core.SubstrateOptions;
@@ -78,6 +81,8 @@ import com.oracle.svm.core.graal.code.SubstrateDataBuilder;
 import com.oracle.svm.core.graal.code.SubstrateDebugInfoBuilder;
 import com.oracle.svm.core.graal.code.SubstrateLIRGenerator;
 import com.oracle.svm.core.graal.code.SubstrateNodeLIRBuilder;
+import com.oracle.svm.core.graal.code.SubstrateFrameContextSupport;
+import com.oracle.svm.core.graal.code.SubstrateFrameContextSupport.FrameContextWithTailCallTrampolines;
 import com.oracle.svm.core.graal.lir.VerificationMarkerOp;
 import com.oracle.svm.core.graal.meta.KnownOffsets;
 import com.oracle.svm.core.graal.meta.SharedConstantReflectionProvider;
@@ -92,9 +97,9 @@ import com.oracle.svm.core.heap.ReferenceAccess;
 import com.oracle.svm.core.heap.SubstrateReferenceMapBuilder;
 import com.oracle.svm.core.imagelayer.DynamicImageLayerInfo;
 import com.oracle.svm.core.imagelayer.ImageLayerBuildingSupport;
-import com.oracle.svm.core.interpreter.InterpreterJNIUpcallStub;
 import com.oracle.svm.core.interpreter.InterpreterSupport;
 import com.oracle.svm.core.jni.CallVariant;
+import com.oracle.svm.core.graal.snippets.StackOverflowCheckImpl;
 import com.oracle.svm.core.meta.CompressedNullConstant;
 import com.oracle.svm.core.meta.MethodPointer;
 import com.oracle.svm.core.meta.SharedField;
@@ -105,13 +110,14 @@ import com.oracle.svm.core.meta.SubstrateObjectConstant;
 import com.oracle.svm.core.nodes.SafepointCheckNode;
 import com.oracle.svm.core.nodes.SubstrateIndirectCallTargetNode;
 import com.oracle.svm.core.pltgot.GOTAccess;
+import com.oracle.svm.core.pltgot.GOTCall;
 import com.oracle.svm.core.pltgot.PLTGOTConfiguration;
 import com.oracle.svm.core.thread.VMThreads.StatusSupport;
+import com.oracle.svm.core.threadlocal.VMThreadLocalOffsetProvider;
 import com.oracle.svm.shared.option.HostedOptionValues;
 import com.oracle.svm.shared.util.ReflectionUtil;
 import com.oracle.svm.shared.util.SubstrateUtil;
 import com.oracle.svm.shared.util.VMError;
-import com.oracle.svm.util.GuestAnnotationAccess;
 
 import jdk.graal.compiler.asm.BranchTargetOutOfBoundsException;
 import jdk.graal.compiler.asm.Label;
@@ -156,6 +162,7 @@ import jdk.graal.compiler.lir.Opcode;
 import jdk.graal.compiler.lir.StandardOp.BlockEndOp;
 import jdk.graal.compiler.lir.StandardOp.LoadConstantOp;
 import jdk.graal.compiler.lir.SwitchStrategy;
+import jdk.graal.compiler.lir.ValueConsumer;
 import jdk.graal.compiler.lir.Variable;
 import jdk.graal.compiler.lir.amd64.AMD64AddressValue;
 import jdk.graal.compiler.lir.amd64.AMD64BreakpointOp;
@@ -226,6 +233,7 @@ import jdk.vm.ci.code.StackSlot;
 import jdk.vm.ci.code.TargetDescription;
 import jdk.vm.ci.code.ValueUtil;
 import jdk.vm.ci.code.site.ConstantReference;
+import jdk.vm.ci.code.site.InfopointReason;
 import jdk.vm.ci.meta.AllocatableValue;
 import jdk.vm.ci.meta.Constant;
 import jdk.vm.ci.meta.ConstantReflectionProvider;
@@ -244,7 +252,7 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
     }
 
     public SubstrateAMD64Backend(Providers providers) {
-        super(providers);
+        super(providers, false);
     }
 
     /**
@@ -1379,7 +1387,9 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
             AMD64MacroAssembler asm = (AMD64MacroAssembler) crb.asm;
 
             makeFrame(crb, asm);
-            crb.recordMark(PROLOGUE_DECD_RSP);
+            if (shouldReserveStackFrame(method, crb.frameMap, crb.getLIR())) {
+                crb.recordMark(PROLOGUE_DECD_RSP);
+            }
 
             maybeSetFramePointer(crb, asm);
 
@@ -1400,13 +1410,16 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
                     }
                 });
             }
+            /* Indirect calls must target the marker after the randomized padding. */
             asm.maybeEmitIndirectTargetMarker();
             reserveStackFrame(crb, asm);
         }
 
         protected final void reserveStackFrame(CompilationResultBuilder crb, AMD64MacroAssembler asm) {
             maybePushBasePointer(crb, asm);
-            asm.decrementq(rsp, crb.frameMap.frameSize());
+            if (shouldReserveStackFrame(method, crb.frameMap, crb.getLIR())) {
+                asm.decrementq(rsp, crb.frameMap.frameSize());
+            }
         }
 
         protected void maybePushBasePointer(CompilationResultBuilder crb, AMD64MacroAssembler asm) {
@@ -1464,10 +1477,11 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
             if (frameMap.needsFramePointer()) {
                 int framePointerOffset = frameMap.preserveFramePointer() ? frameMap.getFramePointerSaveAreaOffset() : 0;
                 asm.leaq(rsp, asm.makeAddress(rbp, frameMap.frameSize() - framePointerOffset));
-            } else {
+                crb.recordMark(SubstrateMarkId.EPILOGUE_INCD_RSP);
+            } else if (shouldReserveStackFrame(method, frameMap, crb.getLIR())) {
                 asm.incrementq(rsp, frameMap.frameSize());
+                crb.recordMark(SubstrateMarkId.EPILOGUE_INCD_RSP);
             }
-            crb.recordMark(SubstrateMarkId.EPILOGUE_INCD_RSP);
 
             if (frameMap.preserveFramePointer() || isCalleeSaved(rbp, frameMap.getRegisterConfig(), method)) {
                 asm.pop(rbp);
@@ -1480,6 +1494,197 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
             crb.recordMark(SubstrateMarkId.EPILOGUE_END);
         }
 
+    }
+
+    /**
+     * Emits a tail jump whose target is processed like a direct call by patching and relocation.
+     */
+    private static void conditionalTailCall(CompilationResultBuilder crb, AMD64MacroAssembler asm, AMD64Assembler.ConditionFlag condition, ResolvedJavaMethod callTarget) {
+        int before = asm.position();
+        asm.jcc(condition);
+        int after = asm.position();
+        crb.recordDirectCall(before, after, callTarget, null);
+    }
+
+    /**
+     * A caller selected for PLT/GOT dispatch cannot use a direct PC-relative jump. The target must
+     * be loaded from its GOT entry.
+     *
+     * @param jumpThroughRegister clobbered only on the taken slow path. The fast path skips the GOT
+     *            load.
+     */
+    @Platforms(Platform.HOSTED_ONLY.class)
+    private static void conditionalTailCallViaGOT(CompilationResultBuilder crb, AMD64MacroAssembler asm, AMD64Assembler.ConditionFlag condition, SharedMethod callTarget,
+                    Register jumpThroughRegister) {
+        int gotEntry = PLTGOTConfiguration.singleton().getMethodGOTEntry(callTarget);
+        int gotEntryOffset = GOTAccess.getGOTEntryOffsetFromHeapRegister(gotEntry);
+
+        Label fastPath = new Label();
+        asm.jcc(condition.negate(), fastPath);
+        int before = asm.position();
+        asm.movq(jumpThroughRegister, new AMD64Address(ReservedRegisters.singleton().getHeapBaseRegister(), gotEntryOffset));
+        asm.jmp(jumpThroughRegister);
+        int after = asm.position();
+        crb.recordIndirectCall(before, after, callTarget, null);
+        crb.compilationResult.addInfopoint(new GOTCall(before, null, InfopointReason.BYTECODE_POSITION, callTarget));
+        asm.bind(fastPath);
+    }
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    private static boolean shouldCallViaPLTGOT(SharedMethod caller, SharedMethod callee) {
+        return PLTGOTConfiguration.isEnabled() && PLTGOTConfiguration.singleton().shouldCallViaPLTGOT(caller, callee);
+    }
+
+    protected class TailCallSubstrateAMD64FrameContext extends SubstrateAMD64FrameContext implements FrameContextWithTailCallTrampolines {
+        /* Template operation so that frame-context code can invoke instance methods. */
+        private static final AMD64SafepointCheckOp SAFEPOINT_CHECK_OP = new AMD64SafepointCheckOp();
+
+        private final SubstrateFrameContextSupport.TailCallTrampolines trampolines = new SubstrateFrameContextSupport.TailCallTrampolines();
+
+        TailCallSubstrateAMD64FrameContext(SharedMethod method, CallingConvention callingConvention) {
+            super(method, callingConvention);
+        }
+
+        @Override
+        protected void makeFrame(CompilationResultBuilder crb, AMD64MacroAssembler asm) {
+            if (!frameContextSupport.emitStackOverflowCheckInPrologue(method)) {
+                super.makeFrame(crb, asm);
+                return;
+            }
+
+            if (SubstrateBackend.shouldRandomizeRuntimeCodeOffset(method)) {
+                SubstrateBackend.randomizeRuntimeCodeOffset(crb, offset -> {
+                    int alignedOffset = NumUtil.roundUp(offset, SubstrateTarget.getWordSize());
+                    for (int i = 0; i < alignedOffset; i++) {
+                        asm.int3();
+                    }
+                });
+            }
+            asm.maybeEmitIndirectTargetMarker();
+            makeFrameWithStackOverflowCheck(crb, asm);
+        }
+
+        /**
+         * Emits the stack overflow check in the method prologue with a tail call to the slow path.
+         * The tail call avoids creating an additional frame for the slow path. The jump is still
+         * recorded as a call without debug information.
+         * <p>
+         * The stack trace starts at the caller frame. This is valid for a stack overflow because
+         * its top frame is not specified. The check includes the additional space needed by every
+         * possible deoptimization frame.
+         */
+        private void makeFrameWithStackOverflowCheck(CompilationResultBuilder crb, AMD64MacroAssembler asm) {
+            /* Materialize the prospective stack pointer in a temporary register. */
+            Register temp = getTailCallScratchRegister(crb);
+
+            int deoptFrameSize = SubstrateFrameContextSupport.getDeoptFrameSize(crb);
+            /* The return address is already pushed, so subtract it from the total frame size. */
+            int frameSize = crb.frameMap.totalFrameSize() - crb.target.arch.getReturnAddressSize();
+            /*
+             * Use LEA as a three-operand subtraction so the source stack pointer and result can be
+             * in different registers without an additional move.
+             */
+            asm.leaq(temp, new AMD64Address(AMD64.rsp, -(frameSize + deoptFrameSize)));
+            asm.cmpq(temp, new AMD64Address(ReservedRegisters.singleton().getThreadRegister(), VMThreadLocalOffsetProvider.getOffset(StackOverflowCheckImpl.stackBoundaryTL)));
+            AMD64Assembler.ConditionFlag condition = AMD64Assembler.ConditionFlag.BelowEqual;
+            if (SubstrateUtil.HOSTED) {
+                SharedMethod callTarget = (SharedMethod) SubstrateFrameContextSupport.getStackOverflowCallTarget(crb, method);
+                if (shouldCallViaPLTGOT(method, callTarget)) {
+                    conditionalTailCallViaGOT(crb, asm, condition, callTarget, temp);
+                } else {
+                    conditionalTailCall(crb, asm, condition, callTarget);
+                }
+            } else {
+                asm.jcc(condition, trampolines.createOrGetStackOverflowTrampoline());
+            }
+
+            if (deoptFrameSize == 0) {
+                /* The temporary value is the new stack pointer. */
+                maybePushBasePointer(crb, asm);
+                asm.movq(AMD64.rsp, temp);
+            } else {
+                /* The temporary value includes check-only deoptimization space. */
+                reserveStackFrame(crb, asm);
+            }
+        }
+
+        @Override
+        public void leave(CompilationResultBuilder crb) {
+            super.leave(crb);
+
+            if (frameContextSupport.emitSafepointCheckInEpilogue(method)) {
+                AMD64MacroAssembler asm = (AMD64MacroAssembler) crb.asm;
+                /*
+                 * The return value must survive the tail call. The stub calling convention
+                 * preserves primitive return values in callee-saved registers. An object return
+                 * value must also be present in the slow-path reference map, so it uses a
+                 * dedicated target with the ForwardReturnValue calling convention.
+                 */
+                VMError.guarantee(CalleeSavedRegisters.supportedByPlatform(), "Non-object return value is preserved via callee saved registers");
+                SAFEPOINT_CHECK_OP.emitCode(crb, asm);
+                AMD64Assembler.ConditionFlag condition = SAFEPOINT_CHECK_OP.getConditionFlag();
+                if (SubstrateUtil.HOSTED) {
+                    SharedMethod callTarget = (SharedMethod) SubstrateFrameContextSupport.getSlowPathSafepointCallTarget(crb, method);
+                    if (shouldCallViaPLTGOT(method, callTarget)) {
+                        /*
+                         * Only the PLT/GOT path needs a scratch register. Stub-calling-convention
+                         * methods are callee-saved and normally cannot provide one here.
+                         */
+                        Register jumpThroughRegister = getTailCallScratchRegister(crb);
+                        conditionalTailCallViaGOT(crb, asm, condition, callTarget, jumpThroughRegister);
+                    } else {
+                        conditionalTailCall(crb, asm, condition, callTarget);
+                    }
+                } else {
+                    asm.jcc(condition, trampolines.createOrGetSlowPathSafepointTrampoline());
+                }
+            }
+        }
+
+        @Override
+        public void emitTailCallTrampolines(CompilationResultBuilder crb) {
+            AMD64MacroAssembler asm = (AMD64MacroAssembler) crb.asm;
+            if (trampolines.isStackOverflowTrampolinePresent()) {
+                asm.bind(trampolines.createOrGetStackOverflowTrampoline());
+                emitTrampolineCall(crb, asm, SubstrateFrameContextSupport.getStackOverflowCallTarget(crb, method));
+            }
+            if (trampolines.isSlowPathSafepointTrampolinePresent()) {
+                asm.bind(trampolines.createOrGetSlowPathSafepointTrampoline());
+                emitTrampolineCall(crb, asm, SubstrateFrameContextSupport.getSlowPathSafepointCallTarget(crb, method));
+            }
+        }
+
+        private void emitTrampolineCall(CompilationResultBuilder crb, AMD64MacroAssembler asm, ResolvedJavaMethod callTarget) {
+            assert !SubstrateUtil.HOSTED;
+            /*
+             * Runtime-installed code can be outside the range of a direct jump to AOT code. Load
+             * the target address into a register and jump through that register.
+             */
+            Register addressReg = getTailCallScratchRegister(crb);
+
+            int before = asm.position();
+            asm.movq(addressReg, SubstrateFrameContextSupport.getCallTargetAddress(callTarget));
+            asm.jmp(addressReg);
+            /* A trampoline jump does not need an additional CFI marker. */
+            int after = asm.position();
+            crb.recordIndirectCall(before, after, callTarget, null);
+        }
+
+        private Register getTailCallScratchRegister(CompilationResultBuilder crb) {
+            assert !method.hasCalleeSavedRegisters() : "The tail call scratch register is not compatible with callee-saved registers";
+
+            /*
+             * Prologue and epilogue code can use a non-parameter, non-callee-saved register because
+             * the method body is not live at either point. AMD64 has no reserved scratch register.
+             */
+            Register scratchRegister = AMD64.rbx;
+            assert callingConvention.getArguments().stream() //
+                            .filter(ValueUtil::isRegister) //
+                            .map(ValueUtil::asRegister) //
+                            .noneMatch(scratchRegister::equals) : "tail call scratch register must not be an argument";
+            assert !crb.frameMap.getRegisterConfig().getCalleeSaveRegisters().contains(scratchRegister) : "tail call scratch register must not be callee saved";
+            return scratchRegister;
+        }
     }
 
     /**
@@ -1832,6 +2037,54 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
     }
 
     /**
+     * Bytecode handlers are tail-dispatched like interpreter codelets. A handler that does not use
+     * the stack and cannot call does not need the alignment-only frame reservation that ordinary
+     * AMD64 methods use to align the stack at call sites.
+     */
+    private static boolean shouldReserveStackFrame(SharedMethod method, FrameMap frameMap, LIR lir) {
+        SubstrateAMD64FrameMap substrateFrameMap = (SubstrateAMD64FrameMap) frameMap;
+        if (!SubstrateUtil.HOSTED || !InterpreterSupport.isEnabled() || !InterpreterSupport.singleton().isInterpreterBytecodeHandlerStub(method)) {
+            return true;
+        }
+        if (substrateFrameMap.preserveFramePointer() || substrateFrameMap.needsFramePointer() || method.hasCalleeSavedRegisters()) {
+            return true;
+        }
+        /* Explicit handler safepoints have a slow-path call in the final LIR. */
+        return frameMap.frameNeedsAllocating() || lirRequiresStackFrame(lir);
+    }
+
+    private static boolean lirRequiresStackFrame(LIR lir) {
+        class StackSlotFinder implements ValueConsumer {
+            private boolean found;
+
+            @Override
+            public void visitValue(Value value, LIRInstruction.OperandMode mode, EnumSet<LIRInstruction.OperandFlag> flags) {
+                found |= isStackSlot(value);
+            }
+
+            boolean found() {
+                return found;
+            }
+        }
+        StackSlotFinder stackSlotFinder = new StackSlotFinder();
+        for (int blockId : lir.getBlocks()) {
+            if (!LIR.isBlockDeleted(blockId)) {
+                for (LIRInstruction op : lir.getLIRforBlock(lir.getBlockById(blockId))) {
+                    if (op instanceof AMD64Call.CallOp || op.modifiesStackPointer()) {
+                        return true;
+                    }
+                    op.visitEachValueForward(stackSlotFinder);
+                    op.visitEachState(stackSlotFinder);
+                    if (stackSlotFinder.found()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * AMD64 Substrate VM specific frame map.
      * <p>
      * The layout is basically the same as {@link AMD64FrameMap} except that space for rbp is also
@@ -1979,7 +2232,7 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
          * hosted-only CallVariant in that case until GR-74744 is fixed.
          */
         if (SubstrateUtil.HOSTED) {
-            InterpreterJNIUpcallStub annotation = GuestAnnotationAccess.getAnnotation(method, InterpreterJNIUpcallStub.class);
+            InterpreterJNIUpcallStubGuestValue annotation = InterpreterJNIUpcallStubGuestValue.get(method);
             if (annotation != null && annotation.callVariant() == CallVariant.VARARGS) {
                 assert InterpreterSupport.isEnabled();
                 ((SubstrateAMD64FrameMap) frameMap).allocateInterpreterJNIUpcallData();
@@ -1988,7 +2241,7 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
         if (stubType == Deoptimizer.StubType.InterpreterEnterStub) {
             assert InterpreterSupport.isEnabled();
             frameMap.reserveOutgoing(AMD64InterpreterStubs.additionalFrameSizeEnterStub());
-        } else if (stubType == Deoptimizer.StubType.InterpreterLeaveStub || stubType == Deoptimizer.StubType.InterpreterJNIDowncallStub) {
+        } else if (stubType == Deoptimizer.StubType.InterpreterLeaveStub || stubType == Deoptimizer.StubType.InterpreterNativeDowncallStub) {
             assert InterpreterSupport.isEnabled();
             frameMap.reserveOutgoing(AMD64InterpreterStubs.additionalFrameSizeLeaveStub());
         }
@@ -2143,10 +2396,12 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
         DebugContext debug = lir.getDebug();
         Register uncompressedNullRegister = ReservedRegisters.singleton().getHeapBaseRegister();
         CompilationResultBuilder crb = factory.createBuilder(getProviders(), frameMap, masm, dataBuilder, frameContext, options, debug, compilationResult, uncompressedNullRegister, lir);
-        crb.setTotalFrameSize(frameMap.totalFrameSize());
+        boolean reserveStackFrame = shouldReserveStackFrame(method, frameMap, lir);
+        int totalFrameSize = reserveStackFrame ? frameMap.totalFrameSize() : frameMap.totalFrameSize() - frameMap.frameSize();
+        crb.setTotalFrameSize(totalFrameSize);
         var sharedCompilationResult = (SharedCompilationResult) compilationResult;
         var substrateAMD64FrameMap = (SubstrateAMD64FrameMap) frameMap;
-        sharedCompilationResult.setFrameSize(substrateAMD64FrameMap.frameSize());
+        sharedCompilationResult.setFrameSize(reserveStackFrame ? substrateAMD64FrameMap.frameSize() : 0);
         if (SubstrateUtil.HOSTED) {
             sharedCompilationResult.setCodeAlignment(SubstrateOptions.buildTimeCodeAlignment(options));
         }
@@ -2165,6 +2420,10 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
     }
 
     protected FrameContext createFrameContext(SharedMethod method, Deoptimizer.StubType stubType, CallingConvention callingConvention) {
+        // GR-60556: This should compose better with custom stub frame contexts.
+        if (stubType == Deoptimizer.StubType.NoDeoptStub && frameContextSupport.canEmitTailCalls(method)) {
+            return new TailCallSubstrateAMD64FrameContext(method, callingConvention);
+        }
         return switch (stubType) {
             case EntryStub -> new DeoptEntryStubContext(method, callingConvention);
             case ExitStub -> new DeoptExitStubContext(method, callingConvention);
@@ -2188,9 +2447,9 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
                 assert InterpreterSupport.isEnabled();
                 yield new AMD64InterpreterStubs.InterpreterLeaveStubContext(method, callingConvention);
             }
-            case InterpreterJNIDowncallStub -> {
+            case InterpreterNativeDowncallStub -> {
                 assert InterpreterSupport.isEnabled();
-                yield new AMD64InterpreterStubs.InterpreterJNIDowncallStubContext(method, callingConvention);
+                yield new AMD64InterpreterStubs.InterpreterNativeDowncallStubContext(method, callingConvention);
             }
             case InterpreterDeoptEntryPointStub -> {
                 assert InterpreterSupport.isEnabled();
@@ -2219,10 +2478,26 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
         if (GraalOptions.OptimizeLongJumps.getValue(crb.getOptions())) {
             optimizeLongJumps(crb);
         }
+        if (crb.frameContext instanceof FrameContextWithTailCallTrampolines frameContext) {
+            frameContext.emitTailCallTrampolines(crb);
+        }
     }
 
     protected void resetForEmittingCode(CompilationResultBuilder crb) {
         crb.resetForEmittingCode();
+        if (crb.frameContext instanceof TailCallSubstrateAMD64FrameContext frameContext) {
+            frameContext.trampolines.clear();
+        }
+    }
+
+    @Override
+    public boolean stackOverflowCheckedInPrologue(SharedMethod method) {
+        return frameContextSupport.stackOverflowCheckedInPrologue(method);
+    }
+
+    @Override
+    public boolean safepointCheckedInEpilogue(SharedMethod method) {
+        return frameContextSupport.safepointCheckedInEpilogue(method);
     }
 
     @Override

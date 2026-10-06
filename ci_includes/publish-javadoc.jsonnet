@@ -31,7 +31,7 @@
       ["git", "clone", ["mx", "urlrewrite", "https://github.com/graalvm/graalvm-website.git"]],
       ["cd", "graalvm-website"],
       # dev or release
-      ["set-export", "GRAAL_VERSION", "25.3"],
+      ["set-export", "GRAAL_VERSION", "25.4"],
       ["rm", "-rf", "$GRAAL_VERSION/javadoc"],
       ["mkdir", "-p", "$GRAAL_VERSION/javadoc"],
       ["unzip", "-o", "-d", "$GRAAL_VERSION/javadoc/tmp", "$GRAAL_REPO/sdk/javadoc.zip"],

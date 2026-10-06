@@ -337,7 +337,8 @@ public class NativeImageGeneratorRunner {
             // GR-73131 will make this non-Espresso specific.
             EconomicMap<OptionKey<?>, Object> options = parser.getHostedValues();
             @SuppressWarnings("unchecked")
-            List<String> addExports = ((LocatableMultiOptionValue<String>) options.get(NativeImageClassLoaderOptions.AddExports)).values();
+            List<String> addExports = new ArrayList<>(((LocatableMultiOptionValue<String>) options.get(NativeImageClassLoaderOptions.AddExports)).values());
+            addExports.add("java.base/jdk.internal.module=org.graalvm.nativeimage.shared");
             builder.vmOption("java.AddExports=" + String.join(File.pathSeparator, addExports));
 
             // Guest version of -XX:+EnableJVMCI that is currently passed by
@@ -544,6 +545,7 @@ public class NativeImageGeneratorRunner {
             try {
                 Map<ResolvedJavaMethod, CEntryPointData> entryPoints = new HashMap<>();
                 MainEntryPoint mainEntryPoint = null;
+                ResolvedJavaType applicationMainClass = null;
                 ResolvedJavaMethod applicationMainMethod = null;
 
                 NativeImageKind imageKind = null;
@@ -585,15 +587,19 @@ public class NativeImageGeneratorRunner {
                     GuestAccess access = GuestAccess.get();
                     try {
                         ResolvedJavaType buildTimeSupport = access.lookupType("com.oracle.svm.guest.hosted.BuildTimeSupport");
-                        ResolvedJavaMethod getMainClassFromModule = access.lookupMethod(buildTimeSupport, "getMainEntryPointMethod",
+                        ResolvedJavaMethod getMainEntryPointInfoMethod = access.lookupMethod(buildTimeSupport, "getMainEntryPointInfo",
                                         String.class,
                                         String.class,
                                         String.class);
-                        JavaConstant res = access.invokeStatic(getMainClassFromModule,
+                        JavaConstant mainEntryPointInfo = access.invokeStatic(getMainEntryPointInfoMethod,
                                         access.asGuestString(className),
                                         access.asGuestString(moduleName),
                                         access.asGuestString(mainEntryPointName));
-                        mainEntryMethod = access.asResolvedJavaMethod(res);
+                        ResolvedJavaType mainEntryPointInfoType = access.lookupType("com.oracle.svm.guest.hosted.BuildTimeSupport$MainEntryPointInfo");
+                        ResolvedJavaMethod mainClassAccessor = access.lookupMethod(mainEntryPointInfoType, "mainClass");
+                        ResolvedJavaMethod mainMethodAccessor = access.lookupMethod(mainEntryPointInfoType, "mainMethod");
+                        applicationMainClass = access.getProviders().getConstantReflection().asJavaType(access.invoke(mainClassAccessor, mainEntryPointInfo));
+                        mainEntryMethod = access.asResolvedJavaMethod(access.invoke(mainMethodAccessor, mainEntryPointInfo));
                     } catch (InvocationException ex) {
                         if (ex.getCause() instanceof ClassNotFoundException cnfe && cnfe.getMessage().equals(className)) {
                             throw UserError.abort(classLoader.getMainClassNotFoundErrorMessage(className));
@@ -622,7 +628,7 @@ public class NativeImageGeneratorRunner {
                 }
 
                 generator = createImageGenerator(classLoader, optionParser, mainEntryPoint, reporter);
-                generator.run(entryPoints, applicationMainMethod, imageName, imageKind, SubstitutionProcessor.IDENTITY, optionParser.getRuntimeOptionNames(), timerCollection);
+                generator.run(entryPoints, applicationMainClass, applicationMainMethod, imageName, imageKind, SubstitutionProcessor.IDENTITY, optionParser.getRuntimeOptionNames(), timerCollection);
                 buildOutcome = BuildOutcome.SUCCESSFUL;
             } finally {
                 if (!buildOutcome.successful()) {

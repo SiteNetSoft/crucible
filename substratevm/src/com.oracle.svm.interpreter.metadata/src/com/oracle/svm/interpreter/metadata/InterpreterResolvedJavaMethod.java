@@ -57,6 +57,7 @@ import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.c.function.CFunctionPointer;
 import org.graalvm.word.impl.Word;
 
+import com.oracle.graal.pointsto.meta.AnalysisMethod;
 import com.oracle.svm.shared.BuildPhaseProvider;
 import com.oracle.svm.core.MethodRefHolder;
 import com.oracle.svm.core.SubstrateMetadata;
@@ -173,12 +174,12 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
     private final int flags;
 
     @Platforms(Platform.HOSTED_ONLY.class) //
-    private ResolvedJavaMethod originalMethod;
+    private AnalysisMethod originalMethod;
 
     private final InterpreterResolvedObjectType declaringClass;
     private final InterpreterUnresolvedSignature signature;
 
-    private final LineNumberTable lineNumberTable;
+    private LineNumberTable lineNumberTable;
 
     protected ExceptionHandler[] exceptionHandlers;
 
@@ -235,7 +236,7 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
 
     // Only called during universe building
     @Platforms(Platform.HOSTED_ONLY.class)
-    private InterpreterResolvedJavaMethod(ResolvedJavaMethod originalMethod, Symbol<Name> name, int maxLocals, int maxStackSize, int flags,
+    private InterpreterResolvedJavaMethod(AnalysisMethod originalMethod, Symbol<Name> name, int maxLocals, int maxStackSize, int flags,
                     InterpreterResolvedObjectType declaringClass, InterpreterUnresolvedSignature signature, PreparedSignature preparedSignature, Symbol<Signature> signatureSymbol,
                     byte[] code, ExceptionHandler[] exceptionHandlers, LineNumberTable lineNumberTable, LocalVariableTable localVariableTable,
                     ReferenceConstant<MethodRefHolder> nativeEntryPoint, int vtableIndex, int gotOffset, int enterStubOffset, int methodId) {
@@ -384,7 +385,7 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
 
     // Only called during universe building
     @Platforms(Platform.HOSTED_ONLY.class)
-    public static InterpreterResolvedJavaMethod createAtBuildTime(ResolvedJavaMethod originalMethod, String name, int maxLocals, int maxStackSize, int modifiers,
+    public static InterpreterResolvedJavaMethod createAtBuildTime(AnalysisMethod originalMethod, String name, int maxLocals, int maxStackSize, int modifiers,
                     InterpreterResolvedObjectType declaringClass,
                     InterpreterUnresolvedSignature signature, boolean isSubstitutedNative,
                     byte[] code, ExceptionHandler[] exceptionHandlers, LineNumberTable lineNumberTable, LocalVariableTable localVariableTable,
@@ -395,6 +396,11 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
         PreparedSignature preparedSignature = null;
         return new InterpreterResolvedJavaMethod(originalMethod, nameSymbol, maxLocals, maxStackSize, flags, declaringClass, signature, preparedSignature, signatureSymbol, code,
                         exceptionHandlers, lineNumberTable, localVariableTable, nativeEntryPoint, vtableIndex, gotOffset, enterStubOffset, methodId);
+    }
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    public final void setLineNumberTable(LineNumberTable lineNumberTable) {
+        this.lineNumberTable = lineNumberTable;
     }
 
     @Platforms(Platform.HOSTED_ONLY.class)
@@ -556,7 +562,7 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
     }
 
     @Platforms(Platform.HOSTED_ONLY.class)
-    public final ResolvedJavaMethod getOriginalMethod() {
+    public final AnalysisMethod getOriginalMethod() {
         return originalMethod;
     }
 
@@ -618,7 +624,7 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
      * Builds the compiler-visible bytecode snapshot from the live interpreter bytecodes.
      *
      * <p>
-     * Runtime linking mutates only {@link #interpretedCode}. This snapshot rewrites quickened field
+     * Runtime linking mutates only {@link #interpretedCode}. This snapshot rewrites quickened
      * opcodes and each runtime {@code invokedynamic} operand into a stable compiler view so compiler
      * consumers never observe interpreter-only bytecode rewrites or torn extra-CPI publication.
      */
@@ -627,12 +633,12 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
         InterpreterConstantPool constantPool = getConstantPool();
         for (int bci = 0; bci < BytecodeStream.endBCI(result); bci = BytecodeStream.nextBCI(result, bci)) {
             int opcode = BytecodeStream.opcode(result, bci);
-            if (Bytecodes.isQuickenedFieldAccess(opcode)) {
+            if (Bytecodes.isQuickened(opcode)) {
                 /*
-                 * Quickened field bytecodes are only meaningful to the interpreter; JVMCI clients
-                 * must keep seeing the original class-file opcode and operands.
+                 * Quickened bytecodes are only meaningful to the interpreter; JVMCI clients must
+                 * keep seeing the original class-file opcode and operands.
                  */
-                BytecodeStream.patchOpcodeOpaque(result, bci, Bytecodes.unquickenedFieldAccess(opcode));
+                BytecodeStream.patchOpcodeOpaque(result, bci, Bytecodes.unquickened(opcode));
                 continue;
             }
             if (opcode != Bytecodes.INVOKEDYNAMIC) {
@@ -675,7 +681,7 @@ public class InterpreterResolvedJavaMethod extends InterpreterAnnotated implemen
         for (int bci = 0; bci < BytecodeStream.endBCI(code); bci = BytecodeStream.nextBCI(code, bci)) {
             int currentBC = BytecodeStream.currentBC(code, bci);
             VMError.guarantee(BREAKPOINT != currentBC);
-            VMError.guarantee(!Bytecodes.isQuickenedFieldAccess(currentBC));
+            VMError.guarantee(!Bytecodes.isQuickened(currentBC));
         }
     }
 
