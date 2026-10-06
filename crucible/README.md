@@ -68,13 +68,13 @@ under one caller is compiled again for that caller (`CrucibleContextClones`).
 
 Samples count time, not calls, so a receiver that is called often and returns quickly can be
 missing from them, and a method compiled for everyone loses the inlining the counted receivers gave
-it: future-genetic ran 33% slower and scala-doku 48%. Build with
-`-H:-CrucibleSampledTargetsOutsideCopies` to take the stacks' receivers in the copies only, which is
-where they tell one caller's pipeline from another's. With that, and with the inliner given for the
-hot methods and the copies the budget Oracle's builder gives a hot unit,
-
-    -H:-CrucibleSampledTargetsOutsideCopies -H:+CrucibleHotInliningBudget
-
+it: future-genetic ran 33% slower and scala-doku 48%. So when the profile has stacks, the build
+takes their receivers in the copies only, which is where they tell one caller's pipeline from
+another's (`-H:-CrucibleSampledTargetsOutsideCopies`); gives the hot methods and the copies the
+budget Oracle's builder gives a hot unit (`-H:+CrucibleHotInliningBudget`); and answers a call in a
+copy that the stacks caught too seldom from the counted receivers along the same path
+(`-H:+CrucibleSampledCountedFallback`). All three are the defaults with stacks, and can be turned off.
+With the first two, on GraalVM 25.3,
 the twelve Renaissance benchmarks run 3.4% faster than from the counted profile alone over six
 rounds, akka-uct 6%, scrabble 6%, future-genetic, reactors and par-mnemonics 4 to 5%, and none of
 them slower; the geometric mean against Oracle's binary goes from 0.955 to 0.922. Spring PetClinic,
@@ -110,6 +110,10 @@ converted profile drives the build as well as one of our own.
 An image built with a profile is built at `-O3` unless you ask for another level, as Oracle's `native-image` does when it is given a profile.
 Give `-O2` with the profile if you want the smaller image, which is 4 to 8% smaller.
 On the samples a profile-guided image at `-O2` runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
+
+CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.925 of Oracle's time from a counted profile and 0.907 from one with sampled stacks, behind on two: scala-stm-bench7 by 7% and rx-scrabble by 2%.
+Spring PetClinic answers `/` 8.5% faster than Oracle's binary and `/vets` 22.6%, and Quarkus about 5%.
+See `docs/issues/2026-10-03-graalvm-25-4.md`. The figures below are from GraalVM 25.3.
 
 Same machine, `-O3`, each binary checked for identical output. Time of the profile-guided binary
 from each compiler; lower is better.
@@ -187,6 +191,11 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleRecordKeepsCallsVirtual` | on | in a recording image, leave a call with several possible receivers a call; off, the image inlines as an optimized one does |
 | `CrucibleContextClones` | on | with sampled stacks, compile a method again for a caller it spends time under |
 | `CrucibleMinimumSamplesAtCall` | 32 | fewest samples under a call for the sampled stacks to be believed about where it goes |
+| `CrucibleSampledTargetsOutsideCopies` | off | with sampled stacks, also tell the inliner where calls go in methods compiled for everyone, not only in copies made for one caller |
+| `CrucibleHotInliningBudget` | on with stacks | give hot methods and copies the inlining budget Oracle's builder gives a hot unit |
+| `CrucibleSampledCountedFallback` | on | in a copy, answer a call the stacks caught too seldom from the counted receivers along the same path |
+| `LargeArrayThreshold` | the most an aligned chunk takes | the size from which an array gets a chunk of its own; was 128 KB. Not a Crucible option |
+| `OptDuplication` | off with a profile | control flow duplication, new in GraalVM 25.4; with a profile it can put a value computed on a rarely taken path on every path. Not a Crucible option |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
 | `CrucibleColdCodeSize` | on | keep cold methods from inlining |
 | `CrucibleColdOptimizeForSize` | on | compile cold methods with the settings of `-Os`: the image of a Quarkus service 11% smaller, of Spring PetClinic 12%, of a Renaissance benchmark or a sample 7 to 10%, at the same speed on all nineteen |
