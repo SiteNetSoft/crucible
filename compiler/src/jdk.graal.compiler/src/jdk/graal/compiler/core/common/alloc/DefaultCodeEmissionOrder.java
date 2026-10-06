@@ -34,6 +34,9 @@ import jdk.graal.compiler.core.common.cfg.CodeEmissionOrder;
 import jdk.graal.compiler.core.common.cfg.CFGLoop;
 import jdk.graal.compiler.nodes.cfg.HIRBlock;
 import jdk.graal.compiler.nodes.debug.SlowPathBeginNode;
+import jdk.graal.compiler.options.Option;
+import jdk.graal.compiler.options.OptionKey;
+import jdk.graal.compiler.options.OptionType;
 import jdk.graal.compiler.options.OptionValues;
 
 /**
@@ -50,6 +53,14 @@ import jdk.graal.compiler.options.OptionValues;
  * bring a measurable benefit and is therefore avoided to keep the code size small.
  */
 public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEmissionOrder<T> {
+    public static class Options {
+        // @formatter:off
+        @Option(help = "Reorder the header of a loop with more than one loop end block too, placing it after the loop end " +
+                       "the most likely path reaches first, so that that backward jump is a conditional jump.", type = OptionType.Expert)
+        public static final OptionKey<Boolean> LoopHeaderAfterFirstLoopEnd = new OptionKey<>(false);
+        // @formatter:on
+    }
+
     protected int originalBlockCount;
     protected T startBlock;
 
@@ -69,7 +80,7 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
         BasicBlockOrderUtils.BlockList<T> order = new BasicBlockOrderUtils.BlockList<>(originalBlockCount);
         BitSet visitedBlocks = new BitSet(originalBlockCount);
         PriorityQueue<T> worklist = BasicBlockOrderUtils.initializeWorklist(startBlock, visitedBlocks);
-        computeCodeEmittingOrder(order, worklist, visitedBlocks, computationTime);
+        computeCodeEmittingOrder(order, worklist, visitedBlocks, computationTime, Options.LoopHeaderAfterFirstLoopEnd.getValue(options));
         BasicBlockOrderUtils.checkStartBlock(order, startBlock);
         return moveSlowPathBlocksLast(order.toIdArray());
     }
@@ -77,10 +88,11 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
     /**
      * Iteratively adds paths to the code emission block order.
      */
-    private static <T extends BasicBlock<T>> void computeCodeEmittingOrder(BasicBlockOrderUtils.BlockList<T> order, PriorityQueue<T> worklist, BitSet visitedBlocks, ComputationTime computationTime) {
+    private static <T extends BasicBlock<T>> void computeCodeEmittingOrder(BasicBlockOrderUtils.BlockList<T> order, PriorityQueue<T> worklist, BitSet visitedBlocks, ComputationTime computationTime,
+                    boolean anyLoopEnds) {
         while (!worklist.isEmpty()) {
             T nextImportantPath = worklist.poll();
-            addPathToCodeEmittingOrder(nextImportantPath, order, worklist, visitedBlocks, computationTime);
+            addPathToCodeEmittingOrder(nextImportantPath, order, worklist, visitedBlocks, computationTime, anyLoopEnds);
         }
     }
 
@@ -88,7 +100,7 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
      * Add a linear path to the code emission order greedily following the most likely successor.
      */
     private static <T extends BasicBlock<T>> void addPathToCodeEmittingOrder(T initialBlock, BasicBlockOrderUtils.BlockList<T> order, PriorityQueue<T> worklist, BitSet visitedBlocks,
-                    ComputationTime computationTime) {
+                    ComputationTime computationTime, boolean anyLoopEnds) {
         T block = initialBlock;
         while (block != null) {
             if (order.isScheduled(block)) {
@@ -109,7 +121,7 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
                  */
                 break;
             }
-            if (!skipLoopHeader(block)) {
+            if (!skipLoopHeader(block, anyLoopEnds)) {
                 // Align unskipped loop headers as they are the target of the backward jump.
                 if (block.isLoopHeader()) {
                     block.setAlign(true);
@@ -126,8 +138,9 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
                         continue;
                     }
                     CFGLoop<T> loop = succ.getLoop();
-                    if (loop == blockLoop && succ == loop.getHeader() && skipLoopHeader(succ)) {
-                        // This is the only loop end of a skipped loop header.
+                    if (loop == blockLoop && succ == loop.getHeader() && skipLoopHeader(succ, anyLoopEnds)) {
+                        // This is the only loop end of a skipped loop header, or the first one
+                        // scheduled. Other loop ends jump to the header.
                         // Add the header immediately afterwards.
                         order.add(loop.getHeader());
 
@@ -161,10 +174,15 @@ public class DefaultCodeEmissionOrder<T extends BasicBlock<T>> implements CodeEm
 
     /**
      * Skip the loop header block if the loop consists of more than one block and it has only a
-     * single loop end block in the same loop (not a backedge from a nested loop).
+     * single loop end block in the same loop (not a backedge from a nested loop), or any number of
+     * them with {@link Options#LoopHeaderAfterFirstLoopEnd}.
      */
     protected static <T extends BasicBlock<T>> boolean skipLoopHeader(BasicBlock<T> block) {
-        if (block.isLoopHeader() && !block.isLoopEnd() && block.numBackedges() == 1) {
+        return skipLoopHeader(block, false);
+    }
+
+    protected static <T extends BasicBlock<T>> boolean skipLoopHeader(BasicBlock<T> block, boolean anyLoopEnds) {
+        if (block.isLoopHeader() && !block.isLoopEnd() && (block.numBackedges() == 1 || anyLoopEnds)) {
             for (int i = 0; i < block.getPredecessorCount(); i++) {
                 T pred = block.getPredecessorAt(i);
                 if (pred.isLoopEnd() && pred.getLoop().getHeader() == block) {
