@@ -111,7 +111,7 @@ An image built with a profile is built at `-O3` unless you ask for another level
 Give `-O2` with the profile if you want the smaller image, which is 4 to 8% smaller.
 On the samples a profile-guided image at `-O2` runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
 
-CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.925 of Oracle's time from a counted profile and 0.907 from one with sampled stacks, behind on two: scala-stm-bench7 by 7% and rx-scrabble by 2%.
+CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.930 of Oracle's time from a counted profile and 0.908 from one with sampled stacks (one session of five rounds, 2026-10-06), behind on two: scala-stm-bench7 by 6% and rx-scrabble by 4 to 8%. Control flow duplication stays on with a profile, with the pass that moves what it puts on every path back onto the paths that use it; Spring PetClinic's `/` and `/vets` serve 9.9% and 24.9% more requests a second than Oracle's binary, Quarkus 6.2% and 5.9%.
 Spring PetClinic answers `/` 8.5% faster than Oracle's binary and `/vets` 22.6%, and Quarkus about 5%.
 See `docs/issues/2026-10-03-graalvm-25-4.md`. The figures below are from GraalVM 25.3.
 
@@ -196,7 +196,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleSampledCountedFallback` | on | in a copy, answer a call the stacks caught too seldom from the counted receivers along the same path |
 | `CrucibleSinkAfterDuplication` | on with a profile | after control flow duplication (`-H:+OptDuplication`), copy arithmetic only rarely run blocks use into each of them |
 | `LargeArrayThreshold` | the most an aligned chunk takes | the size from which an array gets a chunk of its own; was 128 KB. Not a Crucible option |
-| `OptDuplication` | off with a profile | control flow duplication, new in GraalVM 25.4; with a profile it can put a value computed on a rarely taken path on every path. Not a Crucible option |
+| `OptDuplication` | on | control flow duplication, new in GraalVM 25.4; with a profile it can put a value computed on a rarely taken path on every path, which `CrucibleSinkAfterDuplication` undoes. Not a Crucible option |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
 | `CrucibleColdCodeSize` | on | keep cold methods from inlining |
 | `CrucibleColdOptimizeForSize` | on | compile cold methods with the settings of `-Os`: the image of a Quarkus service 11% smaller, of Spring PetClinic 12%, of a Renaissance benchmark or a sample 7 to 10%, at the same speed on all nineteen |
