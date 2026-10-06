@@ -243,6 +243,9 @@ public final class CrucibleOptions {
                     "left it scheduled above the branches. On with a profile unless set; only with -H:+OptDuplication.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleSinkAfterDuplication = new HostedOptionKey<>(false);
 
+    @Option(help = "Fewest nodes a value moved by -H:+CrucibleSinkAfterDuplication must have, with what only it uses.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleSinkMinNodes = new HostedOptionKey<>(8);
+
     @Option(help = "How lopsided a check inside a loop has to be before the loop's range is split around it.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleLoopRangeSplitMinimumBias = new HostedOptionKey<>(0.99);
 

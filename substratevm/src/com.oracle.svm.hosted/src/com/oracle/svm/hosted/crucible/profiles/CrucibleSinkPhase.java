@@ -33,6 +33,8 @@ import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
 import org.graalvm.collections.MapCursor;
 
+import com.oracle.svm.core.crucible.CrucibleOptions;
+
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.nodes.AbstractBeginNode;
 import jdk.graal.compiler.nodes.ConstantNode;
@@ -68,8 +70,6 @@ public final class CrucibleSinkPhase extends BasePhase<CoreProviders> {
 
     /** The blocks that use a value must run at most this share as often as the one it is in. */
     private static final double MAX_USE_SHARE = 0.25;
-    /** Fewest nodes in a value's own subtree for moving it to pay for the copies. */
-    private static final int MIN_SUBTREE = 8;
     /** Most nodes copied for one value into one block. */
     private static final int MAX_SUBTREE = 2000;
 
@@ -168,7 +168,7 @@ public final class CrucibleSinkPhase extends BasePhase<CoreProviders> {
                 continue;
             }
             List<Node> subtree = ownSubtree(value);
-            if (subtree.size() < MIN_SUBTREE || subtree.size() > MAX_SUBTREE) {
+            if (subtree.size() < CrucibleOptions.CrucibleSinkMinNodes.getValue() || subtree.size() > MAX_SUBTREE) {
                 continue;
             }
             /*
