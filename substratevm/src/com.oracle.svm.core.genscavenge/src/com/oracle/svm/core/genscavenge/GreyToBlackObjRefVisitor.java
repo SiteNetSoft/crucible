@@ -100,21 +100,21 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
     }
 
     /** From now on, references of the objects visited are visited after a delay; see {@link #flushQueue}. */
-    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void startQueueing() {
         if (queueCapacity() > 0) {
             queueing = true;
         }
     }
 
-    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void stopQueueing() {
         assert queueSize == 0 : "references left unvisited";
         queueing = false;
     }
 
     /** Visits every reference still waiting, and returns whether there was any. */
-    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     boolean flushQueue() {
         if (queueCapacity() == 0 || queueSize == 0) {
             return false;
