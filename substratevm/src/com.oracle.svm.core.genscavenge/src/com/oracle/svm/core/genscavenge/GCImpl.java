@@ -1253,6 +1253,11 @@ public final class GCImpl implements GC {
         return greyToBlackObjectVisitor;
     }
 
+    @Fold
+    GreyToBlackObjRefVisitor getGreyToBlackObjRefVisitor() {
+        return greyToBlackObjRefVisitor;
+    }
+
     private static class CollectionVMOperation extends NativeVMOperation {
         private final NoAllocationVerifier noAllocationVerifier = NoAllocationVerifier.factory("CollectionVMOperation", false);
 

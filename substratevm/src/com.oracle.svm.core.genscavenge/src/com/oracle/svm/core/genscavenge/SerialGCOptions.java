@@ -106,6 +106,9 @@ public final class SerialGCOptions {
     @Option(help = "Develop demographics of the object references visited. Serial GC only.", type = OptionType.Debug)//
     public static final HostedOptionKey<Boolean> GreyToBlackObjRefDemographics = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
+    @Option(help = "While a collection scans the objects it copied, prefetch the objects their references point to and visit each reference this many references later; 0 visits each at once. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> GreyScanPrefetchQueue = new HostedOptionKey<>(0, SerialGCOptions::validateSerialHostedOption);
+
     @Option(help = "Ignore the maximum heap size while in VM-internal code. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> IgnoreMaxHeapSizeWhileInVMInternalCode = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 

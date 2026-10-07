@@ -38,4 +38,8 @@ public interface SubstrateLIRGenerator {
     void emitInstructionSynchronizationBarrier();
 
     void emitExitMethodAddressResolution(Value ip);
+
+    /** Prefetches the memory at {@code address} for reading, where the target has such an instruction. */
+    default void emitPrefetchRead(Value address) {
+    }
 }

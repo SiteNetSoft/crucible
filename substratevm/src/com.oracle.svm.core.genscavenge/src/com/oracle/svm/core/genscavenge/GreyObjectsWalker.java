@@ -78,10 +78,16 @@ final class GreyObjectsWalker {
     @NeverInline("Split the GC into reasonable compilation units")
     @Uninterruptible(reason = CORE_GC_CODE)
     void walkGreyObjects() {
-        while (haveGreyObjects()) {
-            walkAlignedGreyObjects();
-            walkUnalignedGreyObjects();
-        }
+        GreyToBlackObjRefVisitor refVisitor = GCImpl.getGCImpl().getGreyToBlackObjRefVisitor();
+        refVisitor.startQueueing();
+        do {
+            while (haveGreyObjects()) {
+                walkAlignedGreyObjects();
+                walkUnalignedGreyObjects();
+            }
+            /* The references still waiting can copy more objects, which are then grey too. */
+        } while (refVisitor.flushQueue());
+        refVisitor.stopQueueing();
     }
 
     @AlwaysInline("GC performance")

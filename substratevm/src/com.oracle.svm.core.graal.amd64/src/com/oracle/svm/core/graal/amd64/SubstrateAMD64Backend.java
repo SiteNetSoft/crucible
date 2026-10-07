@@ -892,6 +892,12 @@ public class SubstrateAMD64Backend extends SubstrateBackendWithAssembler<AMD64Ma
         }
 
         @Override
+        public void emitPrefetchRead(Value address) {
+            /* prefetcht0: into all cache levels, for a read that follows. */
+            append(new AMD64PrefetchOp(new AMD64AddressValue(LIRKind.value(AMD64Kind.QWORD), asAllocatable(address), 0), 1));
+        }
+
+        @Override
         public Value emitCompress(Value pointer, CompressEncoding encoding, boolean isNonNull) {
             Variable result = newVariable(getLIRKindTool().getNarrowOopKind());
             append(new AMD64Move.CompressPointerOp(result, asAllocatable(pointer), ReservedRegisters.singleton().getHeapBaseRegister().asValue(), encoding, true, getLIRKindTool()));
