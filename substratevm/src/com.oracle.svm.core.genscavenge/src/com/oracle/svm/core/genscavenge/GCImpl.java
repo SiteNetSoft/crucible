@@ -380,9 +380,18 @@ public final class GCImpl implements GC {
         accounting.beforeCollectOnce(completeCollection);
         policy.onCollectionBegin(completeCollection, beginNanoTime);
 
+        UnsignedWord oldBefore = HeapImpl.getAccounting().getOldUsedBytes();
         doCollectCore();
         if (complete) {
             lastWholeHeapExaminedNanos = System.nanoTime();
+        } else {
+            /*
+             * What a young collection copied is what the next one will most likely scan: where it
+             * fits in the caches, prefetching only adds work.
+             */
+            UnsignedWord oldAfter = HeapImpl.getAccounting().getOldUsedBytes();
+            UnsignedWord copied = HeapImpl.getAccounting().getSurvivorUsedBytes().add(oldAfter.aboveThan(oldBefore) ? oldAfter.subtract(oldBefore) : Word.zero());
+            scanPrefetch = copied.aboveOrEqual(Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024));
         }
 
         accounting.afterCollectOnce(completeCollection);
@@ -1256,6 +1265,14 @@ public final class GCImpl implements GC {
     @Fold
     GreyToBlackObjRefVisitor getGreyToBlackObjRefVisitor() {
         return greyToBlackObjRefVisitor;
+    }
+
+    /** Whether this collection prefetches while scanning copied objects; see GreyScanPrefetchMinCopiedKB. */
+    private boolean scanPrefetch = true;
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    boolean isScanPrefetch() {
+        return scanPrefetch;
     }
 
     private static class CollectionVMOperation extends NativeVMOperation {

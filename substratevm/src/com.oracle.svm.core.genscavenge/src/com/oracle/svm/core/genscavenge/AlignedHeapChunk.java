@@ -170,7 +170,7 @@ public final class AlignedHeapChunk {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     static void walkObjectsFromInline(AlignedHeader that, Pointer start, GreyToBlackObjectVisitor visitor) {
-        if (!SerialGCOptions.GreyScanPrefetchNextObject.getValue()) {
+        if (!SerialGCOptions.GreyScanPrefetchNextObject.getValue() || !GCImpl.getGCImpl().isScanPrefetch()) {
             HeapChunk.walkObjectsFromInline(that, start, visitor);
             return;
         }
