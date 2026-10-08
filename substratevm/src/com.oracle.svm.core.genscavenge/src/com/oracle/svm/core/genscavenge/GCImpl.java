@@ -380,18 +380,11 @@ public final class GCImpl implements GC {
         accounting.beforeCollectOnce(completeCollection);
         policy.onCollectionBegin(completeCollection, beginNanoTime);
 
-        UnsignedWord oldBefore = HeapImpl.getAccounting().getOldUsedBytes();
+        copyStartBytes = copiedToBytes();
+        scanPrefetch = SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue() == 0;
         doCollectCore();
         if (complete) {
             lastWholeHeapExaminedNanos = System.nanoTime();
-        } else {
-            /*
-             * What a young collection copied is what the next one will most likely scan: where it
-             * fits in the caches, prefetching only adds work.
-             */
-            UnsignedWord oldAfter = HeapImpl.getAccounting().getOldUsedBytes();
-            UnsignedWord copied = HeapImpl.getAccounting().getSurvivorUsedBytes().add(oldAfter.aboveThan(oldBefore) ? oldAfter.subtract(oldBefore) : Word.zero());
-            scanPrefetch = copied.aboveOrEqual(Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024));
         }
 
         accounting.afterCollectOnce(completeCollection);
@@ -1267,12 +1260,31 @@ public final class GCImpl implements GC {
         return greyToBlackObjRefVisitor;
     }
 
-    /** Whether this collection prefetches while scanning copied objects; see GreyScanPrefetchMinCopiedKB. */
+    /*
+     * Whether this collection prefetches while scanning copied objects. It starts without and does
+     * once it has copied GreyScanPrefetchMinCopiedKB: what fits in the caches is not worth it.
+     */
     private boolean scanPrefetch = true;
+    private UnsignedWord copyStartBytes = Word.zero();
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     boolean isScanPrefetch() {
         return scanPrefetch;
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static UnsignedWord copiedToBytes() {
+        HeapImpl heap = HeapImpl.getHeapImpl();
+        return heap.getOldGeneration().getChunkBytes().add(heap.getYoungGeneration().getSurvivorChunkBytes());
+    }
+
+    /** Turns prefetching on once this collection has copied enough; called for each chunk scanned. */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    void updateScanPrefetch() {
+        if (!scanPrefetch) {
+            UnsignedWord now = copiedToBytes();
+            scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024));
+        }
     }
 
     private static class CollectionVMOperation extends NativeVMOperation {
