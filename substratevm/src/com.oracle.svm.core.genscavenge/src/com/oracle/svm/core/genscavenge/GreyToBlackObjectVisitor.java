@@ -42,10 +42,23 @@ import com.oracle.svm.shared.Uninterruptible;
  */
 public final class GreyToBlackObjectVisitor implements UninterruptibleObjectVisitor {
     private final GreyToBlackObjRefVisitor objRefVisitor;
+    private final PrefetchReferentsVisitor prefetchVisitor = new PrefetchReferentsVisitor();
+    private final boolean prefetching;
 
     @Platforms(Platform.HOSTED_ONLY.class)
     GreyToBlackObjectVisitor(GreyToBlackObjRefVisitor greyToBlackObjRefVisitor) {
+        this(greyToBlackObjRefVisitor, false);
+    }
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    GreyToBlackObjectVisitor(GreyToBlackObjRefVisitor greyToBlackObjRefVisitor, boolean prefetching) {
         this.objRefVisitor = greyToBlackObjRefVisitor;
+        this.prefetching = prefetching;
+    }
+
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    boolean isPrefetching() {
+        return prefetching;
     }
 
     @Override
@@ -54,6 +67,13 @@ public final class GreyToBlackObjectVisitor implements UninterruptibleObjectVisi
     public void visitObject(Object o) {
         ReferenceObjectProcessing.discoverIfReference(o, objRefVisitor);
         InteriorObjRefWalker.walkObjectInline(o, objRefVisitor);
+    }
+
+    /** Prefetches the referents of {@code next}, the copied object visited after the current one. */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    void prefetchReferentsOf(Object next) {
+        prefetchVisitor.prefetchReferentsOf(next);
     }
 
     @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)

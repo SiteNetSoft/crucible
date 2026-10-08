@@ -78,10 +78,16 @@ final class GreyObjectsWalker {
     @NeverInline("Split the GC into reasonable compilation units")
     @Uninterruptible(reason = CORE_GC_CODE)
     void walkGreyObjects() {
-        while (haveGreyObjects()) {
-            walkAlignedGreyObjects();
-            walkUnalignedGreyObjects();
-        }
+        GreyToBlackObjRefVisitor refVisitor = GCImpl.getGCImpl().getPrefetchingObjRefVisitor();
+        refVisitor.startQueueing();
+        do {
+            while (haveGreyObjects()) {
+                walkAlignedGreyObjects();
+                walkUnalignedGreyObjects();
+            }
+            /* The references still waiting can copy more objects, which are then grey too. */
+        } while (refVisitor.flushQueue());
+        refVisitor.stopQueueing();
     }
 
     @AlwaysInline("GC performance")
@@ -99,12 +105,17 @@ final class GreyObjectsWalker {
             aStart = alignedTop;
         }
         /* Visit Objects in the AlignedChunks. */
-        GreyToBlackObjectVisitor visitor = GCImpl.getGCImpl().getGreyToBlackObjectVisitor();
         if (aChunk.isNonNull()) {
             AlignedHeapChunk.AlignedHeader lastChunk;
             do {
                 lastChunk = aChunk;
-                AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, visitor);
+                GCImpl.getGCImpl().updateScanPrefetch();
+                GreyToBlackObjectVisitor visitor = GCImpl.getGCImpl().getScanVisitor();
+                if (visitor.isPrefetching()) {
+                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, GCImpl.getGCImpl().getPrefetchingObjectVisitor());
+                } else {
+                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, GCImpl.getGCImpl().getGreyToBlackObjectVisitor());
+                }
                 aChunk = HeapChunk.getNext(aChunk);
                 aStart = (aChunk.isNonNull() ? AlignedHeapChunk.getObjectsStart(aChunk) : Word.nullPointer());
             } while (aChunk.isNonNull());

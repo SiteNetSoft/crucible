@@ -129,6 +129,12 @@ public final class GCImpl implements GC {
 
     private final GreyToBlackObjRefVisitor greyToBlackObjRefVisitor = new GreyToBlackObjRefVisitor();
     private final GreyToBlackObjectVisitor greyToBlackObjectVisitor = new GreyToBlackObjectVisitor(greyToBlackObjRefVisitor);
+    /*
+     * Copies of the two visitors that prefetch while scanning copied objects: with the decision
+     * made once a chunk, the visitors that do not prefetch are the same code as without the option.
+     */
+    private final GreyToBlackObjRefVisitor prefetchingObjRefVisitor = scanPrefetchConfigured() ? new GreyToBlackObjRefVisitor(true) : greyToBlackObjRefVisitor;
+    private final GreyToBlackObjectVisitor prefetchingObjectVisitor = scanPrefetchConfigured() ? new GreyToBlackObjectVisitor(prefetchingObjRefVisitor, true) : greyToBlackObjectVisitor;
     private final RuntimeCodeCacheWalker runtimeCodeCacheWalker = new RuntimeCodeCacheWalker(greyToBlackObjRefVisitor);
     private final RuntimeCodeCacheCleaner runtimeCodeCacheCleaner = new RuntimeCodeCacheCleaner();
     private final SweepAndPromotePinnedChunkVisitor pinnedChunkPromotionVisitor = new SweepAndPromotePinnedChunkVisitor();
@@ -380,9 +386,14 @@ public final class GCImpl implements GC {
         accounting.beforeCollectOnce(completeCollection);
         policy.onCollectionBegin(completeCollection, beginNanoTime);
 
+        copyStartBytes = copiedToBytes();
+        scanPrefetch = lastCopiedBytes.aboveOrEqual(scanPrefetchMinCopied());
         doCollectCore();
         if (complete) {
             lastWholeHeapExaminedNanos = System.nanoTime();
+        } else {
+            UnsignedWord now = copiedToBytes();
+            lastCopiedBytes = now.aboveThan(copyStartBytes) ? now.subtract(copyStartBytes) : Word.zero();
         }
 
         accounting.afterCollectOnce(completeCollection);
@@ -1251,6 +1262,62 @@ public final class GCImpl implements GC {
     @Fold
     GreyToBlackObjectVisitor getGreyToBlackObjectVisitor() {
         return greyToBlackObjectVisitor;
+    }
+
+    @Fold
+    GreyToBlackObjRefVisitor getGreyToBlackObjRefVisitor() {
+        return greyToBlackObjRefVisitor;
+    }
+
+    /*
+     * Whether this collection prefetches while scanning copied objects: from its start if the last
+     * young collection copied GreyScanPrefetchMinCopiedKB, otherwise once it has itself. What fits
+     * in the caches is not worth it.
+     */
+    private boolean scanPrefetch = true;
+    private UnsignedWord copyStartBytes = Word.zero();
+    /* What the last young collection copied: a collection after one that copied enough starts prefetching. */
+    private UnsignedWord lastCopiedBytes = Word.zero();
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static UnsignedWord scanPrefetchMinCopied() {
+        return Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024);
+    }
+
+    @Fold
+    static boolean scanPrefetchConfigured() {
+        return SerialGCOptions.GreyScanPrefetchQueue.getValue() > 0 || SerialGCOptions.GreyScanPrefetchAhead.getValue() > 0 || SerialGCOptions.GreyScanPrefetchNextObject.getValue();
+    }
+
+    /** The visitor for the next chunk of copied objects to scan: prefetching or not. */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    GreyToBlackObjectVisitor getScanVisitor() {
+        return scanPrefetchConfigured() && scanPrefetch ? prefetchingObjectVisitor : greyToBlackObjectVisitor;
+    }
+
+    @Fold
+    GreyToBlackObjectVisitor getPrefetchingObjectVisitor() {
+        return prefetchingObjectVisitor;
+    }
+
+    @Fold
+    GreyToBlackObjRefVisitor getPrefetchingObjRefVisitor() {
+        return prefetchingObjRefVisitor;
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static UnsignedWord copiedToBytes() {
+        HeapImpl heap = HeapImpl.getHeapImpl();
+        return heap.getOldGeneration().getChunkBytes().add(heap.getYoungGeneration().getSurvivorChunkBytes());
+    }
+
+    /** Turns prefetching on once this collection has copied enough; called for each chunk scanned. */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    void updateScanPrefetch() {
+        if (scanPrefetchConfigured() && !scanPrefetch) {
+            UnsignedWord now = copiedToBytes();
+            scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(scanPrefetchMinCopied());
+        }
     }
 
     private static class CollectionVMOperation extends NativeVMOperation {

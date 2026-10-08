@@ -106,6 +106,21 @@ public final class SerialGCOptions {
     @Option(help = "Develop demographics of the object references visited. Serial GC only.", type = OptionType.Debug)//
     public static final HostedOptionKey<Boolean> GreyToBlackObjRefDemographics = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
+    @Option(help = "While a collection scans the objects it copied, prefetch the objects their references point to and visit each reference this many references later; 0 visits each at once. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> GreyScanPrefetchQueue = new HostedOptionKey<>(0, SerialGCOptions::validateSerialHostedOption);
+
+    @Option(help = "With GreyScanPrefetchQueue, issue the prefetch; without, only the order of the visits changes. Serial GC only.", type = OptionType.Debug)//
+    public static final HostedOptionKey<Boolean> GreyScanPrefetchIssue = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);
+
+    @Option(help = "While a collection visits the references of an object, prefetch what the reference this many slots further on in the same object points to; 0 does not. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> GreyScanPrefetchAhead = new HostedOptionKey<>(8, SerialGCOptions::validateSerialHostedOption);
+
+    @Option(help = "While a collection visits an object it copied, prefetch what the references of the next copied object point to. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> GreyScanPrefetchNextObject = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);
+
+    @Option(help = "Prefetch while scanning copied objects only in a collection after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> GreyScanPrefetchMinCopiedKB = new HostedOptionKey<>(1024, SerialGCOptions::validateSerialHostedOption);
+
     @Option(help = "Ignore the maximum heap size while in VM-internal code. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> IgnoreMaxHeapSizeWhileInVMInternalCode = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
