@@ -113,10 +113,10 @@ public final class SerialGCOptions {
     public static final HostedOptionKey<Boolean> GreyScanPrefetchIssue = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);
 
     @Option(help = "While a collection visits the references of an object, prefetch what the reference this many slots further on in the same object points to; 0 does not. Serial GC only.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Integer> GreyScanPrefetchAhead = new HostedOptionKey<>(0, SerialGCOptions::validateSerialHostedOption);
+    public static final HostedOptionKey<Integer> GreyScanPrefetchAhead = new HostedOptionKey<>(8, SerialGCOptions::validateSerialHostedOption);
 
     @Option(help = "While a collection visits an object it copied, prefetch what the references of the next copied object point to. Serial GC only.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> GreyScanPrefetchNextObject = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
+    public static final HostedOptionKey<Boolean> GreyScanPrefetchNextObject = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);
 
     @Option(help = "Prefetch while scanning copied objects only in a collection after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> GreyScanPrefetchMinCopiedKB = new HostedOptionKey<>(1024, SerialGCOptions::validateSerialHostedOption);
