@@ -37,6 +37,7 @@ import org.graalvm.word.impl.Word;
 import com.oracle.svm.shared.AlwaysInline;
 import com.oracle.svm.core.genscavenge.remset.RememberedSet;
 import com.oracle.svm.core.heap.ObjectVisitor;
+import com.oracle.svm.core.hub.LayoutEncoding;
 import com.oracle.svm.core.util.PointerUtils;
 import com.oracle.svm.shared.Uninterruptible;
 
@@ -169,7 +170,20 @@ public final class AlignedHeapChunk {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     static void walkObjectsFromInline(AlignedHeader that, Pointer start, GreyToBlackObjectVisitor visitor) {
-        HeapChunk.walkObjectsFromInline(that, start, visitor);
+        if (!SerialGCOptions.GreyScanPrefetchNextObject.getValue()) {
+            HeapChunk.walkObjectsFromInline(that, start, visitor);
+            return;
+        }
+        Pointer p = start;
+        while (p.belowThan(HeapChunk.getTopPointer(that))) { // top can move, so always re-read
+            Object obj = p.toObjectNonNull();
+            Pointer next = p.add(LayoutEncoding.getSizeFromObjectInlineInGC(obj));
+            if (next.belowThan(HeapChunk.getTopPointer(that))) {
+                visitor.prefetchReferentsOf(next.toObjectNonNull());
+            }
+            visitor.visitObject(obj);
+            p = next;
+        }
     }
 
     @Fold
