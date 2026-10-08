@@ -387,10 +387,13 @@ public final class GCImpl implements GC {
         policy.onCollectionBegin(completeCollection, beginNanoTime);
 
         copyStartBytes = copiedToBytes();
-        scanPrefetch = SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue() == 0;
+        scanPrefetch = lastCopiedBytes.aboveOrEqual(scanPrefetchMinCopied());
         doCollectCore();
         if (complete) {
             lastWholeHeapExaminedNanos = System.nanoTime();
+        } else {
+            UnsignedWord now = copiedToBytes();
+            lastCopiedBytes = now.aboveThan(copyStartBytes) ? now.subtract(copyStartBytes) : Word.zero();
         }
 
         accounting.afterCollectOnce(completeCollection);
@@ -1267,11 +1270,19 @@ public final class GCImpl implements GC {
     }
 
     /*
-     * Whether this collection prefetches while scanning copied objects. It starts without and does
-     * once it has copied GreyScanPrefetchMinCopiedKB: what fits in the caches is not worth it.
+     * Whether this collection prefetches while scanning copied objects: from its start if the last
+     * young collection copied GreyScanPrefetchMinCopiedKB, otherwise once it has itself. What fits
+     * in the caches is not worth it.
      */
     private boolean scanPrefetch = true;
     private UnsignedWord copyStartBytes = Word.zero();
+    /* What the last young collection copied: a collection after one that copied enough starts prefetching. */
+    private UnsignedWord lastCopiedBytes = Word.zero();
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static UnsignedWord scanPrefetchMinCopied() {
+        return Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024);
+    }
 
     @Fold
     static boolean scanPrefetchConfigured() {
@@ -1305,7 +1316,7 @@ public final class GCImpl implements GC {
     void updateScanPrefetch() {
         if (scanPrefetchConfigured() && !scanPrefetch) {
             UnsignedWord now = copiedToBytes();
-            scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024));
+            scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(scanPrefetchMinCopied());
         }
     }
 
