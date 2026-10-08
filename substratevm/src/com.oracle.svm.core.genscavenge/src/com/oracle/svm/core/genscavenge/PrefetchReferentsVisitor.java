@@ -69,7 +69,7 @@ final class PrefetchReferentsVisitor implements UninterruptibleObjectReferenceVi
             InstanceReferenceMapDecoder.walkReferencesInline(Word.objectToUntrackedPointer(obj), DynamicHubSupport.getInstanceReferenceMap(hub), this, obj);
         } else if (hubType == HubType.OBJECT_ARRAY) {
             int length = ArrayLengthNode.arrayLength(obj);
-            InteriorObjRefWalker.walkObjectArrayRangeInline(obj, 0, Math.min(length, ARRAY_SLOTS), this);
+            InteriorObjRefWalker.walkObjectArrayRangeInline(obj, 0, length < ARRAY_SLOTS ? length : ARRAY_SLOTS, this);
         }
     }
 
