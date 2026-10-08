@@ -88,10 +88,31 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
             }
             return;
         }
+        if (prefetchAhead() > 0) {
+            /* The order of the visits stays; only the referent of a later slot is prefetched. */
+            int ahead = prefetchAhead() * referenceSize;
+            while (pos.belowThan(end)) {
+                Pointer later = pos.add(ahead);
+                if (later.belowThan(end)) {
+                    Pointer p = ReferenceAccess.singleton().readObjectAsUntrackedPointer(later, compressed);
+                    if (p.isNonNull()) {
+                        PrefetchReadNode.prefetch(p);
+                    }
+                }
+                visitObjectReference(pos, compressed, holderObject);
+                pos = pos.add(referenceSize);
+            }
+            return;
+        }
         while (pos.belowThan(end)) {
             visitObjectReference(pos, compressed, holderObject);
             pos = pos.add(referenceSize);
         }
+    }
+
+    @Fold
+    static int prefetchAhead() {
+        return SerialGCOptions.GreyScanPrefetchAhead.getValue();
     }
 
     @Fold
