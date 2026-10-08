@@ -195,6 +195,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleHotInliningBudget` | on with stacks | give hot methods and copies the inlining budget Oracle's builder gives a hot unit |
 | `CrucibleSampledCountedFallback` | on | in a copy, answer a call the stacks caught too seldom from the counted receivers along the same path |
 | `CrucibleSinkAfterDuplication` | on with a profile | after control flow duplication (`-H:+OptDuplication`), copy arithmetic only rarely run blocks use into each of them |
+| `GreyScanPrefetchQueue` | 0 | while a collection scans the objects it copied, prefetch what their references point to and visit each reference this many later; 8 is enough. Not a Crucible option |
 | `LargeArrayThreshold` | the most an aligned chunk takes | the size from which an array gets a chunk of its own; was 128 KB. Not a Crucible option |
 | `OptDuplication` | on | control flow duplication, new in GraalVM 25.4; with a profile it can put a value computed on a rarely taken path on every path, which `CrucibleSinkAfterDuplication` undoes. Not a Crucible option |
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
