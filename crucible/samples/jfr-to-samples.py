@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Adds sampled call stacks from a JFR recording to a CrucibleVM profile.
 
-    jfr print --json --events jdk.ExecutionSample recording.jfr > samples.json
+    jfr print --json --stack-depth 64 --events jdk.ExecutionSample recording.jfr > samples.json
     jfr-to-samples.py profile.json samples.json profile-with-samples.json
 
+Without --stack-depth, jfr print keeps five frames of each stack, too few to tell callers apart.
 The recording can come from any native image of the same program built with
     --enable-monitoring=jfr -H:+SignalHandlerBasedExecutionSampler
 and run with -XX:StartFlightRecording=filename=recording.jfr. An ordinary optimized build is the
