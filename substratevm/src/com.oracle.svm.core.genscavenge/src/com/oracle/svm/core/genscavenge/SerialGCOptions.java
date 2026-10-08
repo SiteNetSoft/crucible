@@ -118,7 +118,7 @@ public final class SerialGCOptions {
     @Option(help = "While a collection visits an object it copied, prefetch what the references of the next copied object point to. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> GreyScanPrefetchNextObject = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
-    @Option(help = "Prefetch while scanning copied objects (GreyScanPrefetchQueue, GreyScanPrefetchAhead, GreyScanPrefetchNextObject) only in a collection after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
+    @Option(help = "Prefetch while scanning copied objects only in a collection after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> GreyScanPrefetchMinCopiedKB = new HostedOptionKey<>(1024, SerialGCOptions::validateSerialHostedOption);
 
     @Option(help = "Ignore the maximum heap size while in VM-internal code. Serial GC only.", type = OptionType.Expert)//
