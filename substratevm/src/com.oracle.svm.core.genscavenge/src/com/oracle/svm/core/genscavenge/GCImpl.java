@@ -129,6 +129,12 @@ public final class GCImpl implements GC {
 
     private final GreyToBlackObjRefVisitor greyToBlackObjRefVisitor = new GreyToBlackObjRefVisitor();
     private final GreyToBlackObjectVisitor greyToBlackObjectVisitor = new GreyToBlackObjectVisitor(greyToBlackObjRefVisitor);
+    /*
+     * Copies of the two visitors that prefetch while scanning copied objects: with the decision
+     * made once a chunk, the visitors that do not prefetch are the same code as without the option.
+     */
+    private final GreyToBlackObjRefVisitor prefetchingObjRefVisitor = scanPrefetchConfigured() ? new GreyToBlackObjRefVisitor(true) : greyToBlackObjRefVisitor;
+    private final GreyToBlackObjectVisitor prefetchingObjectVisitor = scanPrefetchConfigured() ? new GreyToBlackObjectVisitor(prefetchingObjRefVisitor, true) : greyToBlackObjectVisitor;
     private final RuntimeCodeCacheWalker runtimeCodeCacheWalker = new RuntimeCodeCacheWalker(greyToBlackObjRefVisitor);
     private final RuntimeCodeCacheCleaner runtimeCodeCacheCleaner = new RuntimeCodeCacheCleaner();
     private final SweepAndPromotePinnedChunkVisitor pinnedChunkPromotionVisitor = new SweepAndPromotePinnedChunkVisitor();
@@ -1267,9 +1273,25 @@ public final class GCImpl implements GC {
     private boolean scanPrefetch = true;
     private UnsignedWord copyStartBytes = Word.zero();
 
+    @Fold
+    static boolean scanPrefetchConfigured() {
+        return SerialGCOptions.GreyScanPrefetchQueue.getValue() > 0 || SerialGCOptions.GreyScanPrefetchAhead.getValue() > 0 || SerialGCOptions.GreyScanPrefetchNextObject.getValue();
+    }
+
+    /** The visitor for the next chunk of copied objects to scan: prefetching or not. */
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    boolean isScanPrefetch() {
-        return scanPrefetch;
+    GreyToBlackObjectVisitor getScanVisitor() {
+        return scanPrefetchConfigured() && scanPrefetch ? prefetchingObjectVisitor : greyToBlackObjectVisitor;
+    }
+
+    @Fold
+    GreyToBlackObjectVisitor getPrefetchingObjectVisitor() {
+        return prefetchingObjectVisitor;
+    }
+
+    @Fold
+    GreyToBlackObjRefVisitor getPrefetchingObjRefVisitor() {
+        return prefetchingObjRefVisitor;
     }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
@@ -1281,7 +1303,7 @@ public final class GCImpl implements GC {
     /** Turns prefetching on once this collection has copied enough; called for each chunk scanned. */
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void updateScanPrefetch() {
-        if (!scanPrefetch) {
+        if (scanPrefetchConfigured() && !scanPrefetch) {
             UnsignedWord now = copiedToBytes();
             scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(Word.unsigned(SerialGCOptions.GreyScanPrefetchMinCopiedKB.getValue()).multiply(1024));
         }

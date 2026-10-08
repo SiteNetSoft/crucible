@@ -66,8 +66,17 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
     private int queueSize;
     private boolean queueing;
 
+    /** Whether this visitor prefetches; the collector has one that does and one that does not. */
+    private final boolean prefetching;
+
     @Platforms(Platform.HOSTED_ONLY.class)
     GreyToBlackObjRefVisitor() {
+        this(false);
+    }
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    GreyToBlackObjRefVisitor(boolean prefetching) {
+        this.prefetching = prefetching;
         if (SerialGCOptions.GreyToBlackObjRefDemographics.getValue()) {
             counters = new RealCounters();
         } else {
@@ -88,7 +97,7 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
             }
             return;
         }
-        if (prefetchAhead() > 0 && GCImpl.getGCImpl().isScanPrefetch()) {
+        if (prefetchAhead() > 0 && prefetching) {
             /* The order of the visits stays; only the referent of a later slot is prefetched. */
             int ahead = prefetchAhead() * referenceSize;
             while (pos.belowThan(end)) {
@@ -128,7 +137,7 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
     /** From now on, references of the objects visited are visited after a delay; see {@link #flushQueue}. */
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void startQueueing() {
-        if (queueCapacity() > 0 && GCImpl.getGCImpl().isScanPrefetch()) {
+        if (queueCapacity() > 0 && prefetching) {
             queueing = true;
         }
     }
