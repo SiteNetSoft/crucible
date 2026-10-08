@@ -95,6 +95,11 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
     }
 
     @Fold
+    static boolean issuePrefetch() {
+        return SerialGCOptions.GreyScanPrefetchIssue.getValue();
+    }
+
+    @Fold
     static int queueCapacity() {
         return SerialGCOptions.GreyScanPrefetchQueue.getValue();
     }
@@ -134,7 +139,9 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
             visitObjectReference(objRef, compressed, holderObject);
             return;
         }
-        PrefetchReadNode.prefetch(p);
+        if (issuePrefetch()) {
+            PrefetchReadNode.prefetch(p);
+        }
         if (queueSize == queueCapacity()) {
             visitOldestQueued();
         }
