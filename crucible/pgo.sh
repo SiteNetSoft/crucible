@@ -28,18 +28,20 @@
 #   --run CMD       the workload, a shell command using $APP (required)
 #   --no-samples    stop after the counted profile: one run and two builds instead of two and three
 #   --level LEVEL   optimization level for the images that are built (default 3)
+#   --run-timeout S stop the workload with SIGTERM after S seconds, for one that does not end by itself
 #
 set -euo pipefail
 
 usage() { sed -n '/^# Builds/,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit "${1:-1}"; }
 
-NAME=""; RUN=""; SAMPLES=1; LEVEL=3; MIN_SAMPLES=500
+NAME=""; RUN=""; SAMPLES=1; LEVEL=3; MIN_SAMPLES=500; RUN_TIMEOUT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --name) NAME="$2"; shift 2 ;;
         --run) RUN="$2"; shift 2 ;;
         --no-samples) SAMPLES=0; shift ;;
         --level) LEVEL="$2"; shift 2 ;;
+        --run-timeout) RUN_TIMEOUT="$2"; shift 2 ;;
         -h|--help) usage 0 ;;
         --) shift; break ;;
         *) echo "pgo.sh: unknown option $1" >&2; usage ;;
@@ -54,6 +56,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
 source "$REPO/crucible/env.sh"
 JFR="$JAVA_HOME/bin/jfr"
+for tool in mx python3 setsid; do
+    command -v "$tool" > /dev/null || { echo "pgo.sh: $tool is not on the path" >&2; exit 1; }
+done
+if [ "$SAMPLES" = 1 ] && [ ! -x "$JFR" ]; then
+    echo "pgo.sh: $JFR is missing; give --no-samples, or a JAVA_HOME_CRUCIBLE with jfr in it" >&2; exit 1
+fi
 WD="$PWD/.crucible-pgo/$NAME"
 mkdir -p "$WD"
 
@@ -74,7 +82,15 @@ workload() { # image, then extra run-time options for it
     chmod +x "$wrapper"
     # A service stopped with SIGTERM exits with 143, so the exit status says nothing: what was written does.
     local status=0
-    APP="$wrapper" bash -c "$RUN" || status=$?
+    if [ -n "$RUN_TIMEOUT" ]; then
+        # In a process group of its own, so that SIGTERM reaches the image and not only the shell around it.
+        APP="$wrapper" setsid bash -c "$RUN" & local pid=$!
+        ( sleep "$RUN_TIMEOUT"; kill -TERM -- "-$pid" 2> /dev/null; sleep 60; kill -KILL -- "-$pid" 2> /dev/null ) & local watchdog=$!
+        wait "$pid" || status=$?
+        kill "$watchdog" 2> /dev/null || true
+    else
+        APP="$wrapper" bash -c "$RUN" || status=$?
+    fi
     [ "$status" = 0 ] || echo "pgo.sh: the workload exited with $status on $(basename "$image")" >&2
 }
 
