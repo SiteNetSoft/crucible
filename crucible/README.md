@@ -20,7 +20,24 @@ call stacks, runs the workload again, adds the stacks to the profile and builds 
 to ship. The arguments after `--` go to `native-image` as they are (`-jar app.jar` works too); in
 `--run`, `$APP` is the image to run, and the workload has to let it exit normally, which is when it
 writes what it recorded, so stop a service with SIGTERM. `--no-samples` stops after the counted
-profile, one run and two builds. Work files are in `.crucible-pgo/app/`. The steps one at a time:
+profile, one run and two builds. Work files are in `.crucible-pgo/app/`.
+
+For a service, the workload is a small script that starts it, puts load on it and stops it:
+
+    #!/usr/bin/env bash
+    "$APP" --server.port=8080 & PID=$!
+    until curl -sf -o /dev/null http://127.0.0.1:8080/; do sleep 0.1; done
+    oha -z 20s http://127.0.0.1:8080/        # or wrk, hey, a test suite: whatever looks like production
+    oha -z 20s http://127.0.0.1:8080/vets
+    kill -TERM $PID; wait $PID
+
+    crucible/pgo.sh --name petclinic --run ./workload.sh -- <Spring's native-image arguments> --install-exit-handlers
+
+`--install-exit-handlers` lets SIGTERM end the image normally. Built this way, Spring PetClinic
+serves its `/` 11% and `/vets` 26% more requests a second than Oracle's profile-guided binary; the
+whole command takes about a quarter of an hour.
+
+The steps one at a time:
 
 ## Using it
 

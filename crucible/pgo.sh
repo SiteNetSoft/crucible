@@ -72,7 +72,10 @@ workload() { # image, then extra run-time options for it
     local wrapper="$WD/run-$(basename "$image")"
     { printf '#!/usr/bin/env bash\nexec %q' "$image"; for o in "$@"; do printf ' %q' "$o"; done; printf ' "$@"\n'; } > "$wrapper"
     chmod +x "$wrapper"
-    APP="$wrapper" bash -c "$RUN" || { echo "pgo.sh: the workload exited with $? on $(basename "$image")" >&2; exit 1; }
+    # A service stopped with SIGTERM exits with 143, so the exit status says nothing: what was written does.
+    local status=0
+    APP="$wrapper" bash -c "$RUN" || status=$?
+    [ "$status" = 0 ] || echo "pgo.sh: the workload exited with $status on $(basename "$image")" >&2
 }
 
 NI_ARGS=("$@")
