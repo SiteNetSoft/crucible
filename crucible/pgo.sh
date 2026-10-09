@@ -30,6 +30,9 @@
 #   --level LEVEL   optimization level for the images that are built (default 3)
 #   --run-timeout S stop the workload with SIGTERM after S seconds, for one that does not end by itself
 #
+# In a CrucibleVM distribution the script uses the native-image next to it; in the source tree it builds with mx.
+# CRUCIBLE_HOME, set to a distribution, chooses that one.
+#
 set -euo pipefail
 
 usage() { sed -n '/^# Builds/,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit "${1:-1}"; }
@@ -53,10 +56,22 @@ for a in "$@"; do
 done
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=/dev/null
-source "$REPO/crucible/env.sh"
-JFR="$JAVA_HOME/bin/jfr"
-for tool in mx python3 setsid; do
+# In a CrucibleVM distribution this script sits in crucible/ next to bin/native-image; in the source tree, mx builds.
+if [ -z "${CRUCIBLE_HOME:-}" ] && [ -x "$REPO/bin/native-image" ]; then
+    CRUCIBLE_HOME="$REPO"
+fi
+if [ -n "${CRUCIBLE_HOME:-}" ]; then
+    NATIVE_IMAGE=("$CRUCIBLE_HOME/bin/native-image")
+    JFR="$CRUCIBLE_HOME/bin/jfr"
+    TOOLS=(python3 setsid)
+else
+    # shellcheck source=/dev/null
+    source "$REPO/crucible/env.sh"
+    NATIVE_IMAGE=(mx -p "$REPO/substratevm" native-image)
+    JFR="$JAVA_HOME/bin/jfr"
+    TOOLS=(mx python3 setsid)
+fi
+for tool in "${TOOLS[@]}"; do
     command -v "$tool" > /dev/null || { echo "pgo.sh: $tool is not on the path" >&2; exit 1; }
 done
 if [ "$SAMPLES" = 1 ] && [ ! -x "$JFR" ]; then
@@ -70,7 +85,7 @@ step() { echo; echo "== pgo.sh: $*"; }
 build() { # output, then extra native-image options
     local out="$1"; shift
     local log="$WD/$(basename "$out").build.log"
-    mx -p "$REPO/substratevm" native-image "-O$LEVEL" -H:+UnlockExperimentalVMOptions "$@" "${NI_ARGS[@]}" -o "$out" > "$log" 2>&1 || {
+    "${NATIVE_IMAGE[@]}" "-O$LEVEL" -H:+UnlockExperimentalVMOptions "$@" "${NI_ARGS[@]}" -o "$out" > "$log" 2>&1 || {
         echo "pgo.sh: the build of $out failed; the end of $log:" >&2; tail -20 "$log" >&2; exit 1; }
     grep -h "^Crucible:" "$log" | head -3 || true
 }

@@ -16,10 +16,21 @@ A profile recorded by Oracle GraalVM can be converted, see [Converting an Oracle
 
 > Note: CrucibleVM is in an early stage. Keep a build without a profile to compare against.
 
+## Installing CrucibleVM
+
+A CrucibleVM distribution is a _.tar.gz_ archive that contains a GraalVM JDK with the `native-image` tool and the CrucibleVM scripts.
+Unpack it anywhere; it does not need `mx` or the source tree:
+
+```shell
+tar xzf cruciblevm-<version>-linux-x86_64.tar.gz
+cruciblevm/crucible/pgo.sh --help
+```
+
+`native-image` also needs a C toolchain, for example `gcc`, `glibc-devel`, and `zlib-devel` on Linux.
+
 ## Building CrucibleVM
 
-CrucibleVM is built from source.
-To build it, run:
+To build CrucibleVM from source, run:
 
 ```shell
 source crucible/env.sh
@@ -32,6 +43,12 @@ To check that profiles are recorded and applied, run:
 
 ```shell
 mx crucible-e2e
+```
+
+To pack what you built into a distribution archive, run:
+
+```shell
+crucible/package.sh
 ```
 
 ## Building an Optimized Executable in One Command
