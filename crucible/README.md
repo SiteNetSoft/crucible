@@ -11,6 +11,17 @@ production, and build it again with what it recorded. The second build knows whi
 which way, which methods the time is spent in, and where calls actually land, and compiles
 accordingly.
 
+## Quick start
+
+    crucible/pgo.sh --name app --run '$APP <your workload arguments>' -- -cp app.jar com.example.Main
+
+builds an image that records, runs your workload on it, builds an optimized image that samples
+call stacks, runs the workload again, adds the stacks to the profile and builds `./app`, the image
+to ship. The arguments after `--` go to `native-image` as they are (`-jar app.jar` works too); in
+`--run`, `$APP` is the image to run, and the workload has to let it exit normally, which is when it
+writes what it recorded, so stop a service with SIGTERM. `--no-samples` stops after the counted
+profile, one run and two builds. Work files are in `.crucible-pgo/app/`. The steps one at a time:
+
 ## Using it
 
     source crucible/env.sh
