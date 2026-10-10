@@ -140,26 +140,29 @@ Give `-O2` with the profile if you want the smaller image, which is 4 to 8% smal
 On the samples a profile-guided image at `-O2` runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
 
 CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.913 of Oracle's time from a counted profile and 0.890 from one with sampled stacks (one session of five rounds, 2026-10-08), behind on two: rx-scrabble by 4 to 8% and scala-stm-bench7 by 2%. Control flow duplication stays on with a profile, with the pass that moves what it puts on every path back onto the paths that use it, and the collector prefetches what the objects it copies point to once a collection copies more than fits in the caches (scrabble 20% faster). Spring PetClinic's `/` and `/vets` serve about 10% and 25% more requests a second than Oracle's binary, Quarkus about 7%.
-Spring PetClinic answers `/` 8.5% faster than Oracle's binary and `/vets` 22.6%, and Quarkus about 5%.
-See `docs/issues/2026-10-03-graalvm-25-4.md`. The figures below are from GraalVM 25.3.
+See `docs/issues/2026-10-03-graalvm-25-4.md`.
 
-Same machine, `-O3`, each binary checked for identical output. Time of the profile-guided binary
-from each compiler; lower is better.
+Same machine, `-O3`, each binary checked for identical output, 2026-10-09 and 10. Time of the profile-guided binary
+from each compiler; lower is better. The samples are built from counted recordings, medians of eleven runs; the
+Renaissance benchmarks from sampled stacks; the services with `crucible/pgo.sh`.
 
 | workload | Oracle GraalVM | CrucibleVM |
 | --- | --- | --- |
-| GameOfLife (Oracle's own example) | 3.19 s | **2.96 s** |
-| ArrayBench | 0.37 s | **0.33 s** |
-| BranchBench | 0.55 s | **0.46 s** |
-| JsonBench | 1.55 s | **1.41 s** |
-| BenchPGO | 0.37 s | **0.29 s** |
-| Renaissance, twelve benchmarks | ahead on four | ahead on six, level on two |
-| Quarkus REST/JSON quickstart, requests a second | 90,364 | **93,401** |
-| Spring PetClinic, requests a second on `/vets` (JSON) | 36,936 | **44,188** |
+| GameOfLife (Oracle's own example) | 3.39 s | **2.91 s** |
+| ArrayBench | 1.19 s | **0.31 s** |
+| BranchBench | 0.55 s | **0.54 s** |
+| JsonBench | 1.56 s | **1.39 s** |
+| BenchPGO | 0.37 s | **0.32 s** |
+| Renaissance, fourteen benchmarks, geometric mean of the time | 1 | **0.88 to 0.89** |
+| Quarkus REST/JSON quickstart, requests a second on `/fruits` | 100,060 | **105,200** |
+| Spring PetClinic, requests a second on `/vets` (JSON) | 36,800 | **46,500** |
 
-CrucibleVM is ahead on six of the twelve (par-mnemonics by 26%, akka-uct by 22%, scala-doku by 15%, mnemonics by 13%, philosophers by 6%, and reactors by 4%) and level on two (future-genetic and scala-kmeans).
-It is behind by 3 to 10% on the other four, fj-kmeans, rx-scrabble, scala-stm-bench7, and scrabble.
-Over the twelve the geometric mean of the ratios is 0.943, that is 5.7% ahead, and with the heap of each capped at the memory Oracle's binary uses on it, 0.958.
+Over three sessions of five rounds, CrucibleVM is ahead on twelve of the fourteen Renaissance benchmarks: par-mnemonics by 29%, scrabble and scala-doku by 23%, philosophers, fj-kmeans, and akka-uct by 12 to 16%, future-genetic and finagle-chirper by 8 to 10%, reactors by 7 to 13%, mnemonics by 6 to 10%, finagle-http by 5%, and scala-kmeans by 2%.
+It is behind on rx-scrabble by 3 to 4% and on scala-stm-bench7 by up to 2%.
+BranchBench and BenchPGO lose 17% and 9% to control flow duplication, which the fourteen gain 0.7% from (see the page above).
+
+The rest of this section is from GraalVM 25.3, over twelve benchmarks.
+With the heap of each capped at the memory Oracle's binary uses on it, the geometric mean was 0.958.
 With each collector choosing its heap, CrucibleVM's binary peaks in less memory than Oracle's on six of the twelve (fj-kmeans 168 MB against 637, mnemonics 161 against 431, par-mnemonics 257 against 499, scala-doku 80 against 132, rx-scrabble 113 against 153, reactors 994 against 1,036), in about the same on three, and in more on three: akka-uct 3,072 MB against 983, scrabble 350 against 182, scala-stm-bench7 458 against 365.
 On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
