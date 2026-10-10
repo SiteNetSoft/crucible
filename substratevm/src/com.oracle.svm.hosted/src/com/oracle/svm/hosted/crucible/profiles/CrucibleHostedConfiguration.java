@@ -31,10 +31,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.graalvm.collections.EconomicMap;
+import org.graalvm.collections.EconomicSet;
 
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
+import com.oracle.graal.pointsto.BigBang;
+import com.oracle.graal.pointsto.meta.AnalysisType;
 import com.oracle.svm.hosted.FeatureHandler;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.hosted.NativeImageGenerator;
@@ -224,6 +227,19 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
             hotMethodOptions = parsed;
         }
         return parsed;
+    }
+
+    /**
+     * With {@code -H:-CrucibleAnalysisMonitorSlots}, only the types that must have a monitor slot get
+     * one. The analysis finds close to every instantiated type possibly locked, so close to every
+     * object carries the slot; an object without one is still locked correctly, through the
+     * monitor table, only more slowly.
+     */
+    @Override
+    protected void processedSynchronizedTypes(BigBang bb, HostedUniverse hUniverse, EconomicSet<AnalysisType> immutableTypes) {
+        if (CrucibleOptions.CrucibleAnalysisMonitorSlots.getValue()) {
+            super.processedSynchronizedTypes(bb, hUniverse, immutableTypes);
+        }
     }
 
     private static boolean isHot(HostedMethod method) {
