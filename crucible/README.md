@@ -162,6 +162,8 @@ It is behind on rx-scrabble by 3 to 4% and on scala-stm-bench7 by up to 2%.
 BranchBench and BenchPGO lose 17% and 9% to control flow duplication, which the fourteen gain 0.7% from (see the page above).
 
 With each collector choosing its heap, CrucibleVM's binary peaks in less memory than Oracle's on seven of the fourteen (fj-kmeans 179 MB against 530, mnemonics 202 against 353, scala-doku 82 against 132, finagle-chirper 125 against 258, rx-scrabble 114 against 153, reactors 841 against 1,093, finagle-http 91 against 115), in about the same on five, and in more on two: akka-uct 2,460 MB against 931, and scrabble 335 against 174 (three rounds, 2026-10-10).
+akka-uct does not need its memory: with `-Xmx700m` it runs as fast, 12.1 s an iteration against 12.0, in 723 MB, and below that it slows down, 14.1 s with `-Xmx500m`; `-XX:SerialGCTimeRatio=6` goes the other way, 9.9 s in 4 GB.
+To hold a service's memory down, give it an `-Xmx` of about three times what it keeps alive.
 
 The rest of this section is from GraalVM 25.3, over twelve benchmarks.
 With the heap of each capped at the memory Oracle's binary used on it, the geometric mean was 0.958.
