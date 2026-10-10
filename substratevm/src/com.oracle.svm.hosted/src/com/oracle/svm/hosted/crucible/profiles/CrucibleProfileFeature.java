@@ -273,6 +273,7 @@ public final class CrucibleProfileFeature implements InternalFeature {
 
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
+        CrucibleBranchFeatures.close();
         PGOProfilesLookup lookup = PGOProfilesLookup.singletonOrNull();
         if (lookup instanceof CrucibleProfilesLookup crucible) {
             System.out.println(crucible.applicationSummary());

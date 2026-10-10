@@ -88,6 +88,10 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
         List<CompileQueue.Policy> policies = CrucibleOptions.CrucibleInstrument.getValue() && CrucibleOptions.CrucibleRecordWithProbes.getValue()
                         ? List.of(new CrucibleProbePolicy(hostedUniverse))
                         : Collections.emptyList();
+        if (CrucibleStaticProfileFeature.isEnabled()) {
+            /* Without a recording, each graph gets predicted probabilities as it leaves parsing. */
+            policies = List.of(new CrucibleStaticProfilePolicy(hostedUniverse));
+        }
         return new CompileQueue(debug, featureHandler, hostedUniverse, runtimeConfiguration, deoptimizeAll, policies) {
             private volatile Suites fullSuites;
 

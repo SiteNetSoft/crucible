@@ -165,5 +165,9 @@ public final class CrucibleApplyProfilesPhase extends BasePhase<HighTierContext>
             PGOApplyProfilesPhase.createContextInsensitive(universe, profiles).apply(graph, context);
         }
         countDynamicProfiles(graph);
+        String featuresFile = CrucibleOptions.CrucibleBranchFeaturesFile.getValue();
+        if (!featuresFile.isEmpty() && graph.method() instanceof HostedMethod method && profiles instanceof CrucibleProfilesLookup lookup) {
+            CrucibleBranchFeatures.write(graph, lookup.getCallCountOrZero(method), featuresFile);
+        }
     }
 }

@@ -271,6 +271,15 @@ public final class CrucibleOptions {
     @Option(help = "Lay the code section out in the order the profiled run first entered methods, rather than by call count.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleCodeLayoutByStartup = new HostedOptionKey<>(false);
 
+    @Option(help = "Without a profile, give branches the probabilities a model trained on recorded runs of other programs predicts for them.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfile = new HostedOptionKey<>(false);
+
+    @Option(help = "A branch model to use with -H:+CrucibleStaticProfile in place of the one built in, as train-branches.py writes it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleBranchModelFile = new HostedOptionKey<>("");
+
+    @Option(help = "Write, for every branch the profile covers, its recorded probability and the features of the branch to this file, as CSV: the data a model of branches is trained on.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleBranchFeaturesFile = new HostedOptionKey<>("");
+
     @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
 
