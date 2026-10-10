@@ -44,6 +44,7 @@ import com.oracle.svm.hosted.NativeImageGenerator;
 import com.oracle.svm.hosted.code.CompileQueue;
 import com.oracle.svm.hosted.crucible.instrument.CrucibleProbePolicy;
 import com.oracle.svm.hosted.meta.HostedMethod;
+import com.oracle.svm.hosted.meta.HostedType;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.profiles.PGOProfilesLookup;
 
@@ -229,17 +230,49 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
         return parsed;
     }
 
+    /** Types the recording saw in use and never locked, which are left without a monitor slot. */
+    public static final AtomicLong MONITOR_SLOTS_LEFT_OUT = new AtomicLong();
+    public static final AtomicLong MONITOR_SLOTS_KEPT = new AtomicLong();
+
     /**
-     * With {@code -H:-CrucibleAnalysisMonitorSlots}, only the types that must have a monitor slot get
-     * one. The analysis finds close to every instantiated type possibly locked, so close to every
-     * object carries the slot; an object without one is still locked correctly, through the
-     * monitor table, only more slowly.
+     * The analysis finds close to every instantiated type possibly locked, so close to every object
+     * carries a monitor slot, and few objects are ever locked. An object without the slot is still
+     * locked correctly, through the monitor table, only slowly: with no slots at all a program that
+     * locks all the time ran three times as long, and the ones that hardly lock 1 to 4% faster.
+     * <p>
+     * With a recording that says which types the run locked, a type keeps its slot if the run
+     * locked an object of it, or if the run never used the type at all, so that what the workload
+     * did not reach is no slower than it was. It loses the slot if the run used it and never locked
+     * it. {@code -H:-CrucibleAnalysisMonitorSlots} leaves the slot out of every type that does not
+     * have to have one, whatever the recording says.
      */
     @Override
     protected void processedSynchronizedTypes(BigBang bb, HostedUniverse hUniverse, EconomicSet<AnalysisType> immutableTypes) {
-        if (CrucibleOptions.CrucibleAnalysisMonitorSlots.getValue()) {
-            super.processedSynchronizedTypes(bb, hUniverse, immutableTypes);
+        if (!CrucibleOptions.CrucibleAnalysisMonitorSlots.getValue()) {
+            return;
         }
+        if (!CrucibleOptions.CrucibleProfiledMonitorSlots.getValue() || !(PGOProfilesLookup.singletonOrNull() instanceof CrucibleProfilesLookup profiles) || !profiles.knowsLockedTypes()) {
+            super.processedSynchronizedTypes(bb, hUniverse, immutableTypes);
+            return;
+        }
+        for (AnalysisType type : bb.getAllSynchronizedTypes()) {
+            if (profiles.wasLocked(type.getName()) || !wasUsed(hUniverse.lookup(type), profiles)) {
+                MONITOR_SLOTS_KEPT.incrementAndGet();
+                maybeSetMonitorField(hUniverse, immutableTypes, type);
+            } else {
+                MONITOR_SLOTS_LEFT_OUT.incrementAndGet();
+            }
+        }
+    }
+
+    /** Whether the run executed any code the type declares, a constructor included. */
+    private static boolean wasUsed(HostedType type, CrucibleProfilesLookup profiles) {
+        for (HostedMethod method : type.getAllDeclaredMethods()) {
+            if (profiles.ranAnywhere(method)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isHot(HostedMethod method) {

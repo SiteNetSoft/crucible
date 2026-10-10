@@ -48,8 +48,13 @@ def main(out_path, in_paths):
     methods = OrderedDict()
     categories = []
     producer = None
+    locked = set()
+    locked_known = True
     for path in in_paths:
         profile = load(path)
+        # A type locked in any of the runs was locked; a run that did not record that leaves it unknown.
+        locked_known = locked_known and "lockedTypes" in profile
+        locked.update(profile.get("lockedTypes", []))
         producer = producer or profile["producer"]
         for category in profile.get("categories", []):
             if category not in categories:
@@ -94,6 +99,8 @@ def main(out_path, in_paths):
                            "imageBuildId": producer["imageBuildId"]},
               "categories": categories,
               "methods": out_methods}
+    if locked_known:
+        merged["lockedTypes"] = sorted(locked)
     with open(out_path, "w") as f:
         json.dump(merged, f, indent=1)
     print(f"merged {len(in_paths)} profiles into {out_path}: {len(out_methods)} methods")

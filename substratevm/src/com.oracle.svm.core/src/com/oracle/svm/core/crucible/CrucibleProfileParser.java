@@ -137,7 +137,16 @@ public final class CrucibleProfileParser {
             }
             samples.add(new CrucibleProfile.Sample(List.copyOf(stack), asLong(sample.get("count"), "count")));
         }
-        return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods), List.copyOf(samples));
+        /* Absent from a recording made before locked types were noted: not known, which is not none. */
+        List<String> lockedTypes = null;
+        if (map.containsKey("lockedTypes")) {
+            lockedTypes = new ArrayList<>();
+            for (Object type : asArray(map.get("lockedTypes"), "lockedTypes")) {
+                lockedTypes.add(asString(type, "locked type"));
+            }
+            lockedTypes = List.copyOf(lockedTypes);
+        }
+        return new CrucibleProfile(version, p, List.copyOf(categories), List.copyOf(methods), List.copyOf(samples), lockedTypes);
     }
 
     @SuppressWarnings("unchecked")

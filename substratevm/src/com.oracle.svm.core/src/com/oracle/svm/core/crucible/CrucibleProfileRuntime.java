@@ -96,6 +96,8 @@ public final class CrucibleProfileRuntime {
     /** Type ids the image can observe, ascending, parallel to {@link #typeNames}. */
     @UnknownObjectField(availability = AfterCompilation.class) private int[] typeIdTable = new int[0];
     @UnknownObjectField(availability = AfterCompilation.class) private String[] typeNames = new String[0];
+    /** Indexed by type id: not zero once an object of the type had a monitor looked up for it. */
+    @UnknownObjectField(availability = AfterCompilation.class) private byte[] lockedTypes = new byte[0];
 
     @Platforms(Platform.HOSTED_ONLY.class)
     public CrucibleProfileRuntime() {
@@ -134,6 +136,37 @@ public final class CrucibleProfileRuntime {
         this.typeKeys = newTypeKeys;
         this.typeIdTable = newIdTable;
         this.typeNames = newTypeNames;
+        this.lockedTypes = new byte[newIdTable.length == 0 ? 0 : newIdTable[newIdTable.length - 1] + 1];
+    }
+
+    /** Notes that an object of this type is being locked, waited on or notified. Racy by design. */
+    public static void noteLocked(Object obj) {
+        byte[] locked = singleton().lockedTypes;
+        int typeId = DynamicHubIntrinsics.readHub(obj).getTypeID();
+        if (typeId >= 0 && typeId < locked.length) {
+            locked[typeId] = 1;
+        }
+    }
+
+    /** The names of the types {@link #noteLocked} saw, in the order of their ids. */
+    public String[] lockedTypeNames() {
+        byte[] locked = lockedTypes;
+        int count = 0;
+        for (int i = 0; i < typeIdTable.length; i++) {
+            int id = typeIdTable[i];
+            if (id >= 0 && id < locked.length && locked[id] != 0) {
+                count++;
+            }
+        }
+        String[] names = new String[count];
+        int n = 0;
+        for (int i = 0; i < typeIdTable.length; i++) {
+            int id = typeIdTable[i];
+            if (id >= 0 && id < locked.length && locked[id] != 0) {
+                names[n++] = typeNames[i];
+            }
+        }
+        return names;
     }
 
     public int[] typeIds() {

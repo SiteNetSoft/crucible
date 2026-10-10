@@ -91,7 +91,8 @@ public final class CrucibleProfileWriter {
          */
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), allCounters(rt), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool());
+            write(w, rt.keys(), allCounters(rt), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool(),
+                            rt.lockedTypeNames());
             w.flush();
             w.close();
             Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -168,6 +169,16 @@ public final class CrucibleProfileWriter {
      */
     public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
                     String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName, int[] firstCallOrder, String[] keyPool) throws IOException {
+        write(out, keys, counters, imageBuildId, typeKeys, typeIds, typeCounts, typeOverflow, typeName, firstCallOrder, keyPool, null);
+    }
+
+    /**
+     * @param lockedTypes the names of the types the run locked an object of, or null when the image
+     *            did not record that, which is not the same as none.
+     */
+    public static void write(Appendable out, String[] keys, long[] counters, String imageBuildId,
+                    String[] typeKeys, int[] typeIds, long[] typeCounts, long[] typeOverflow, IntFunction<String> typeName, int[] firstCallOrder, String[] keyPool,
+                    String[] lockedTypes) throws IOException {
         TreeMap<String, MethodData> methods = new TreeMap<>();
         for (int i = 0; i < keys.length; i++) {
             long count = counters[i];
@@ -231,6 +242,13 @@ public final class CrucibleProfileWriter {
         out.append("  \"producer\": { \"tool\": \"CrucibleVM\", \"graalBase\": \"").append(CrucibleProfileRuntime.GRAAL_BASE)
                         .append("\", \"imageBuildId\": \"").append(escape(imageBuildId)).append("\" },\n");
         out.append("  \"categories\": [\"methodCounts\", \"conditionalProfiles\", \"virtualInvokeProfiles\", \"instanceOfProfiles\"],\n");
+        if (lockedTypes != null) {
+            out.append("  \"lockedTypes\": [");
+            for (int i = 0; i < lockedTypes.length; i++) {
+                out.append(i == 0 ? "" : ", ").append('"').append(escape(lockedTypes[i])).append('"');
+            }
+            out.append("],\n");
+        }
 
         List<Map.Entry<String, MethodData>> live = new ArrayList<>();
         for (Map.Entry<String, MethodData> e : methods.entrySet()) {
