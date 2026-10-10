@@ -161,9 +161,10 @@ Over three sessions of five rounds, CrucibleVM is ahead on twelve of the fourtee
 It is behind on rx-scrabble by 3 to 4% and on scala-stm-bench7 by up to 2%.
 BranchBench and BenchPGO lose 17% and 9% to control flow duplication, which the fourteen gain 0.7% from (see the page above).
 
+With each collector choosing its heap, CrucibleVM's binary peaks in less memory than Oracle's on seven of the fourteen (fj-kmeans 179 MB against 530, mnemonics 202 against 353, scala-doku 82 against 132, finagle-chirper 125 against 258, rx-scrabble 114 against 153, reactors 841 against 1,093, finagle-http 91 against 115), in about the same on five, and in more on two: akka-uct 2,460 MB against 931, and scrabble 335 against 174 (three rounds, 2026-10-10).
+
 The rest of this section is from GraalVM 25.3, over twelve benchmarks.
-With the heap of each capped at the memory Oracle's binary uses on it, the geometric mean was 0.958.
-With each collector choosing its heap, CrucibleVM's binary peaks in less memory than Oracle's on six of the twelve (fj-kmeans 168 MB against 637, mnemonics 161 against 431, par-mnemonics 257 against 499, scala-doku 80 against 132, rx-scrabble 113 against 153, reactors 994 against 1,036), in about the same on three, and in more on three: akka-uct 3,072 MB against 983, scrabble 350 against 182, scala-stm-bench7 458 against 365.
+With the heap of each capped at the memory Oracle's binary used on it, the geometric mean was 0.958.
 On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
 These figures are from one machine with six processors, three rounds of each benchmark, and the samples from the same machine, eleven runs each.
 Oracle's image depends on how long a run it was recorded on, in either direction, and its figures are the better of a short and a long recording; CrucibleVM's runs within 1% from either.
