@@ -3,6 +3,9 @@
 predicts the branches of a program it has not seen: every program is held out in turn.
 
   train-branches.py out-dir name=branches.csv ...
+
+ML_WEIGHT says how much a branch counts by how often it ran: "log" (the default), "sqrt" or "count".
+ML_DROP names features, by a part of their name, that the model is not to use; they stay in the file, as zero.
 """
 import os, sys, math
 import numpy as np
@@ -20,11 +23,21 @@ for spec in sys.argv[2:]:
     if rows.size == 0:
         continue
     names = header[2:]
+    for i, feature in enumerate(names):
+        if any(d in feature for d in DROP):
+            rows[:, 2 + i] = 0
     data[name] = rows
     print("%-18s %7d branches, mean probability of the true side %.3f" % (name, len(rows), rows[:, 0].mean()))
 
+WEIGHT = os.environ.get("ML_WEIGHT", "log")
+DROP = [d for d in os.environ.get("ML_DROP", "").split(",") if d]
+
 def weights(rows):
-    # A method entered a million times should count for more than one entered once, but not a million times more.
+    # A branch that ran a million times should count for more than one that ran once; how much more is the question.
+    if WEIGHT == "count":
+        return rows[:, 1] + 1.0
+    if WEIGHT == "sqrt":
+        return np.sqrt(rows[:, 1]) + 1.0
     return np.log1p(rows[:, 1]) + 1.0
 
 def fit(train):

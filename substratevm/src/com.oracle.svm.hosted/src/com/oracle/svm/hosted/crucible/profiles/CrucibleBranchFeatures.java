@@ -146,9 +146,17 @@ public final class CrucibleBranchFeatures {
     }
 
     public static GraphInfo graphInfo(StructuredGraph graph) {
+        return graphInfo(graph, false);
+    }
+
+    /**
+     * @param withFrequencies also work out how often each block runs for one entry of the method,
+     *            from the probabilities its branches carry.
+     */
+    private static GraphInfo graphInfo(StructuredGraph graph, boolean withFrequencies) {
         ControlFlowGraph cfg = null;
         try {
-            cfg = ControlFlowGraph.newBuilder(graph).connectBlocks(true).computeLoops(true).computeDominators(true).build();
+            cfg = ControlFlowGraph.newBuilder(graph).connectBlocks(true).computeLoops(true).computeDominators(true).computeFrequency(withFrequencies).build();
         } catch (RuntimeException | AssertionError e) {
             /* A graph in a state the blocks cannot be computed for is described without them. */
         }
@@ -440,7 +448,9 @@ public final class CrucibleBranchFeatures {
 
     /**
      * Writes one line for each branch of the graph that carries a recorded probability: the
-     * probability of its true side, how often its method was entered, and its features.
+     * probability of its true side, how often the branch ran, and its features. How often it ran is
+     * how often its method was entered times how often its block runs for one entry, which the
+     * recorded probabilities of the method's branches give.
      */
     public static void write(StructuredGraph graph, long methodCalls, String file) {
         GraphInfo info = null;
@@ -450,9 +460,11 @@ public final class CrucibleBranchFeatures {
                 continue;
             }
             if (info == null) {
-                info = graphInfo(graph);
+                info = graphInfo(graph, true);
             }
-            lines.append(branch.getTrueSuccessorProbability()).append(',').append(methodCalls);
+            HIRBlock block = info.cfg == null ? null : info.cfg.blockFor(branch);
+            double runs = Math.max(1, methodCalls) * (block == null ? 1.0 : block.getRelativeFrequency());
+            lines.append(branch.getTrueSuccessorProbability()).append(',').append(Math.round(runs));
             for (double feature : extract(branch, info)) {
                 lines.append(',');
                 if (feature == Math.rint(feature)) {
