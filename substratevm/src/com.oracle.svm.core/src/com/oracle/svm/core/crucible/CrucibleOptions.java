@@ -278,7 +278,7 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Double> CrucibleStaticProfileMinProbability = new HostedOptionKey<>(0.001);
 
     @Option(help = "How far from even odds a predicted probability has to be for -H:+CrucibleStaticProfile to give it to a branch; a branch predicted nearer than that keeps its static estimate.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Double> CrucibleStaticProfileMinimumBias = new HostedOptionKey<>(0.0);
+    public static final HostedOptionKey<Double> CrucibleStaticProfileMinimumBias = new HostedOptionKey<>(0.2);
 
     @Option(help = "Mark the probabilities -H:+CrucibleStaticProfile predicts as a profile the compiler can rely on.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleStaticProfileTrusted = new HostedOptionKey<>(true);
