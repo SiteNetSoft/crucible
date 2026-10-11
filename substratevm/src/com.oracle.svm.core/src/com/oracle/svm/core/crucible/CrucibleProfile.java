@@ -30,7 +30,12 @@ import java.util.List;
  * In-memory form of a {@code schemaVersion} 3 profile, as produced by {@link CrucibleProfileWriter}
  * and consumed by the pass 2 profile lookup.
  */
-public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods, List<Sample> samples) {
+public record CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods, List<Sample> samples, List<String> lockedTypes) {
+
+    /** A profile from an image that did not record which types it locked. */
+    public CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods, List<Sample> samples) {
+        this(schemaVersion, producer, categories, methods, samples, null);
+    }
 
     /** A profile with counters only, as the recording image writes it. */
     public CrucibleProfile(int schemaVersion, Producer producer, List<String> categories, List<Method> methods) {

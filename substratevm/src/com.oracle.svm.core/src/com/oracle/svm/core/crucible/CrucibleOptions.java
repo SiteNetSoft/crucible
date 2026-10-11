@@ -295,6 +295,12 @@ public final class CrucibleOptions {
     @Option(help = "Write, for every branch the profile covers, its recorded probability and the features of the branch to this file, as CSV: the data a model of branches is trained on.", type = OptionType.Expert)//
     public static final HostedOptionKey<String> CrucibleBranchFeaturesFile = new HostedOptionKey<>("");
 
+    @Option(help = "Give a monitor slot to every type the analysis finds possibly locked. Off, only the types that must have one get it; the others are locked through the monitor table.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleAnalysisMonitorSlots = new HostedOptionKey<>(true);
+
+    @Option(help = "With a profile that says which types the run locked, leave the monitor slot out of the types the run used and never locked.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleProfiledMonitorSlots = new HostedOptionKey<>(true);
+
     @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
 
