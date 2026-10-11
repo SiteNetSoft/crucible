@@ -281,7 +281,7 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Boolean> CrucibleStaticProfileTrusted = new HostedOptionKey<>(true);
 
     @Option(help = "With -H:+CrucibleStaticProfile, predict the branches that leave a loop too. Off, a loop keeps the number of iterations the compiler assumes for it.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> CrucibleStaticProfileLoopExits = new HostedOptionKey<>(true);
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfileLoopExits = new HostedOptionKey<>(false);
 
     @Option(help = "How much of a predicted probability's distance from even odds -H:+CrucibleStaticProfile keeps: 1 is the prediction as it is, 0 is even odds.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleStaticProfileConfidence = new HostedOptionKey<>(1.0);
