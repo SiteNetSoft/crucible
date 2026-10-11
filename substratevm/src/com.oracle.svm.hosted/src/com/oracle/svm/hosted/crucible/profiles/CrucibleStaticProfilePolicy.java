@@ -58,6 +58,8 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
      * on a guess.
      */
     private final double minProbability = CrucibleOptions.CrucibleStaticProfileMinProbability.getValue();
+    /** How far from even odds a prediction has to be for the branch to be given it. */
+    private final double minimumBias = CrucibleOptions.CrucibleStaticProfileMinimumBias.getValue();
     /** Whether a prediction is marked as a profile to rely on. */
     private final boolean trusted = CrucibleOptions.CrucibleStaticProfileTrusted.getValue();
     /** Whether the branch that leaves a loop is predicted too. */
@@ -94,7 +96,12 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
                 graphFeatures = CrucibleBranchFeatures.graphFeatures(graph);
             }
             double probability = CrucibleBranchModel.predict(CrucibleBranchFeatures.extract(branch, graphFeatures));
-            if (Double.isNaN(probability)) {
+            if (Double.isNaN(probability) || Math.abs(probability - 0.5) < minimumBias) {
+                /*
+                 * A prediction near even odds says the model does not know, and a branch given it
+                 * would still count as one with a profile, which is enough to change what the
+                 * compiler does with the code around it.
+                 */
                 LEFT_ALONE.incrementAndGet();
                 continue;
             }
