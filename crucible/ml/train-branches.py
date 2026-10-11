@@ -12,6 +12,8 @@ import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 out = sys.argv[1]
+WEIGHT = os.environ.get("ML_WEIGHT", "log")
+DROP = [d for d in os.environ.get("ML_DROP", "").split(",") if d]
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "substratevm", "src", "com.oracle.svm.hosted", "src", "com", "oracle", "svm", "hosted", "crucible", "profiles", "CrucibleBranchModelData.java")
 data = {}
 names = None
@@ -28,9 +30,6 @@ for spec in sys.argv[2:]:
             rows[:, 2 + i] = 0
     data[name] = rows
     print("%-18s %7d branches, mean probability of the true side %.3f" % (name, len(rows), rows[:, 0].mean()))
-
-WEIGHT = os.environ.get("ML_WEIGHT", "log")
-DROP = [d for d in os.environ.get("ML_DROP", "").split(",") if d]
 
 def weights(rows):
     # A branch that ran a million times should count for more than one that ran once; how much more is the question.
