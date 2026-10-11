@@ -76,7 +76,7 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
 
     @Override
     public void beforeEncode(HostedMethod method, StructuredGraph graph, HighTierContext context) {
-        double[] graphFeatures = null;
+        CrucibleBranchFeatures.GraphInfo info = null;
         for (IfNode branch : graph.getNodes(IfNode.TYPE).snapshot()) {
             if (!branch.getProfileData().getProfileSource().isUnknown()) {
                 /* Annotated, or known to lead to an exception: better than a prediction. */
@@ -92,10 +92,10 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
                 LEFT_ALONE.incrementAndGet();
                 continue;
             }
-            if (graphFeatures == null) {
-                graphFeatures = CrucibleBranchFeatures.graphFeatures(graph);
+            if (info == null) {
+                info = CrucibleBranchFeatures.graphInfo(graph);
             }
-            double probability = CrucibleBranchModel.predict(CrucibleBranchFeatures.extract(branch, graphFeatures));
+            double probability = CrucibleBranchModel.predict(CrucibleBranchFeatures.extract(branch, info));
             if (Double.isNaN(probability) || Math.abs(probability - 0.5) < minimumBias) {
                 /*
                  * A prediction near even odds says the model does not know, and a branch given it

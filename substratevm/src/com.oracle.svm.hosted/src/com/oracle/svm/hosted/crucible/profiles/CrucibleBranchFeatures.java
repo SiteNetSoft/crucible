@@ -30,6 +30,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 
 import jdk.graal.compiler.nodes.AbstractBeginNode;
 import jdk.graal.compiler.nodes.AbstractDeoptimizeNode;
@@ -54,6 +55,8 @@ import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.nodes.UnwindNode;
 import jdk.graal.compiler.nodes.ValueNode;
 import jdk.graal.compiler.nodes.WithExceptionNode;
+import jdk.graal.compiler.nodes.cfg.ControlFlowGraph;
+import jdk.graal.compiler.nodes.cfg.HIRBlock;
 import jdk.graal.compiler.nodes.calc.BinaryArithmeticNode;
 import jdk.graal.compiler.nodes.calc.CompareNode;
 import jdk.graal.compiler.nodes.calc.FloatEqualsNode;
@@ -95,19 +98,29 @@ public final class CrucibleBranchFeatures {
 
     private static final String[] SIDE = {"term", "len", "invokes", "allocs", "stores", "loads", "loopExit", "monitor", "mergeIsLoop", "afterTerm"};
 
+    /** How many of the blocks a side of a branch dominates are looked at. */
+    private static final int MAX_REGION = 64;
+
+    private static final String[] REGION = {"blocks", "rInvokes", "rAllocs", "rStores", "rThrows", "rReturns", "rLoops", "rBackEdges", "rLoopExits"};
+
     /** The names of the features, in the order {@link #extract} returns them. */
     public static final String[] NAMES = names();
 
     private static String[] names() {
         String[] head = {"cond", "negated", "xKind", "yKind", "xConst", "yConst", "stackKind"};
-        String[] tail = {"codeSize", "isStatic", "isInit", "isLambda", "isLibrary", "graphIfs", "graphLoops"};
-        String[] names = new String[head.length + 2 * SIDE.length + tail.length];
+        String[] tail = {"loopDepth", "inLoopHeader", "codeSize", "isStatic", "isInit", "isLambda", "isLibrary", "graphIfs", "graphLoops"};
+        String[] names = new String[head.length + 2 * SIDE.length + 2 * REGION.length + tail.length];
         int i = 0;
         for (String name : head) {
             names[i++] = name;
         }
         for (String side : new String[]{"t_", "f_"}) {
             for (String name : SIDE) {
+                names[i++] = side + name;
+            }
+        }
+        for (String side : new String[]{"t_", "f_"}) {
+            for (String name : REGION) {
                 names[i++] = side + name;
             }
         }
@@ -120,8 +133,30 @@ public final class CrucibleBranchFeatures {
     private CrucibleBranchFeatures() {
     }
 
-    /** What is the same for every branch of a graph, computed once for it. */
-    public static double[] graphFeatures(StructuredGraph graph) {
+    /** What is computed once for a graph and used for each of its branches. */
+    public static final class GraphInfo {
+        final double[] features;
+        /** The blocks of the graph with their loops and dominators, or null if they could not be had. */
+        final ControlFlowGraph cfg;
+
+        GraphInfo(double[] features, ControlFlowGraph cfg) {
+            this.features = features;
+            this.cfg = cfg;
+        }
+    }
+
+    public static GraphInfo graphInfo(StructuredGraph graph) {
+        ControlFlowGraph cfg = null;
+        try {
+            cfg = ControlFlowGraph.newBuilder(graph).connectBlocks(true).computeLoops(true).computeDominators(true).build();
+        } catch (RuntimeException | AssertionError e) {
+            /* A graph in a state the blocks cannot be computed for is described without them. */
+        }
+        return new GraphInfo(graphFeatures(graph), cfg);
+    }
+
+    /** What is the same for every branch of a graph. */
+    private static double[] graphFeatures(StructuredGraph graph) {
         ResolvedJavaMethod method = graph.method();
         String name = method.getName();
         String holder = method.getDeclaringClass().getName();
@@ -131,7 +166,8 @@ public final class CrucibleBranchFeatures {
                         graph.getNodes(IfNode.TYPE).count(), graph.getNodes(LoopBeginNode.TYPE).count()};
     }
 
-    public static double[] extract(IfNode branch, double[] graphFeatures) {
+    public static double[] extract(IfNode branch, GraphInfo info) {
+        double[] graphFeatures = info.features;
         double[] f = new double[NAMES.length];
         int i = 0;
         LogicNode condition = branch.condition();
@@ -162,6 +198,11 @@ public final class CrucibleBranchFeatures {
         f[i++] = stackKind(x);
         i = side(branch.trueSuccessor(), f, i);
         i = side(branch.falseSuccessor(), f, i);
+        HIRBlock block = info.cfg == null ? null : info.cfg.blockFor(branch);
+        i = region(block == null ? null : info.cfg.blockFor(branch.trueSuccessor()), f, i);
+        i = region(block == null ? null : info.cfg.blockFor(branch.falseSuccessor()), f, i);
+        f[i++] = block == null ? 0 : block.getLoopDepth();
+        f[i++] = block != null && block.isLoopHeader() ? 1 : 0;
         System.arraycopy(graphFeatures, 0, f, i, graphFeatures.length);
         return f;
     }
@@ -282,6 +323,53 @@ public final class CrucibleBranchFeatures {
         return i;
     }
 
+    /**
+     * What all the code a side of a branch dominates does, which is the code that runs only if the
+     * branch goes that way: whether it ends in a throw or a return, calls, allocates, loops.
+     */
+    private static int region(HIRBlock start, double[] f, int at) {
+        int[] counts = new int[REGION.length];
+        if (start != null) {
+            ArrayDeque<HIRBlock> work = new ArrayDeque<>();
+            work.push(start);
+            while (!work.isEmpty() && counts[0] < MAX_REGION) {
+                HIRBlock block = work.pop();
+                counts[0]++;
+                if (block.isLoopHeader()) {
+                    counts[6]++;
+                }
+                if (block.getBeginNode() instanceof LoopExitNode) {
+                    counts[8]++;
+                }
+                for (FixedNode node : block.getNodes()) {
+                    if (node instanceof Invoke) {
+                        counts[1]++;
+                    } else if (node instanceof AbstractNewObjectNode) {
+                        counts[2]++;
+                    } else if (node instanceof StoreFieldNode || node instanceof StoreIndexedNode) {
+                        counts[3]++;
+                    }
+                }
+                FixedNode end = block.getEndNode();
+                if (end instanceof UnwindNode || end instanceof AbstractDeoptimizeNode) {
+                    counts[4]++;
+                } else if (end instanceof ReturnNode) {
+                    counts[5]++;
+                } else if (end instanceof LoopEndNode) {
+                    counts[7]++;
+                }
+                for (HIRBlock dominated = block.getFirstDominated(); dominated != null; dominated = dominated.getDominatedSibling()) {
+                    work.push(dominated);
+                }
+            }
+        }
+        int i = at;
+        for (int count : counts) {
+            f[i++] = count;
+        }
+        return i;
+    }
+
     private static FixedNode follow(FixedNode start, int[] counts) {
         FixedNode current = start;
         for (int steps = 0; steps < MAX_PATH; steps++) {
@@ -355,17 +443,17 @@ public final class CrucibleBranchFeatures {
      * probability of its true side, how often its method was entered, and its features.
      */
     public static void write(StructuredGraph graph, long methodCalls, String file) {
-        double[] graphFeatures = null;
+        GraphInfo info = null;
         StringBuilder lines = new StringBuilder();
         for (IfNode branch : graph.getNodes(IfNode.TYPE)) {
             if (!branch.getProfileData().getProfileSource().isProfiled()) {
                 continue;
             }
-            if (graphFeatures == null) {
-                graphFeatures = graphFeatures(graph);
+            if (info == null) {
+                info = graphInfo(graph);
             }
             lines.append(branch.getTrueSuccessorProbability()).append(',').append(methodCalls);
-            for (double feature : extract(branch, graphFeatures)) {
+            for (double feature : extract(branch, info)) {
                 lines.append(',');
                 if (feature == Math.rint(feature)) {
                     lines.append((long) feature);
