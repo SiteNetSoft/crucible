@@ -30,6 +30,10 @@ import org.graalvm.nativeimage.Platforms;
 import com.oracle.svm.core.monitor.JavaMonitor;
 import com.oracle.svm.core.monitor.MonitorInflationCause;
 import com.oracle.svm.core.monitor.MultiThreadedMonitorSupport;
+import com.oracle.svm.shared.singletons.traits.BuiltinTraits.AllAccess;
+import com.oracle.svm.shared.singletons.traits.BuiltinTraits.SingleLayer;
+import com.oracle.svm.shared.singletons.traits.SingletonLayeredInstallationKind.InitialLayerOnly;
+import com.oracle.svm.shared.singletons.traits.SingletonTraits;
 
 /**
  * The monitor support of an image that records: it notes the type of every object a monitor is
@@ -40,6 +44,7 @@ import com.oracle.svm.core.monitor.MultiThreadedMonitorSupport;
  * Every lock of an object passes one of the two methods below at least once, when its monitor is
  * made, and what is noted is a type, so once is enough.
  */
+@SingletonTraits(access = AllAccess.class, layeredCallbacks = SingleLayer.class, layeredInstallationKind = InitialLayerOnly.class)
 public final class CrucibleRecordingMonitorSupport extends MultiThreadedMonitorSupport {
 
     @Platforms(Platform.HOSTED_ONLY.class)
