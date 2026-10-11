@@ -274,6 +274,12 @@ public final class CrucibleOptions {
     @Option(help = "Without a profile, give branches the probabilities a model trained on recorded runs of other programs predicts for them.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleStaticProfile = new HostedOptionKey<>(false);
 
+    @Option(help = "The least probability -H:+CrucibleStaticProfile gives a side of a branch, and one minus the most.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleStaticProfileMinProbability = new HostedOptionKey<>(0.001);
+
+    @Option(help = "How much of a predicted probability's distance from even odds -H:+CrucibleStaticProfile keeps: 1 is the prediction as it is, 0 is even odds.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleStaticProfileConfidence = new HostedOptionKey<>(1.0);
+
     @Option(help = "A branch model to use with -H:+CrucibleStaticProfile in place of the one built in, as train-branches.py writes it.", type = OptionType.Expert)//
     public static final HostedOptionKey<String> CrucibleBranchModelFile = new HostedOptionKey<>("");
 

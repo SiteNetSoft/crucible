@@ -26,6 +26,7 @@ package com.oracle.svm.hosted.crucible.profiles;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.hosted.code.CompileQueue;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
@@ -48,8 +49,15 @@ import jdk.graal.compiler.phases.tiers.HighTierContext;
  */
 public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
 
-    /** The probability of a side is kept this far from never and from always. */
-    private static final double MIN_PROBABILITY = 0.001;
+    /**
+     * A predicted probability is kept this far from never and from always. A recorded probability
+     * of one in a million is a fact; a predicted one is a guess, and what the compiler does with a
+     * side it takes to be that cold, down to not looking at the calls on it, is too much to stake
+     * on a guess.
+     */
+    private final double minProbability = CrucibleOptions.CrucibleStaticProfileMinProbability.getValue();
+    /** How much of the distance from even odds a prediction keeps. */
+    private final double confidence = CrucibleOptions.CrucibleStaticProfileConfidence.getValue();
 
     public static final AtomicLong PREDICTED = new AtomicLong();
     public static final AtomicLong LEFT_ALONE = new AtomicLong();
@@ -75,7 +83,8 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
                 LEFT_ALONE.incrementAndGet();
                 continue;
             }
-            probability = Math.max(MIN_PROBABILITY, Math.min(1 - MIN_PROBABILITY, probability));
+            probability = 0.5 + confidence * (probability - 0.5);
+            probability = Math.max(minProbability, Math.min(1 - minProbability, probability));
             branch.setTrueSuccessorProbability(BranchProbabilityData.inferred(probability));
             PREDICTED.incrementAndGet();
         }
