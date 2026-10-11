@@ -140,6 +140,7 @@ Give `-O2` with the profile if you want the smaller image, which is 4 to 8% smal
 On the samples a profile-guided image at `-O2` runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
 
 CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.913 of Oracle's time from a counted profile and 0.890 from one with sampled stacks (one session of five rounds, 2026-10-08), behind on two: rx-scrabble by 4 to 8% and scala-stm-bench7 by 2%. Control flow duplication stays on with a profile, with the pass that moves what it puts on every path back onto the paths that use it, and the collector prefetches what the objects it copies point to once a collection copies more than fits in the caches (scrabble 20% faster). Spring PetClinic's `/` and `/vets` serve about 10% and 25% more requests a second than Oracle's binary, Quarkus about 7%.
+Since 2026-10-11 a recording also lists the types the run locked, and the types it used without locking them are built without a monitor slot: over the fourteen, 0.871 of Oracle's time against 0.881 in the same session, scala-stm-bench7 now 3.4% ahead, and rx-scrabble, by 2%, the one benchmark behind.
 See `docs/issues/2026-10-03-graalvm-25-4.md`.
 
 Same machine, `-O3`, each binary checked for identical output, 2026-10-09 and 10. Time of the profile-guided binary
