@@ -31,6 +31,8 @@ import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.impl.InternalPlatform;
 
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
+import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.core.crucible.CrucibleRecordingMonitorSupport;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.core.graal.meta.RuntimeConfiguration;
 import com.oracle.svm.core.graal.meta.SubstrateForeignCallsProvider;
@@ -48,7 +50,8 @@ public class MonitorFeature implements InternalFeature {
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
         if (ImageLayerBuildingSupport.firstImageBuild()) {
-            ImageSingletons.add(MonitorSupport.class, new MultiThreadedMonitorSupport());
+            /* CrucibleVM: an image that records also records which types are locked. */
+            ImageSingletons.add(MonitorSupport.class, CrucibleOptions.CrucibleInstrument.getValue() ? new CrucibleRecordingMonitorSupport() : new MultiThreadedMonitorSupport());
         }
     }
 

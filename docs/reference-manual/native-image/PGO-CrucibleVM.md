@@ -99,6 +99,8 @@ crucible/pgo.sh --name petclinic --run ./workload.sh -- <your native-image argum
 
 Use any load generator or test suite that resembles production traffic.
 A workload that exercises only part of the application gives a profile for only that part.
+The recording also notes which types the workload locks, and the optimized executable keeps a monitor slot only in those and in types the workload never used.
+An object of a type the workload used without locking it is still locked correctly, but slowly, so the workload should lock what production locks; `-H:-CrucibleProfiledMonitorSlots` turns this off.
 
 ## The Steps One at a Time
 

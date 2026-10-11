@@ -307,6 +307,10 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
             System.out.println("Crucible: " + CruciblePolicyFactory.HOT_INLINES_ALLOWED.get() + " inlines allowed on profile evidence that the static budget refused, " +
                             CruciblePolicyFactory.HOT_ROOT_INLINES.get() + " more for being in a method the run spent its time in.");
+            if (CrucibleHostedConfiguration.MONITOR_SLOTS_LEFT_OUT.get() > 0) {
+                System.out.println("Crucible: " + CrucibleHostedConfiguration.MONITOR_SLOTS_LEFT_OUT.get() + " types the run used and never locked are without a monitor slot; " +
+                                CrucibleHostedConfiguration.MONITOR_SLOTS_KEPT.get() + " keep it.");
+            }
             if (CruciblePolicyFactory.FRESH_ARGUMENT_CALLS.get() > 0) {
                 System.out.println("Crucible: " + CruciblePolicyFactory.FRESH_ARGUMENT_CALLS.get() + " call benefits counted more for an argument allocated for the call.");
             }

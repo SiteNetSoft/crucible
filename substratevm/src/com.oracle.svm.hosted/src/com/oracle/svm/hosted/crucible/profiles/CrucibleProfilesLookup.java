@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -99,6 +100,8 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private final long totalWork;
     /** Method id to its position in the order the run first entered methods. */
     private Map<String, Integer> firstCallOrder;
+    /** Names of the types the run locked an object of, or null if the recording does not say. */
+    private final Set<String> lockedTypes;
 
     /*
      * Upstream tracks lookup hit rates behind -H:+PGOPrintProfileQuality but only reports them in
@@ -117,6 +120,7 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
 
     public CrucibleProfilesLookup(CrucibleProfile profile) {
         this.categories = List.copyOf(profile.categories());
+        this.lockedTypes = profile.lockedTypes() == null ? null : Set.copyOf(profile.lockedTypes());
         this.callCounts = new HashMap<>();
         this.byContext = new HashMap<>();
         this.byPoint = new HashMap<>();
@@ -229,6 +233,16 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
      * Builds the name index the receiver-type profiles are resolved through. Call once the hosted
      * universe exists; until then type profiles resolve to nothing and are reported as misses.
      */
+    /** Whether the recording says which types the run locked an object of. */
+    public boolean knowsLockedTypes() {
+        return lockedTypes != null;
+    }
+
+    /** Whether the run locked, waited on or notified an object of the type of this name. */
+    public boolean wasLocked(String typeName) {
+        return lockedTypes != null && lockedTypes.contains(typeName);
+    }
+
     public void indexTypes(HostedUniverse universe) {
         Map<String, AnalysisType> index = new HashMap<>();
         for (HostedType type : universe.getTypes()) {
