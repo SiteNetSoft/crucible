@@ -274,6 +274,17 @@ public final class CrucibleOptions {
     @Option(help = "Without a profile, give branches the probabilities a model trained on recorded runs of other programs predicts for them.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleStaticProfile = new HostedOptionKey<>(false);
 
+    @Option(help = "Without a profile, give the branches of the class library the probabilities recorded for them in other programs, from this file, which crucible/ml/adopt-profile.py makes.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleAdoptedProfile = new HostedOptionKey<>("") {
+        @Override
+        protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, String oldValue, String newValue) {
+            if (newValue != null && !newValue.isEmpty()) {
+                /* The library's profile is keyed by node source position too. */
+                GraalOptions.TrackNodeSourcePosition.update(values, true);
+            }
+        }
+    };
+
     @Option(help = "The least probability -H:+CrucibleStaticProfile gives a side of a branch, and one minus the most.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleStaticProfileMinProbability = new HostedOptionKey<>(0.001);
 

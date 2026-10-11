@@ -24,8 +24,16 @@
  */
 package com.oracle.svm.hosted.crucible.profiles;
 
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.crucible.CrucibleOptions;
+import com.oracle.svm.core.crucible.CrucibleProfileParser;
+import com.oracle.svm.core.util.UserError;
 import com.oracle.svm.core.feature.InternalFeature;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.shared.feature.AutomaticallyRegisteredFeature;
@@ -44,23 +52,44 @@ public final class CrucibleStaticProfileFeature implements InternalFeature {
                         !SubstrateOptions.useEconomyCompilerConfig() && CrucibleBranchModel.isAvailable();
     }
 
+    /** The profile of the class library recorded in other programs, or null. */
+    private static volatile CrucibleProfilesLookup adopted;
+
+    static CrucibleProfilesLookup adoptedLibraryProfile() {
+        return adopted;
+    }
+
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return CrucibleOptions.CrucibleStaticProfile.getValue() && CrucibleOptions.CrucibleProfile.getValue().isEmpty() && !CrucibleOptions.CrucibleInstrument.getValue();
+        return (CrucibleOptions.CrucibleStaticProfile.getValue() || !CrucibleOptions.CrucibleAdoptedProfile.getValue().isEmpty()) && CrucibleOptions.CrucibleProfile.getValue().isEmpty() &&
+                        !CrucibleOptions.CrucibleInstrument.getValue();
     }
 
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
-        if (!CrucibleBranchModel.isAvailable()) {
-            LogUtils.warning("-H:+CrucibleStaticProfile has no model for the branch features of this build; branches keep their static estimates.");
-            return;
+        String file = CrucibleOptions.CrucibleAdoptedProfile.getValue();
+        if (!file.isEmpty() && !SubstrateOptions.useEconomyCompilerConfig()) {
+            try (Reader reader = Files.newBufferedReader(Path.of(file), StandardCharsets.UTF_8)) {
+                adopted = new CrucibleProfilesLookup(CrucibleProfileParser.parse(reader));
+            } catch (IOException | IllegalArgumentException e) {
+                throw UserError.abort("Cannot read the profile of the class library given by -H:CrucibleAdoptedProfile: %s: %s", file, e.getMessage());
+            }
         }
-        /* The first hosted configuration registered wins; this one puts the policy in the queue. */
-        HostedConfiguration.setInstanceIfEmpty(new CrucibleHostedConfiguration());
+        if (CrucibleOptions.CrucibleStaticProfile.getValue() && !CrucibleBranchModel.isAvailable()) {
+            LogUtils.warning("-H:+CrucibleStaticProfile has no model for the branch features of this build; branches keep their static estimates.");
+        }
+        if (adopted != null || isEnabled()) {
+            /* The first hosted configuration registered wins; this one puts the policies in the queue. */
+            HostedConfiguration.setInstanceIfEmpty(new CrucibleHostedConfiguration());
+        }
     }
 
     @Override
     public void afterCompilation(AfterCompilationAccess access) {
+        if (adopted != null) {
+            System.out.println("Crucible: " + CrucibleAdoptedProfilePolicy.ADOPTED.get() + " branches of the class library given the probabilities recorded for them in other programs; " +
+                            CrucibleAdoptedProfilePolicy.LOOP_EXITS_LEFT.get() + " that leave a loop left as they were.");
+        }
         if (isEnabled()) {
             System.out.println("Crucible: " + CrucibleStaticProfilePolicy.PREDICTED.get() + " branch probabilities predicted, " + CrucibleStaticProfilePolicy.LEFT_ALONE.get() +
                             " branches left with what they were annotated with.");
