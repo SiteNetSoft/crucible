@@ -229,7 +229,7 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleHotInliningBudget` | on with stacks | give hot methods and copies the inlining budget Oracle's builder gives a hot unit |
 | `CrucibleSampledCountedFallback` | on | in a copy, answer a call the stacks caught too seldom from the counted receivers along the same path |
 | `CrucibleSinkAfterDuplication` | on with a profile | after control flow duplication (`-H:+OptDuplication`), copy arithmetic only rarely run blocks use into each of them |
-| `CrucibleProfiledMonitorSlots` | off | with a profile that lists the types the run locked (one recorded by this version does), leave the monitor slot, eight bytes an object, out of the types the run used and never locked; they are still locked correctly, through a table, slowly |
+| `CrucibleProfiledMonitorSlots` | on | with a profile that lists the types the run locked (one recorded by this version does), leave the monitor slot, eight bytes an object, out of the types the run used and never locked; they are still locked correctly, through a table, slowly, so record a workload that locks what production locks |
 | `CrucibleAnalysisMonitorSlots` | on | give a monitor slot to every type the analysis finds possibly locked, which is close to every type; off, only the types that must have one get it |
 | `GreyScanPrefetchAhead` | 8 | while a collection visits the references of a copied object, prefetch what the reference this many slots on points to. Not a Crucible option |
 | `GreyScanPrefetchNextObject` | on | and prefetch the referents of the next copied object. Not a Crucible option |

@@ -275,7 +275,7 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Boolean> CrucibleAnalysisMonitorSlots = new HostedOptionKey<>(true);
 
     @Option(help = "With a profile that says which types the run locked, leave the monitor slot out of the types the run used and never locked.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> CrucibleProfiledMonitorSlots = new HostedOptionKey<>(false);
+    public static final HostedOptionKey<Boolean> CrucibleProfiledMonitorSlots = new HostedOptionKey<>(true);
 
     @Option(help = "Do not inline inside methods the profile never saw run, which is what makes a profiled image smaller.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleColdCodeSize = new HostedOptionKey<>(true);
