@@ -32,6 +32,7 @@ import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 
 import jdk.graal.compiler.nodes.IfNode;
+import jdk.graal.compiler.nodes.LoopExitNode;
 import jdk.graal.compiler.nodes.ProfileData.BranchProbabilityData;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
@@ -56,6 +57,8 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
      * on a guess.
      */
     private final double minProbability = CrucibleOptions.CrucibleStaticProfileMinProbability.getValue();
+    /** Whether the branch that leaves a loop is predicted too. */
+    private final boolean loopExits = CrucibleOptions.CrucibleStaticProfileLoopExits.getValue();
     /** How much of the distance from even odds a prediction keeps. */
     private final double confidence = CrucibleOptions.CrucibleStaticProfileConfidence.getValue();
 
@@ -72,6 +75,15 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
         for (IfNode branch : graph.getNodes(IfNode.TYPE).snapshot()) {
             if (!branch.getProfileData().getProfileSource().isUnknown()) {
                 /* Annotated, or known to lead to an exception: better than a prediction. */
+                LEFT_ALONE.incrementAndGet();
+                continue;
+            }
+            if (!loopExits && (branch.trueSuccessor() instanceof LoopExitNode || branch.falseSuccessor() instanceof LoopExitNode)) {
+                /*
+                 * How often a loop goes round is worked out from the probability of leaving it, and
+                 * a loop nobody knows anything about is taken to go round a hundred times. A
+                 * predicted probability of leaving, even a low one, mostly says fewer.
+                 */
                 LEFT_ALONE.incrementAndGet();
                 continue;
             }
