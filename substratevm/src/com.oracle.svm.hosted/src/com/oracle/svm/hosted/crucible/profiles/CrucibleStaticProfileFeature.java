@@ -25,10 +25,13 @@
 package com.oracle.svm.hosted.crucible.profiles;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.zip.GZIPInputStream;
 
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.crucible.CrucibleOptions;
@@ -52,6 +55,9 @@ public final class CrucibleStaticProfileFeature implements InternalFeature {
                         !SubstrateOptions.useEconomyCompilerConfig() && CrucibleBranchModel.isAvailable();
     }
 
+    /** The profile of the class library that comes with the builder, next to this class. */
+    private static final String LIBRARY_PROFILE = "library-profile.json.gz";
+
     /** The profile of the class library recorded in other programs, or null. */
     private static volatile CrucibleProfilesLookup adopted;
 
@@ -61,18 +67,33 @@ public final class CrucibleStaticProfileFeature implements InternalFeature {
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return (CrucibleOptions.CrucibleStaticProfile.getValue() || !CrucibleOptions.CrucibleAdoptedProfile.getValue().isEmpty()) && CrucibleOptions.CrucibleProfile.getValue().isEmpty() &&
+        return (CrucibleOptions.CrucibleStaticProfile.getValue() || CrucibleOptions.CrucibleLibraryProfile.getValue() || !CrucibleOptions.CrucibleAdoptedProfile.getValue().isEmpty()) &&
+                        CrucibleOptions.CrucibleProfile.getValue().isEmpty() &&
                         !CrucibleOptions.CrucibleInstrument.getValue();
     }
 
     @Override
     public void afterRegistration(AfterRegistrationAccess access) {
         String file = CrucibleOptions.CrucibleAdoptedProfile.getValue();
-        if (!file.isEmpty() && !SubstrateOptions.useEconomyCompilerConfig()) {
+        if (SubstrateOptions.useEconomyCompilerConfig()) {
+            /* The economy configuration does nothing a branch probability could change. */
+        } else if (!file.isEmpty()) {
             try (Reader reader = Files.newBufferedReader(Path.of(file), StandardCharsets.UTF_8)) {
                 adopted = new CrucibleProfilesLookup(CrucibleProfileParser.parse(reader));
             } catch (IOException | IllegalArgumentException e) {
                 throw UserError.abort("Cannot read the profile of the class library given by -H:CrucibleAdoptedProfile: %s: %s", file, e.getMessage());
+            }
+        } else if (CrucibleOptions.CrucibleLibraryProfile.getValue()) {
+            /* The one that comes with the builder, made by crucible/ml/adopt-profile.py. */
+            try (InputStream in = CrucibleStaticProfileFeature.class.getResourceAsStream(LIBRARY_PROFILE)) {
+                if (in == null) {
+                    throw UserError.abort("-H:+CrucibleLibraryProfile: this builder has no %s.", LIBRARY_PROFILE);
+                }
+                try (Reader reader = new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8)) {
+                    adopted = new CrucibleProfilesLookup(CrucibleProfileParser.parse(reader));
+                }
+            } catch (IOException | IllegalArgumentException e) {
+                throw UserError.abort("Cannot read the profile of the class library that comes with the builder: %s", e.getMessage());
             }
         }
         if (CrucibleOptions.CrucibleStaticProfile.getValue() && !CrucibleBranchModel.isAvailable()) {
