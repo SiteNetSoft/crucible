@@ -277,6 +277,9 @@ public final class CrucibleOptions {
     @Option(help = "The least probability -H:+CrucibleStaticProfile gives a side of a branch, and one minus the most.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleStaticProfileMinProbability = new HostedOptionKey<>(0.001);
 
+    @Option(help = "Mark the probabilities -H:+CrucibleStaticProfile predicts as a profile the compiler can rely on.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfileTrusted = new HostedOptionKey<>(true);
+
     @Option(help = "With -H:+CrucibleStaticProfile, predict the branches that leave a loop too. Off, a loop keeps the number of iterations the compiler assumes for it.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleStaticProfileLoopExits = new HostedOptionKey<>(true);
 

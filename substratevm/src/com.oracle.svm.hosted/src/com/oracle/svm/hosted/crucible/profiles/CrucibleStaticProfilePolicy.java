@@ -34,6 +34,7 @@ import com.oracle.svm.hosted.meta.HostedUniverse;
 import jdk.graal.compiler.nodes.IfNode;
 import jdk.graal.compiler.nodes.LoopExitNode;
 import jdk.graal.compiler.nodes.ProfileData.BranchProbabilityData;
+import jdk.graal.compiler.nodes.ProfileData.ProfileSource;
 import jdk.graal.compiler.nodes.StructuredGraph;
 import jdk.graal.compiler.phases.tiers.HighTierContext;
 
@@ -57,6 +58,8 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
      * on a guess.
      */
     private final double minProbability = CrucibleOptions.CrucibleStaticProfileMinProbability.getValue();
+    /** Whether a prediction is marked as a profile to rely on. */
+    private final boolean trusted = CrucibleOptions.CrucibleStaticProfileTrusted.getValue();
     /** Whether the branch that leaves a loop is predicted too. */
     private final boolean loopExits = CrucibleOptions.CrucibleStaticProfileLoopExits.getValue();
     /** How much of the distance from even odds a prediction keeps. */
@@ -97,7 +100,11 @@ public final class CrucibleStaticProfilePolicy extends CompileQueue.Policy {
             }
             probability = 0.5 + confidence * (probability - 0.5);
             probability = Math.max(minProbability, Math.min(1 - minProbability, probability));
-            branch.setTrueSuccessorProbability(BranchProbabilityData.inferred(probability));
+            /*
+             * Not trusted, a prediction still weighs the blocks of the method, but what asks whether
+             * a profile is to be relied on, as the loop policies do, goes on as without one.
+             */
+            branch.setTrueSuccessorProbability(trusted ? BranchProbabilityData.inferred(probability) : BranchProbabilityData.create(probability, ProfileSource.UNKNOWN));
             PREDICTED.incrementAndGet();
         }
     }
