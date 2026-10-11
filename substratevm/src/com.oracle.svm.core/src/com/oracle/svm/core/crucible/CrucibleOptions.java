@@ -86,6 +86,7 @@ public final class CrucibleOptions {
      */
     public static void raiseLevelForProfile(EconomicMap<OptionKey<?>, Object> values, List<String> arguments) {
         if (!(values.get(CrucibleProfile) instanceof String profile) || profile.isEmpty()) {
+            trackPositionsForLibraryProfile(values);
             return;
         }
         String option = "-H:" + SubstrateOptions.Optimize.getName();
@@ -95,6 +96,19 @@ public final class CrucibleOptions {
             }
         }
         SubstrateOptions.Optimize.update(values, SubstrateOptions.OptimizationLevel.O3.getOptionSwitch());
+    }
+
+    /**
+     * The library's profile is keyed by node source position, and an option's own hook turns their
+     * tracking on only when the option is given. This does it where the library's profile is used
+     * because that is the default, for a build that has no profile of its own and makes none.
+     */
+    private static void trackPositionsForLibraryProfile(EconomicMap<OptionKey<?>, Object> values) {
+        boolean library = values.containsKey(CrucibleLibraryProfile) ? Boolean.TRUE.equals(values.get(CrucibleLibraryProfile)) : CrucibleLibraryProfile.getDefaultValue();
+        boolean records = Boolean.TRUE.equals(values.get(CrucibleInstrument));
+        if (library && !records && !values.containsKey(GraalOptions.TrackNodeSourcePosition)) {
+            GraalOptions.TrackNodeSourcePosition.update(values, true);
+        }
     }
 
     @Option(help = "Print sample context keys that failed to match when applying a CrucibleVM profile.", type = OptionType.Debug)//
