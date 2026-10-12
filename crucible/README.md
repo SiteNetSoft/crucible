@@ -4,7 +4,9 @@ Open-source profile-guided optimization for GraalVM Community Edition `native-im
 
 > **Alpha.** Measured, and checked for identical output, on a handful of benchmarks; not yet on
 > the breadth of code a production compiler has to get right. Options and the profile format may
-> change. Keep a build without it to compare against, and report anything that miscompiles.
+> change. Keep a build without it to compare against, and [report anything that
+> miscompiles](https://github.com/SiteNetSoft/crucible/issues/new?template=1_wrong_output.yml); see
+> [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 You build your program once so that it records how it runs, run it on a workload that looks like
 production, and build it again with what it recorded. The second build knows which branches go

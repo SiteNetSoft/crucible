@@ -1,0 +1,23 @@
+name: Idea or request
+description: Something CrucibleVM should do, measure or document
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Much of what has been tried, and what it was measured to do, is in [`crucible/ROADMAP.md`](https://github.com/SiteNetSoft/crucible/blob/crucible/main/crucible/ROADMAP.md) and [`docs/issues/`](https://github.com/SiteNetSoft/crucible/tree/crucible/main/docs/issues); it is worth a look first.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What it is, and the program or the measurement it comes from.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What it would change
+      description: Who it would help, and what you would expect it to be worth.

@@ -1,0 +1,70 @@
+name: Performance
+description: Faster or slower than without a profile, or than Oracle GraalVM's profile-guided binary
+title: "[Performance] "
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Slower is as welcome as faster. The figures that compare well are measured as [CONTRIBUTING.md](https://github.com/SiteNetSoft/crucible/blob/crucible/main/CONTRIBUTING.md#measuring) says: one machine, binaries from the same source, runs alternated, medians and spread, outputs compared. If yours were measured differently, say how, and report them anyway.
+
+  - type: input
+    id: workload
+    attributes:
+      label: Workload
+      description: The program and what was timed, with a link if it is public.
+      placeholder: "Spring PetClinic, requests a second on /owners, 4 cores for the service"
+    validations:
+      required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: The binaries compared, with the median, the spread and the number of runs. Peak memory and image size if you have them.
+      value: |
+        | binary | median | spread | runs |
+        | --- | --- | --- | --- |
+        | CrucibleVM, no profile | | | |
+        | CrucibleVM, with profile | | | |
+        | Oracle GraalVM, --pgo (optional) | | | |
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How it was built and measured
+      description: The build commands, the workload the profile was recorded on, whether stacks were sampled (pgo.sh does it unless `--no-samples`), and how the runs were timed.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: same_output
+    attributes:
+      label: Output
+      options:
+        - label: The binaries produce the same output.
+
+  - type: input
+    id: commit
+    attributes:
+      label: CrucibleVM commit
+      description: "`git rev-parse --short HEAD` in the checkout you built"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and processor
+      placeholder: "Ubuntu 24.04, x86-64, Ryzen 9 7950X"
+    validations:
+      required: true
+
+  - type: textarea
+    id: crucible_lines
+    attributes:
+      label: The build's Crucible lines
+      description: The lines starting with `Crucible:` from the profile-guided build.
+      render: text
