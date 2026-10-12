@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/SiteNetSoft/crucible/discussions/categories/q-a
+    about: How to use CrucibleVM, or whether something is a problem at all.
+  - name: Share a result
+    url: https://github.com/SiteNetSoft/crucible/discussions/categories/show-and-tell
+    about: CrucibleVM on your program, when there is nothing to fix.
   - name: Read the contribution guide
     url: https://github.com/SiteNetSoft/crucible/blob/crucible/main/CONTRIBUTING.md
     about: How to try CrucibleVM on your program, narrow down a problem, measure, and send a change.

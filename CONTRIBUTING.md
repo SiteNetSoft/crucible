@@ -27,6 +27,10 @@ Then open an issue with the form that fits:
 - **Build failure.** `native-image`, `pgo.sh` or the profile tools fail, or the build says it
   applied little or none of the profile.
 
+For a question, or a result that is not a problem, such as "it works on my service, and here is how
+fast", use [Discussions](https://github.com/SiteNetSoft/crucible/discussions): Q&A for questions,
+Show and tell for results, Ideas for what CrucibleVM should do next.
+
 ### Narrowing down wrong output
 
 1. Build without `-H:CrucibleProfile`. If it still goes wrong, build with the GraalVM Community
