@@ -8,6 +8,8 @@ CrucibleVM is a fork of GraalVM Community Edition that adds open-source profile-
 > to get right. Options, the profile format and behaviour may all change without notice. Use it to experiment and to
 > measure, keep a build without it to compare against, and please report anything that miscompiles.
 
+To try it on your program and say how it went, or to send a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 What follows is the upstream GraalVM README.
 
 [![GraalVM downloads][badge-dl]][downloads] [![GraalVM docs][badge-docs]][docs] [![GraalVM on Slack][badge-slack]][slack] [![GraalVM Gate][badge-gate]][gate] [![License][badge-license]](#license) [![GraalVM on LinkedIn][badge-linkedin]][social-linkedin] [![GraalVM on X][badge-x]][social-x] [![GraalVM on Bluesky][badge-bluesky]][social-bluesky] [![GraalVM on Medium][badge-medium]][social-medium] [![GraalVM on YouTube][badge-yt]][social-youtube]

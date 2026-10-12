@@ -1,0 +1,76 @@
+name: Wrong output or a crash
+description: The program behaves differently built with a profile, or with CrucibleVM, than without
+title: "[Wrong output] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the report CrucibleVM needs most. [CONTRIBUTING.md](https://github.com/SiteNetSoft/crucible/blob/crucible/main/CONTRIBUTING.md#narrowing-down-wrong-output) says how to narrow it down; whatever you could not do, say so and report it anyway.
+        A miscompile that removes a check that should have held, a bounds check say, can be a vulnerability: if you think it is one, [report it privately](https://github.com/SiteNetSoft/crucible/security/advisories/new) instead.
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What the program did, and what it does without a profile. Paste the wrong output or the crash, with the stack trace or the `hs_err` file if there is one.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: which_builds
+    attributes:
+      label: Which builds go wrong
+      multiple: true
+      options:
+        - CrucibleVM with a profile (-H:CrucibleProfile)
+        - CrucibleVM without a profile
+        - The recording image (-H:+CrucibleInstrument)
+        - The GraalVM Community Edition release CrucibleVM is based on
+        - Not checked yet
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options that make a difference
+      description: An option from the README's options table that makes it go right when turned off (`-H:-<option>`), or "not tried".
+      placeholder: "-H:-CrucibleContextClones makes it go right"
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The program, or a link to it, and the commands. If it cannot be shared, say so; the profile alone may still help.
+      value: |
+        Program:
+        Build command:
+        Workload the profile was recorded on:
+        Run command:
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: CrucibleVM commit
+      description: "`git rev-parse --short HEAD` in the checkout you built"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and processor
+      placeholder: "Ubuntu 24.04, x86-64, Ryzen 9 7950X"
+    validations:
+      required: true
+
+  - type: textarea
+    id: crucible_lines
+    attributes:
+      label: The build's Crucible lines
+      description: The lines starting with `Crucible:` from the profile-guided build.
+      render: text

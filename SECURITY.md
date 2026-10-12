@@ -1,13 +1,27 @@
 # Reporting Security Vulnerabilities
 
-The GraalVM team values the independent security research community and believes that responsible disclosure of security vulnerabilities in GraalVM helps us ensure the security and privacy of all our users.
+Do not report a security vulnerability in a public issue, a pull request or a discussion.
 
-If you believe you have found a security vulnerability, please submit a report to secalert_us@oracle.com preferably with a proof of concept. Please refer to [Reporting Vulnerabilities](https://www.oracle.com/corporate/security-practices/assurance/vulnerability/reporting.html) for additional information including our public encryption key for secure email. We ask that you do not contact project contributors directly or through other channels about a report.
+## In CrucibleVM
 
-### Security Updates, Alerts and Bulletins
+Report it privately through GitHub: on the repository's
+[Security](https://github.com/SiteNetSoft/crucible/security) tab, choose **Report a vulnerability**
+([direct link](https://github.com/SiteNetSoft/crucible/security/advisories/new)). Say what is
+affected, how to reproduce it, preferably with a proof of concept, and which CrucibleVM commit you
+found it in. The report is seen by the maintainers only, and you will be credited in the advisory
+unless you ask not to be.
 
-GraalVM Community Edition security updates will be released on a quarterly basis in conjunction with the Oracle GraalVM security updates that are part of the Oracle Critical Patch Update program. Security updates are released on the Tuesday closest to the 17th day of January, April, July and October. A pre-release announcement will be published on the Thursday preceding each Critical Patch Update release. For additional information including past advisories, please refer to [Security Alerts](https://www.oracle.com/security-alerts/).
+A compiler that computes a wrong value can be a vulnerability, for example where it removes a bounds
+or type check that should have held. If you are not sure whether a miscompile is one, report it
+privately.
 
-### Security-Related Information
+CrucibleVM is alpha and has no supported releases: a fix goes into `crucible/main`.
 
-Please refer to the [GraalVM Security Guide](https://www.graalvm.org/docs/security-guide/) for security related topics such as how to support trusted and less trusted code execution using the Truffle language framework, or compiler mitigations for transitive execution attacks. However please note that we do not currently support the execution of untrusted or adversarial code. Non-vulnerability related security issues may be discussed on GitHub Issues or the Security channel in the [GraalVM Slack Workspace](https://graalvm.slack.com/)
+## In GraalVM
+
+CrucibleVM is a fork of GraalVM Community Edition and contains its code. A vulnerability that is
+also in the GraalVM Community Edition release CrucibleVM is based on belongs to GraalVM; report it
+to Oracle as [GraalVM's security policy](https://github.com/oracle/graal/security/policy) says. If
+you are not sure which it is, report it here and it will be passed on.
+
+CrucibleVM does not support running untrusted or adversarial code, as GraalVM does not.
