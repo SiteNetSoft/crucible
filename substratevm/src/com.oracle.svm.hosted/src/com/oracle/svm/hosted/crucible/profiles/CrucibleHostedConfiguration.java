@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.hosted.crucible.profiles;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -92,6 +93,22 @@ public final class CrucibleHostedConfiguration extends HostedConfiguration {
         List<CompileQueue.Policy> policies = CrucibleOptions.CrucibleInstrument.getValue() && CrucibleOptions.CrucibleRecordWithProbes.getValue()
                         ? List.of(new CrucibleProbePolicy(hostedUniverse))
                         : Collections.emptyList();
+        CrucibleProfilesLookup library = CrucibleStaticProfileFeature.adoptedLibraryProfile();
+        if (library != null || CrucibleStaticProfileFeature.isEnabled()) {
+            /*
+             * Without a recording, each graph gets what there is as it leaves parsing: first what was
+             * recorded for the library's branches in other programs, then, for the branches that
+             * leaves unknown, what the model predicts.
+             */
+            List<CompileQueue.Policy> withoutRecording = new ArrayList<>();
+            if (library != null) {
+                withoutRecording.add(new CrucibleAdoptedProfilePolicy(hostedUniverse, library));
+            }
+            if (CrucibleStaticProfileFeature.isEnabled()) {
+                withoutRecording.add(new CrucibleStaticProfilePolicy(hostedUniverse));
+            }
+            policies = withoutRecording;
+        }
         return new CompileQueue(debug, featureHandler, hostedUniverse, runtimeConfiguration, deoptimizeAll, policies) {
             private volatile Suites fullSuites;
 

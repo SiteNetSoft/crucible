@@ -86,6 +86,7 @@ public final class CrucibleOptions {
      */
     public static void raiseLevelForProfile(EconomicMap<OptionKey<?>, Object> values, List<String> arguments) {
         if (!(values.get(CrucibleProfile) instanceof String profile) || profile.isEmpty()) {
+            trackPositionsForLibraryProfile(values);
             return;
         }
         String option = "-H:" + SubstrateOptions.Optimize.getName();
@@ -95,6 +96,19 @@ public final class CrucibleOptions {
             }
         }
         SubstrateOptions.Optimize.update(values, SubstrateOptions.OptimizationLevel.O3.getOptionSwitch());
+    }
+
+    /**
+     * The library's profile is keyed by node source position, and an option's own hook turns their
+     * tracking on only when the option is given. This does it where the library's profile is used
+     * because that is the default, for a build that has no profile of its own and makes none.
+     */
+    private static void trackPositionsForLibraryProfile(EconomicMap<OptionKey<?>, Object> values) {
+        boolean library = values.containsKey(CrucibleLibraryProfile) ? Boolean.TRUE.equals(values.get(CrucibleLibraryProfile)) : CrucibleLibraryProfile.getDefaultValue();
+        boolean records = Boolean.TRUE.equals(values.get(CrucibleInstrument));
+        if (library && !records && !values.containsKey(GraalOptions.TrackNodeSourcePosition)) {
+            GraalOptions.TrackNodeSourcePosition.update(values, true);
+        }
     }
 
     @Option(help = "Print sample context keys that failed to match when applying a CrucibleVM profile.", type = OptionType.Debug)//
@@ -270,6 +284,52 @@ public final class CrucibleOptions {
 
     @Option(help = "Lay the code section out in the order the profiled run first entered methods, rather than by call count.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleCodeLayoutByStartup = new HostedOptionKey<>(false);
+
+    @Option(help = "Without a profile, give branches the probabilities a model trained on recorded runs of other programs predicts for them.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfile = new HostedOptionKey<>(false);
+
+    @Option(help = "Without a profile, give the branches of the class library the probabilities recorded for them in other programs, from the profile of the library that comes with the builder.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleLibraryProfile = new HostedOptionKey<>(false) {
+        @Override
+        protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, Boolean oldValue, Boolean newValue) {
+            if (newValue) {
+                /* The library's profile is keyed by node source position. */
+                GraalOptions.TrackNodeSourcePosition.update(values, true);
+            }
+        }
+    };
+
+    @Option(help = "Without a profile, give the branches of the class library the probabilities recorded for them in other programs, from this file, which crucible/ml/adopt-profile.py makes.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleAdoptedProfile = new HostedOptionKey<>("") {
+        @Override
+        protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, String oldValue, String newValue) {
+            if (newValue != null && !newValue.isEmpty()) {
+                /* The library's profile is keyed by node source position too. */
+                GraalOptions.TrackNodeSourcePosition.update(values, true);
+            }
+        }
+    };
+
+    @Option(help = "The least probability -H:+CrucibleStaticProfile gives a side of a branch, and one minus the most.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleStaticProfileMinProbability = new HostedOptionKey<>(0.001);
+
+    @Option(help = "How far from even odds a predicted probability has to be for -H:+CrucibleStaticProfile to give it to a branch; a branch predicted nearer than that keeps its static estimate.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleStaticProfileMinimumBias = new HostedOptionKey<>(0.2);
+
+    @Option(help = "Mark the probabilities -H:+CrucibleStaticProfile predicts as a profile the compiler can rely on.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfileTrusted = new HostedOptionKey<>(true);
+
+    @Option(help = "With -H:+CrucibleStaticProfile, predict the branches that leave a loop too. Off, a loop keeps the number of iterations the compiler assumes for it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> CrucibleStaticProfileLoopExits = new HostedOptionKey<>(false);
+
+    @Option(help = "How much of a predicted probability's distance from even odds -H:+CrucibleStaticProfile keeps: 1 is the prediction as it is, 0 is even odds.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Double> CrucibleStaticProfileConfidence = new HostedOptionKey<>(1.0);
+
+    @Option(help = "A branch model to use with -H:+CrucibleStaticProfile in place of the one built in, as train-branches.py writes it.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleBranchModelFile = new HostedOptionKey<>("");
+
+    @Option(help = "Write, for every branch the profile covers, its recorded probability and the features of the branch to this file, as CSV: the data a model of branches is trained on.", type = OptionType.Expert)//
+    public static final HostedOptionKey<String> CrucibleBranchFeaturesFile = new HostedOptionKey<>("");
 
     @Option(help = "Give a monitor slot to every type the analysis finds possibly locked. Off, only the types that must have one get it; the others are locked through the monitor table.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleAnalysisMonitorSlots = new HostedOptionKey<>(true);
