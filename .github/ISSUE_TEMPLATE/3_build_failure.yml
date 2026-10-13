@@ -1,0 +1,61 @@
+name: Build failure
+description: native-image, pgo.sh or the profile tools fail, or the build applies little of the profile
+title: "[Build] "
+labels: ["bug"]
+
+body:
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What failed, with the error. For a profile that is not applied, the build's `Crucible:` lines, which say how much of it was.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: step
+    attributes:
+      label: Which step
+      options:
+        - Building CrucibleVM itself (mx build)
+        - The recording image (-H:+CrucibleInstrument)
+        - Running the recording image, or no profile written
+        - The profile-guided build (-H:CrucibleProfile)
+        - crucible/pgo.sh
+        - merge-profiles.py or jfr-to-samples.py
+        - mx crucible-e2e
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command, and the program it builds if it is public.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Output
+      description: The end of the build's output, or the whole of it if it is short.
+      render: text
+
+  - type: input
+    id: commit
+    attributes:
+      label: CrucibleVM commit
+      description: "`git rev-parse --short HEAD` in the checkout you built"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and processor
+      placeholder: "Ubuntu 24.04, x86-64, Ryzen 9 7950X"
+    validations:
+      required: true

@@ -1,6 +1,6 @@
 # Coding Assistants
 
-GraalVM contributors may use AI coding assistants and similar tools when preparing contributions. We expect responsible use of such tools to help increase development velocity and, in many cases, improve contribution quality, for example by helping contributors produce clearer documentation, broader test coverage, and more complete supporting changes. This document is informed by the Linux kernel's [AI Coding Assistants](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst) policy and adapts that general approach for the GraalVM project.
+CrucibleVM contributors may use AI coding assistants and similar tools when preparing contributions. We expect responsible use of such tools to help increase development velocity and, in many cases, improve contribution quality, for example by helping contributors produce clearer documentation, broader test coverage, and more complete supporting changes. This document is informed by the Linux kernel's [AI Coding Assistants](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst) policy and adapts that general approach; it comes from the GraalVM project, with the contributor agreement replaced by CrucibleVM's Developer Certificate of Origin.
 
 ## Scope
 
@@ -9,7 +9,7 @@ This policy applies to contributions and project interactions prepared with such
 
 ## General Expectations
 
-Use of a coding assistant does not change the standard contribution process. Contributors using AI assistance are expected to follow [CONTRIBUTING.md](CONTRIBUTING.md), the relevant subproject documentation, and all review, testing, licensing, and code ownership requirements that apply to any other contribution.
+Use of a coding assistant does not change the standard contribution process. Contributors using AI assistance are expected to follow [CONTRIBUTING.md](CONTRIBUTING.md), the relevant subproject documentation, and all review, testing, and licensing requirements that apply to any other contribution.
 
 ## Contributor Responsibility
 
@@ -24,11 +24,11 @@ If a contributor cannot explain, defend, or maintain an AI-assisted change, the 
 
 ## Attribution
 
-Disclosure of AI assistance is encouraged when it helps reviewers understand how a change was produced, but explicit attribution to a specific model or tool is optional. Contributors may mention AI assistance in a pull request description, commit message body, or other review context when they believe it is useful. GraalVM does not require a dedicated attribution tag or a model name.
+Disclosure of AI assistance is encouraged when it helps reviewers understand how a change was produced, but explicit attribution to a specific model or tool is optional. Contributors may mention AI assistance in a pull request description, commit message body, or other review context when they believe it is useful. CrucibleVM does not require a dedicated attribution tag or a model name.
 
-## Oracle Contributor Agreement
+## Developer Certificate of Origin
 
-The [Oracle Contributor Agreement](https://oca.opensource.oracle.com/) and the project's normal contribution requirements apply to contributions submitted for inclusion in the project, whether AI-assisted or not. Contributors must ensure that they have the right to submit the material, that the submission complies with the project's licensing and legal requirements, and that no coding assistant terms or generated-content restrictions conflict with those obligations.
+The [Developer Certificate of Origin](https://developercertificate.org/) and the project's normal contribution requirements apply to contributions submitted for inclusion in the project, whether AI-assisted or not. A `Signed-off-by:` line is the human contributor's, never a tool's. Contributors must ensure that they have the right to submit the material, that the submission complies with the project's licensing and legal requirements, and that no coding assistant terms or generated-content restrictions conflict with those obligations.
 
 ## Maintainer Review
 

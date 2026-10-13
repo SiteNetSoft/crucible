@@ -1,82 +1,124 @@
-# For Contributors
+# Contributing to CrucibleVM
 
-GraalVM welcomes contributors to the core platform and projects that extend that platform.
-There have been significant contributions from both industry and academia so far and we thank you for considering to contribute your changes!
+CrucibleVM is a fork of GraalVM Community Edition that adds profile-guided optimization to
+`native-image`. It is alpha: measured, and checked for identical output, on a handful of
+benchmarks. What it needs most is more programs, so the most useful thing you can do is try it on
+yours and say what happened, whether that is a wrong answer, a crash, a slower binary or a faster
+one.
 
-## AI-Assisted Contributions
+This guide is for CrucibleVM, at [SiteNetSoft/crucible](https://github.com/SiteNetSoft/crucible).
+GraalVM itself, with its own guide and contributor agreement, is at
+[oracle/graal](https://github.com/oracle/graal).
 
-GraalVM accepts AI-assisted contributions. See [CODING_ASSISTANTS.md](CODING_ASSISTANTS.md) for the project policy on coding assistants, including contributor responsibility, optional attribution, and the applicability of the [Oracle Contributor Agreement](https://oca.opensource.oracle.com/) to all contributions, whether AI-assisted or not.
+## Try it on your program
 
-## How to Contribute
+Start at [`crucible/README.md`](crucible/README.md); `crucible/pgo.sh` records, samples and builds
+in one command. Keep a build of the same program without a profile, and if you can, one from the
+GraalVM Community Edition release CrucibleVM is based on: comparing against them is what tells a
+CrucibleVM problem from your program's or from upstream's.
 
-- Learn [how to become a GraalVM contributor](https://www.graalvm.org/community/contributors/).
-- See [CODING_ASSISTANTS.md](CODING_ASSISTANTS.md) for the policy on AI-assisted contributions.
-- When contributing documentation or editing Markdown files, consult [docs/AGENTS.md](docs/AGENTS.md) for GraalVM documentation terminology, style, and Markdown conventions. Apply that guide to new or modified content only; do not refactor existing documentation in bulk just to match it.
-- See [instructions for building GraalVM from source](vm/README.md).
-  - Check individual README.md and CONTRIBUTING.md files in the subprojects to learn how to build and import them into your IDE (for example, [the compiler README.md](compiler/README.md).)
-- Use [GitHub Discussions](https://github.com/oracle/graal/discussions) for questions related to working with the sources or extending the GraalVM ecosystem by creating new languages, tools, or embeddings.
+Then open an issue with the form that fits:
 
-## Reporting Bugs, Feature Requests, and Questions
+- **Wrong output or a crash.** The program does something different built with a profile, or
+  with CrucibleVM, than without. This is the report that matters most.
+- **Performance.** Faster or slower than without a profile, or than Oracle GraalVM's
+  profile-guided binary. Slower is as welcome as faster: the results in the README include where
+  CrucibleVM is behind, and yours should too.
+- **Build failure.** `native-image`, `pgo.sh` or the profile tools fail, or the build says it
+  applied little or none of the profile.
 
-- Open a GitHub issue for reproducible bugs and concrete feature requests.
-- Include the affected GraalVM version, platform details, reproduction steps, and a minimal example whenever possible.
-- Use [GitHub Discussions](https://github.com/oracle/graal/discussions) or the [GraalVM Slack](https://www.graalvm.org/slack-invitation/) for questions, design discussion, or requests for guidance that are not yet actionable bug reports or feature requests.
-- Do not report security vulnerabilities in public issue trackers. Follow the instructions in [SECURITY.md](SECURITY.md).
+For a question, or a result that is not a problem, such as "it works on my service, and here is how
+fast", use [Discussions](https://github.com/SiteNetSoft/crucible/discussions): Q&A for questions,
+Show and tell for results, Ideas for what CrucibleVM should do next.
 
-## Pull Requests
+### Narrowing down wrong output
 
-Pull requests should make it easy for reviewers to understand what changed, why it changed, and how it was validated. In particular, contributors are expected to:
+1. Build without `-H:CrucibleProfile`. If it still goes wrong, build with the GraalVM Community
+   Edition release CrucibleVM is based on. If that goes wrong too, the bug is upstream; report it to
+   [oracle/graal](https://github.com/oracle/graal/issues).
+2. If only the profile-guided build goes wrong, turn the options in the README's
+   [Options](crucible/README.md#options) table off one at a time, with `-H:-<option>`, until it goes
+   right. The one that fixes it is the best clue you can give.
+3. `-H:CrucibleProfileTrace=<substring>` prints every profile lookup and the inliner's decisions for
+   the methods that match, once you know which method computes the wrong value.
 
-- summarize the change and its motivation clearly
-- link the relevant issue or other prior discussion when there is one
-- describe the testing performed, or explicitly state that no testing was run
-- update documentation and tests when the change affects user-visible behavior, supported workflows, or developer expectations
-- ensure they have the right to contribute all submitted material, including code, tests, documentation, screenshots, and other supporting content
+A program that can be shared, however small, is worth more than any description. If yours cannot
+be, say so in the issue, and the profile alone (`crucible-profile.json`) may still help.
 
-The [Oracle Contributor Agreement](https://oca.opensource.oracle.com/) applies to all contributions accepted into the project. Use of coding assistants does not change that requirement.
+### Measuring
 
-### Contributor Roles
+The noise between two runs of the same binary is several percent on some workloads, so a
+comparison of two separate runs says little. What the project's own figures are held to, and what
+makes yours comparable:
 
-There are different roles for contributors of the project. Find a list of current contributors in [CENSUS.md](CENSUS.md).
+- one machine, nothing else heavy running on it;
+- the two binaries built from the same source, differing only in what is being compared;
+- runs alternated between them, several of each, with the median and the spread reported;
+- the outputs compared, so that a faster binary is known to compute the same thing;
+- the build's `Crucible:` lines, which show how much of the profile it applied.
 
-* Committer
-  * Has signed the [Oracle Contributor Agreement](https://oca.opensource.oracle.com/), which is a prerequisite for contributing to the project
-  * At least one pull request authored by the individual has been merged
+[`docs/issues/2026-09-19-measuring-properly.md`](docs/issues/2026-09-19-measuring-properly.md) is
+what happened before these rules.
 
-* Code Owner
-  * Source code directories contain an OWNERS.toml metadata file to define one or more Code Owners.
-  * If there is no such file, the property of the parent directory is inherited.
-  * A change to the source code must be approved by at least one of the Code Owners.
-  * Large modifications should be discussed with the Technical Area Lead for architectural design before a pull request is created.
+## Changing the code
 
-* Technical Area Lead
-  * Code Owner with primary responsibility for architecture and design of a specific area
-  * Has the ability to veto changes in his area on technical grounds
+### Building
 
-* Security Lead
-  * Organizes the vulnerability group for sharing security patches
-  * Reviews pull requests for aspects relevant for security
-  * Primary point of contact in case of discussing a potential security vulnerability
+    source crucible/env.sh          # mx and a labs JDK 25
+    cd substratevm && mx build      # first build: 20 to 60 minutes
+    mx crucible-e2e                 # records, rebuilds and checks that the profile was applied
+    mx unittest ProfileKeyTest CrucibleProfileWriterTest CounterSlotAllocatorTest CrucibleProfileParserTest
+    mx checkstyle
 
-* Developer Advocacy Lead
-  * Manages interactions within the GraalVM Community
-  * Runs the Advisory Board
-  * Primary point of contact for enquiries related to the GraalVM community or community support
+Run one `mx build` at a time in a checkout. A native-image build at full parallelism is a heavy
+load; on a machine that struggles with it, pass `--parallelism=<n>`.
 
-* Project Lead
-  * Defines an overall technical direction
-  * Mediates disputes over code ownership
-  * Appoints the Security Lead, Developer Advocacy Lead, and Technical Area Leads
-  * Appointed by Oracle
+### Where things are
 
-### Backports
+CrucibleVM's code is in `com.oracle.svm.core.crucible` and `com.oracle.svm.hosted.crucible.*`, and
+everything that is not Java is under `crucible/`. It reaches the compiler through extension points
+upstream already has. Where one is missing, put the change to upstream code in a commit of its own
+and keep it to a few lines, so that rebasing onto a new GraalVM release stays simple.
 
-For versions of GraalVM with ongoing community maintenance and backport support, a Lead Maintainer is chosen among the project contributors. That lead maintainer is responsible for managing the corresponding community backport repository. See [here](https://github.com/oracle/graal/issues/8935) an example of a call for a lead maintainer.
+A new option is an `-H:` option behind `-H:+UnlockExperimentalVMOptions`, and gets a row in the
+README's options table with its default and what it does.
 
-### Advisory Board
+### What a change needs
 
-Apart from source code contributors to the project, there is also a role for advisory board members that discuss project matters and direction as well as drive awareness and adoption of GraalVM technology. Find a description of the advisory board and its current members [here](https://www.graalvm.org/community/advisory-board/).
+- `mx crucible-e2e`, the unit tests above and `mx checkstyle` pass.
+- A change to what the compiler does comes with what it was measured to do, held to the rules under
+  [Measuring](#measuring), including where it made things slower. Most of what has been tried and
+  did not work is written down in [`docs/issues/`](docs/issues) and
+  [`crucible/ROADMAP.md`](crucible/ROADMAP.md); look there before you start, and add a note of the
+  same kind when you find something out, whether or not it worked.
+- Commit messages say what the change does, as a sentence without a full stop: "Leave the monitor
+  slot out of the types a run used and never locked, by default". The body, if there is one, says
+  why and gives the numbers.
+- One change to a pull request. The pull request template asks what was tested.
 
-### Security
+### Sign your work: the Developer Certificate of Origin
 
-Entities interested in sharing reports of vulnerabilities and collaborate on security fixes should contact the Security Lead.
+CrucibleVM uses the [Developer Certificate of Origin](https://developercertificate.org/) (DCO), as
+the Linux kernel does, and not a contributor agreement. By adding a `Signed-off-by:` line to a
+commit you certify that you wrote it, or otherwise have the right to submit it under the project's
+licenses:
+
+    Signed-off-by: Your Name <you@example.com>
+
+`git commit -s` adds the line for you, with the name and email of your git configuration. Use your
+real name. Every commit in a pull request needs one; to add it to commits you have already made,
+`git rebase --signoff crucible/main` and push again.
+
+Contributions are under the licenses of the files they change, see [LICENSE](LICENSE); a new file
+carries the same header as the files next to it.
+
+### Coding assistants
+
+You may use them. You remain responsible for every line you submit, and you sign it off as your own
+under the DCO: review it, understand it, and be ready to explain and maintain it. Saying in the pull
+request that a tool helped is welcome, and not required. See
+[CODING_ASSISTANTS.md](CODING_ASSISTANTS.md).
+
+## Security
+
+Do not report a vulnerability in a public issue; see [SECURITY.md](SECURITY.md).

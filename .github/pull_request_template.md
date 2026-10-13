@@ -1,24 +1,26 @@
-## Summary
+## What it changes
 
-- Describe the change and why it is needed.
+- What the change does and why.
 
-## Related Issues
+## Measured
 
-- Link the relevant issue, design discussion, or other prior context if applicable.
+- What it was measured to do, on which workloads, faster and slower, with the median and the spread;
+  see [Measuring](https://github.com/SiteNetSoft/crucible/blob/crucible/main/CONTRIBUTING.md#measuring). "Not a performance change" is an answer.
 
-## Testing
+## Tested
 
-- Describe the testing performed.
-- If no tests were run, state that explicitly and explain why.
+- [ ] `mx crucible-e2e`
+- [ ] the Crucible unit tests
+- [ ] `mx checkstyle`
+- [ ] the outputs of the measured workloads compared with a build without the change
+- Anything else, or what was not run and why.
 
 ## Documentation
 
-- Describe any documentation updates included in this pull request.
-- If no documentation updates are needed, state that explicitly.
+- The README's options table, `crucible/ROADMAP.md`, a note in `docs/issues/`, or "none needed".
 
-## Contributor Checklist
+## Checklist
 
-- [ ] I have read the contribution guide.
-- [ ] I have the right to contribute the submitted material under the project terms.
-- [ ] I have updated tests and documentation where appropriate.
-- [ ] If I used a coding assistant, I remain responsible for the entire contribution and have reviewed it accordingly.
+- [ ] Every commit is signed off (`git commit -s`), under the [Developer Certificate of Origin](https://developercertificate.org/).
+- [ ] A change to upstream GraalVM code is in a commit of its own.
+- [ ] If I used a coding assistant, I have reviewed everything it wrote and can explain it.

@@ -1,14 +1,17 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Need help or have a question?
-    url: https://github.com/oracle/graal/discussions
-    about: Use GitHub Discussions for questions, design discussion, and general community support.
-  - name: Join the GraalVM Slack
-    url: https://www.graalvm.org/slack-invitation/
-    about: Connect with the GraalVM community in Slack.
+  - name: Ask a question
+    url: https://github.com/SiteNetSoft/crucible/discussions/categories/q-a
+    about: How to use CrucibleVM, or whether something is a problem at all.
+  - name: Share a result
+    url: https://github.com/SiteNetSoft/crucible/discussions/categories/show-and-tell
+    about: CrucibleVM on your program, when there is nothing to fix.
   - name: Read the contribution guide
-    url: https://github.com/oracle/graal/blob/master/CONTRIBUTING.md
-    about: Review issue reporting, pull request expectations, and AI-assisted contribution guidance.
+    url: https://github.com/SiteNetSoft/crucible/blob/crucible/main/CONTRIBUTING.md
+    about: How to try CrucibleVM on your program, narrow down a problem, measure, and send a change.
   - name: Report a security vulnerability
-    url: https://github.com/oracle/graal/security/policy
-    about: Do not open a public GitHub issue for security vulnerabilities.
+    url: https://github.com/SiteNetSoft/crucible/security/advisories/new
+    about: Privately, not in a public issue. See SECURITY.md.
+  - name: A bug that is also in GraalVM Community Edition
+    url: https://github.com/oracle/graal/issues
+    about: If the GraalVM release CrucibleVM is based on has it too, it belongs upstream.
