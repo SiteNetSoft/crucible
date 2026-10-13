@@ -1,0 +1,96 @@
+#
+# Copyright (c) 2026, CrucibleVM contributors. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# Builds CrucibleVM's native-image, runs checkstyle over the suites that hold its code and the unit tests of the
+# profile, and records a profile with the sample, rebuilds with it and checks that it was applied (mx crucible-e2e):
+# what CONTRIBUTING.md asks of a change. The upstream gate in main.yml runs on pull requests only and knows nothing
+# of the profile; this runs on every push to the main branch as well.
+name: CrucibleVM
+
+on:
+  push:
+    branches:
+      - 'crucible/main'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'crucible/branding/**'
+      - 'crucible/ml/**'
+      - 'crucible/logs/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'crucible/branding/**'
+      - 'crucible/ml/**'
+      - 'crucible/logs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: "workflow = ${{ github.workflow }}, ref = ${{ github.event.ref }}, pr = ${{ github.event.pull_request.id }}"
+  cancel-in-progress: true
+
+env:
+  JAVA_HOME: ${{ github.workspace }}/jdk
+  LANG: en_US.UTF-8
+  MX_GIT_CACHE: refcache
+  MX_PATH: ${{ github.workspace }}/mx
+  MX_PYTHON: python3.8
+  NATIVE_IMAGE_EXPERIMENTAL_OPTIONS_ARE_FATAL: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    name: build, checkstyle, record and rebuild the sample
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+    - name: Check out CrucibleVM
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      with:
+        ref: ${{ github.ref }}
+        fetch-depth: 1
+    - name: Determine mx version
+      run: echo "MX_VERSION=$(jq -r '.mx_version' common.json)" >> ${GITHUB_ENV}
+    - name: Check out graalvm/mx
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      with:
+        repository: graalvm/mx.git
+        ref: ${{ env.MX_VERSION }}
+        path: ${{ env.MX_PATH }}
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      with:
+        python-version: '3.8'
+    - name: Fetch the labs JDK
+      run: |
+        mkdir jdk-dl
+        ${MX_PATH}/mx --java-home= fetch-jdk --jdk-id labsjdk-ce-latest --to jdk-dl --alias ${JAVA_HOME}
+    - name: Build native-image
+      run: ${MX_PATH}/mx -p substratevm --java-home=${JAVA_HOME} build --build-logs=silent
+    - name: Checkstyle
+      run: ${MX_PATH}/mx -p substratevm --java-home=${JAVA_HOME} checkstyle
+    - name: Unit tests of the profile
+      run: ${MX_PATH}/mx -p substratevm --java-home=${JAVA_HOME} unittest ProfileKeyTest CrucibleProfileWriterTest CounterSlotAllocatorTest CrucibleProfileParserTest
+    - name: Record a profile with the sample, rebuild with it, check that it was applied
+      run: ${MX_PATH}/mx -p substratevm --java-home=${JAVA_HOME} crucible-e2e
+    - name: Keep the sample's build logs
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      with:
+        name: e2e-logs
+        path: crucible/samples/out/*.log
+        if-no-files-found: ignore
