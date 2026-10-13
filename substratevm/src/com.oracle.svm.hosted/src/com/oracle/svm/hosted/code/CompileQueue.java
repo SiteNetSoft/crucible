@@ -1299,10 +1299,13 @@ public class CompileQueue {
 
     protected boolean reduceInlinerExploration() {
         /*
-         * Reduce inliner exploration for O2, which is the default optimization level, to keep build
-         * time and image size low.
+         * Upstream reduces the inliner's exploration to -1 at O2, the default level, to keep build
+         * time and image size low. The hosted policy scales every budget option by that value, which
+         * takes the typical graph size and the invoke bonuses below to 0 and doubles the expansion
+         * inertia: the inliner is left with no budget at all, and the default level runs Renaissance
+         * at 1.16 of Oracle GraalVM's time, scala-kmeans at 2.1. The exploration stays at 0.
          */
-        return SubstrateOptions.optimizationLevel() == SubstrateOptions.OptimizationLevel.O2;
+        return false;
     }
 
     protected OptionValues getCustomizedOptions(@SuppressWarnings("unused") HostedMethod method, DebugContext debug) {
@@ -1329,7 +1332,14 @@ public class CompileQueue {
         }
 
         if (!PriorityInliningPhase.Options.TypicalGraphSize.hasBeenSet(customizedOptions)) {
-            extraOptions.put(PriorityInliningPhase.Options.TypicalGraphSize, 450);
+            /*
+             * The O3 typical graph size. With upstream's 450 the default level is 1.78 of Oracle's
+             * time on scala-kmeans and 1.13 on mnemonics; with 3250 it is 0.93 and 1.01, for an
+             * image 16% larger than Oracle's default and a build 30% longer than upstream's. Sizes
+             * between the two are worse than either; the O3 expansion inertia (550/14) is slower
+             * than the 800/40 kept below.
+             */
+            extraOptions.put(PriorityInliningPhase.Options.TypicalGraphSize, 3250);
         }
 
         if (!PriorityInliningPhase.Options.TypicalGraphSizeInvokeBonus.hasBeenSet(customizedOptions)) {
