@@ -143,6 +143,8 @@ CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen 
 Since 2026-10-11 a recording also lists the types the run locked, and the types it used without locking them are built without a monitor slot: over the fourteen, 0.871 of Oracle's time against 0.881 in the same session, scala-stm-bench7 now 3.4% ahead, and rx-scrabble, by 2%, the one benchmark behind.
 See `docs/issues/2026-10-03-graalvm-25-4.md`.
 
+Without a profile, at the default level, the fourteen ran at 1.159 of Oracle's default binary until 2026-10-12, scala-kmeans at twice its time and scala-doku at 1.8: an upstream change from August 2026 sets the inliner's exploration to its minimum at `-O2`, and the hosted policy scales every budget the inliner has by that value, so the typical graph size and the invoke bonuses go to zero and the default level inlines next to nothing. The exploration is left at its middle now and the default level gets the `-O3` typical graph size; the rest of what `-O2` holds back stays held back. Over the fourteen, 0.939 of Oracle's default binary's time (five rounds, same session), ahead on twelve and behind by 1% on mnemonics and rx-scrabble; the images are 17% larger than Oracle's and 48% larger than before, and a build takes a third longer than before and a tenth less than Oracle's. The full `-O3` inliner budget would give 0.921 for images 14% larger again and builds 11% longer again, and is slower on five of the fourteen.
+
 Same machine, `-O3`, each binary checked for identical output, 2026-10-09 and 10. Time of the profile-guided binary
 from each compiler; lower is better. The samples are built from counted recordings, medians of eleven runs; the
 Renaissance benchmarks from sampled stacks; the services with `crucible/pgo.sh`.
