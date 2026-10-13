@@ -9,14 +9,16 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 out="$here/out"
+# mx sets MX_HOME for the commands it runs, so `mx crucible-e2e` uses the mx that ran it; a sourced crucible/env.sh sets it too.
+MX="${MX_HOME:+$MX_HOME/}mx"
 mkdir -p "$out"
 
 fail() { echo "e2e FAILED: $*" >&2; exit 1; }
 
-javac -d "$out" "$here/HelloPGO.java" || fail "cannot compile the sample"
+"${JAVA_HOME:+$JAVA_HOME/bin/}javac" -d "$out" "$here/HelloPGO.java" || fail "cannot compile the sample"
 
 echo "== pass 1: instrumented build =="
-( cd "$root/substratevm" && mx native-image -cp "$out" -o "$out/hellopgo-inst" \
+( cd "$root/substratevm" && "$MX" native-image -cp "$out" -o "$out/hellopgo-inst" \
         -H:+UnlockExperimentalVMOptions -H:+CrucibleInstrument HelloPGO ) > "$out/e2e-pass1.log" 2>&1 \
     || fail "instrumented build failed, see $out/e2e-pass1.log"
 
@@ -24,7 +26,7 @@ echo "== pass 1: instrumented build =="
 python3 "$here/verify-profile.py" "$out/crucible-profile.json" || fail "profile did not have the expected shape"
 
 echo "== pass 2: build consuming the profile =="
-( cd "$root/substratevm" && mx native-image -cp "$out" -o "$out/hellopgo-pgo" \
+( cd "$root/substratevm" && "$MX" native-image -cp "$out" -o "$out/hellopgo-pgo" \
         -H:+UnlockExperimentalVMOptions -H:CrucibleProfile="$out/crucible-profile.json" \
         -H:CrucibleProfileTrace=HelloPGO HelloPGO ) > "$out/e2e-pass2.log" 2>&1 \
     || fail "profiled build failed, see $out/e2e-pass2.log"

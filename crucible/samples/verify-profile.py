@@ -61,12 +61,15 @@ def main(path):
     if not skewed:
         fail(f"no conditional with the expected {HOT}/{COLD} split")
 
-    # The sample calls Shape.area() on an even split of two implementations; both must be recorded.
+    # The sample calls Shape.area() on an even split of two implementations; both must be recorded. The call is in
+    # step, and the record is under step when step was compiled on its own, or under the method step was inlined
+    # into, with step's point first in its calling context.
     observed = {}
     for m in methods:
-        if not m["id"].startswith(STEP_PREFIX):
-            continue
         for invoke in m.get("virtualInvokes", []):
+            point = invoke["ctx"][0] if invoke.get("ctx") else m["id"]
+            if not point.startswith(STEP_PREFIX):
+                continue
             for t in invoke["types"]:
                 observed[t["name"]] = observed.get(t["name"], 0) + t["count"]
     missing = SHAPES - observed.keys()
