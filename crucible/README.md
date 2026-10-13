@@ -134,6 +134,7 @@ converted profile drives the build as well as one of our own.
 | `System.arraycopy` | not profile work, but found by it: the community edition copied arrays with a scalar loop and a write barrier per reference, three to eight times slower than Oracle's. Copies go to the C library's `memmove` now, references are card-marked once per copy, and a copy between arrays of a known type is checked inline; level with Oracle on primitive copies and ahead on reference copies |
 | Code layout | the code section is ordered by how often each method ran |
 | Hot methods below `-O3` | are compiled the way `-O3` would compile them: its inliner settings, partial unrolling and loop vectorization, which the default level otherwise holds back for every method alike. On the samples a profiled `-O2` image runs as fast as a profiled `-O3` one and stays the size of an `-O2` one |
+| The class library's branches, without a profile | are given the probabilities recorded for them in other programs, from a profile of the library that is built into the builder (4,900 to 6,100 branches an image; the branches that leave a loop are left alone). On by default since 2026-10-13; `-H:-CrucibleLibraryProfile` turns it off. A build with a profile of its own, or one that records, does not use it |
 
 ## How it compares
 
@@ -146,6 +147,7 @@ Since 2026-10-11 a recording also lists the types the run locked, and the types 
 See `docs/issues/2026-10-03-graalvm-25-4.md`.
 
 Without a profile, at the default level, the fourteen ran at 1.159 of Oracle's default binary until 2026-10-12, scala-kmeans at twice its time and scala-doku at 1.8: an upstream change from August 2026 sets the inliner's exploration to its minimum at `-O2`, and the hosted policy scales every budget the inliner has by that value, so the typical graph size and the invoke bonuses go to zero and the default level inlines next to nothing. The exploration is left at its middle now and the default level gets the `-O3` typical graph size; the rest of what `-O2` holds back stays held back. Over the fourteen, 0.939 of Oracle's default binary's time (five rounds, same session), ahead on twelve and behind by 1% on mnemonics and rx-scrabble; the images are 17% larger than Oracle's and 48% larger than before, and a build takes a third longer than before and a tenth less than Oracle's. The full `-O3` inliner budget would give 0.921 for images 14% larger again and builds 11% longer again, and is slower on five of the fourteen.
+With the library's profile on top, which is the default since 2026-10-13, the fourteen are at 0.917 of Oracle's default binary, ahead on thirteen and level on rx-scrabble; it gives the services 3 to 5% (finagle-chirper 0.99 to 0.94, finagle-http 0.98 to 0.95) and philosophers 6%, and costs under 1% on future-genetic and scala-doku.
 
 Same machine, `-O3`, each binary checked for identical output, 2026-10-09 and 10. Time of the profile-guided binary
 from each compiler; lower is better. The samples are built from counted recordings, medians of eleven runs; the

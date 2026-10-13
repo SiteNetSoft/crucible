@@ -87,10 +87,15 @@ public final class CrucibleStaticProfileFeature implements InternalFeature {
             /* The one that comes with the builder, made by crucible/ml/adopt-profile.py. */
             try (InputStream in = CrucibleStaticProfileFeature.class.getResourceAsStream(LIBRARY_PROFILE)) {
                 if (in == null) {
-                    throw UserError.abort("-H:+CrucibleLibraryProfile: this builder has no %s.", LIBRARY_PROFILE);
-                }
-                try (Reader reader = new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8)) {
-                    adopted = new CrucibleProfilesLookup(CrucibleProfileParser.parse(reader));
+                    if (CrucibleOptions.CrucibleLibraryProfile.hasBeenSet()) {
+                        throw UserError.abort("-H:+CrucibleLibraryProfile: this builder has no %s.", LIBRARY_PROFILE);
+                    }
+                    /* The default on a builder made from a tree without the profile: say so and build without it. */
+                    LogUtils.warning("This builder has no %s; the branches of the class library keep their static estimates.", LIBRARY_PROFILE);
+                } else {
+                    try (Reader reader = new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8)) {
+                        adopted = new CrucibleProfilesLookup(CrucibleProfileParser.parse(reader));
+                    }
                 }
             } catch (IOException | IllegalArgumentException e) {
                 throw UserError.abort("Cannot read the profile of the class library that comes with the builder: %s", e.getMessage());

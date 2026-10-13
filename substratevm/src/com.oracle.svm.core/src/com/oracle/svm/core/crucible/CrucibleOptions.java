@@ -288,8 +288,9 @@ public final class CrucibleOptions {
     @Option(help = "Without a profile, give branches the probabilities a model trained on recorded runs of other programs predicts for them.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> CrucibleStaticProfile = new HostedOptionKey<>(false);
 
-    @Option(help = "Without a profile, give the branches of the class library the probabilities recorded for them in other programs, from the profile of the library that comes with the builder.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> CrucibleLibraryProfile = new HostedOptionKey<>(false) {
+    @Option(help = "Without a profile, give the branches of the class library the probabilities recorded for them in other programs, from the profile of the library that comes with the builder. " +
+                    "On by default; -H:-CrucibleLibraryProfile leaves the library's branches to the compiler's estimates.", type = OptionType.User)//
+    public static final HostedOptionKey<Boolean> CrucibleLibraryProfile = new HostedOptionKey<>(true) {
         @Override
         protected void onValueUpdate(EconomicMap<OptionKey<?>, Object> values, Boolean oldValue, Boolean newValue) {
             if (newValue) {
