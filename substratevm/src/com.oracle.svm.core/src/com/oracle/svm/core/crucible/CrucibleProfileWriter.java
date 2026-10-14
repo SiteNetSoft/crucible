@@ -90,11 +90,11 @@ public final class CrucibleProfileWriter {
          * kill cannot leave a half-written profile where a complete one used to be.
          */
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
-        try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
-            write(w, rt.keys(), allCounters(rt), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool(),
-                            rt.lockedTypeNames());
-            w.flush();
-            w.close();
+        try {
+            try (BufferedWriter w = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                write(w, rt.keys(), allCounters(rt), rt.imageBuildId(), rt.typeKeys(), rt.typeIds(), rt.typeCounts(), rt.typeOverflow(), rt::typeName, rt.firstCallOrder(), rt.keyPool(),
+                                rt.lockedTypeNames());
+            }
             Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             Log.log().string("CrucibleVM: could not write profile to ").string(path.toString()).string(": ").string(e.toString()).newline();

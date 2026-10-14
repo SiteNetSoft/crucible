@@ -93,8 +93,6 @@ public sealed interface ProfileKey permits ProfileKey.MethodEntry, ProfileKey.Co
      * Identity of one receiver-type sampling site.
      *
      * @param bci bytecode index of the call site.
-     */
-    /**
      * @param targetMethodId the method declared at the call site. The receiver types observed at
      *            run time are resolved against it in pass 2 to name the method each call actually
      *            reached.

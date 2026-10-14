@@ -133,11 +133,9 @@ public final class CrucibleProfileFeature implements InternalFeature {
      * called until compilation.
      */
     private static volatile CrucibleProfile parsedProfile;
+    /** The calling-context tree, built on first use once the hosted universe exists. */
     private static volatile CrucibleCallTree callTree;
 
-    /** The calling context for a compilation root, built from the profile on first use. */
-    /** The calling-context tree, built on first use once the hosted universe exists. */
-    /** The tree, built on first use; {@code universe} may be null once it has been built. */
     /** Whether the profile applied has sampled stacks, which some settings default to on for. */
     static boolean profileHasSamples() {
         CrucibleProfile profile = parsedProfile;

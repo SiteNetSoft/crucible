@@ -82,9 +82,9 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
     private Map<String, List<CrucibleProfile.ObservedType>> testsByPoint;
     /** Type name to analysis type, built once the hosted universe exists. */
     private Map<String, AnalysisType> typesByName = Map.of();
-    /** Total recorded method executions, used to express one method's share of the whole run. */
     /** Methods seen as a frame of some receiver-type site, which also means they ran. */
     private java.util.Set<String> inlinedSomewhere = new java.util.HashSet<>();
+    /** Total recorded method executions, used to express one method's share of the whole run. */
     private final long totalCalls;
     /**
      * Branches taken plus calls made while each method was the one being compiled, which with the
@@ -229,10 +229,6 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         return share >= 0 && share >= ratio;
     }
 
-    /**
-     * Builds the name index the receiver-type profiles are resolved through. Call once the hosted
-     * universe exists; until then type profiles resolve to nothing and are reported as misses.
-     */
     /** Whether the recording says which types the run locked an object of. */
     public boolean knowsLockedTypes() {
         return lockedTypes != null;
@@ -243,6 +239,10 @@ public final class CrucibleProfilesLookup implements PGOProfilesLookup {
         return lockedTypes != null && lockedTypes.contains(typeName);
     }
 
+    /**
+     * Builds the name index the receiver-type profiles are resolved through. Call once the hosted
+     * universe exists; until then type profiles resolve to nothing and are reported as misses.
+     */
     public void indexTypes(HostedUniverse universe) {
         Map<String, AnalysisType> index = new HashMap<>();
         for (HostedType type : universe.getTypes()) {

@@ -159,6 +159,7 @@ public final class CrucibleLoopRangeSplitPhase extends BasePhase<CoreProviders> 
     }
 
     @Override
+    @SuppressWarnings("try")
     protected void run(StructuredGraph graph, CoreProviders context) {
         if (!graph.hasLoops()) {
             return;
