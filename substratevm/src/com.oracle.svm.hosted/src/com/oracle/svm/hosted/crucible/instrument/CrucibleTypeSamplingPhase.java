@@ -26,6 +26,7 @@ package com.oracle.svm.hosted.crucible.instrument;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.CrucibleRecordTypeNode;
@@ -89,6 +90,10 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
         if (graph.method() == null || SubstrateCompilationDirectives.isDeoptTarget(graph.method())) {
             return;
         }
+        if (UninterruptibleAnnotationUtils.isUninterruptible(graph.method()) || CrucibleProbePolicy.hasOwnCallingConvention(graph.method())) {
+            /* Where a receiver's hub may not be readable; see CrucibleProbePhase.receiverMayBeForwarded. */
+            return;
+        }
         /* Hosted compilation uses a MethodCallTargetNode subclass, so filter by class. */
         for (MethodCallTargetNode call : graph.getNodes().filter(MethodCallTargetNode.class).snapshot()) {
             if (!sampleCalls) {
@@ -103,7 +108,7 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
             if (pos == null || call.arguments().isEmpty() || call.targetMethod() == null) {
                 continue;
             }
-            if (inlinedSitesOnly && pos.getCaller() == null) {
+            if (inlinedSitesOnly && pos.getCaller() == null || CrucibleProbePhase.receiverMayBeForwarded(pos)) {
                 continue;
             }
             ValueNode receiver = call.arguments().get(0);
@@ -127,7 +132,7 @@ public final class CrucibleTypeSamplingPhase extends BasePhase<HighTierContext> 
     private void sampleInstanceOfs(StructuredGraph graph) {
         for (InstanceOfNode instanceOf : graph.getNodes().filter(InstanceOfNode.class).snapshot()) {
             NodeSourcePosition pos = instanceOf.getNodeSourcePosition();
-            if (pos == null || inlinedSitesOnly && pos.getCaller() == null) {
+            if (pos == null || inlinedSitesOnly && pos.getCaller() == null || CrucibleProbePhase.receiverMayBeForwarded(pos)) {
                 continue;
             }
             IfNode anchor = null;

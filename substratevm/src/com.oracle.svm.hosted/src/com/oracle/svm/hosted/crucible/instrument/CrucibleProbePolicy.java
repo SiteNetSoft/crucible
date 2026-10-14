@@ -32,10 +32,14 @@ import com.oracle.svm.core.UninterruptibleAnnotationUtils;
 import com.oracle.svm.core.crucible.CrucibleOptions;
 import com.oracle.svm.core.crucible.CrucibleProfileRuntime;
 import com.oracle.svm.core.crucible.ProfileKey;
+import com.oracle.svm.core.deopt.Deoptimizer;
+import com.oracle.svm.core.graal.code.ExplicitCallingConvention;
+import com.oracle.svm.core.graal.code.StubCallingConvention;
 import com.oracle.svm.hosted.code.CompileQueue;
 import com.oracle.svm.hosted.meta.HostedMethod;
 import com.oracle.svm.hosted.meta.HostedUniverse;
 import com.oracle.svm.hosted.pgo.ProfilingUtilities;
+import com.oracle.svm.util.GuestAnnotationAccess;
 
 import jdk.graal.compiler.graph.Node;
 import jdk.graal.compiler.graph.NodeSourcePosition;
@@ -154,6 +158,18 @@ public final class CrucibleProbePolicy extends CompileQueue.Policy {
         if (method.getDeclaringClass().equals(context.getMetaAccess().lookupJavaType(CrucibleProfileRuntime.class))) {
             return true;
         }
-        return UninterruptibleAnnotationUtils.isUninterruptible(method);
+        return UninterruptibleAnnotationUtils.isUninterruptible(method) || hasOwnCallingConvention(method);
+    }
+
+    /**
+     * Stubs whose code the backend builds around registers it sets up itself: deoptimization stubs,
+     * and methods with a stub or an explicit calling convention. A counter's stripe is computed in
+     * registers before the body reads its arguments from them; in the interpreter's
+     * {@code leaveInterpreterStub} it overwrote the register holding the length of the stack
+     * arguments, and the stub's copy loop ran off the stack. Nothing in them is counted.
+     */
+    static boolean hasOwnCallingConvention(ResolvedJavaMethod method) {
+        return GuestAnnotationAccess.isAnnotationPresent(method, Deoptimizer.DeoptStub.class) || GuestAnnotationAccess.isAnnotationPresent(method, StubCallingConvention.class) ||
+                        GuestAnnotationAccess.isAnnotationPresent(method, ExplicitCallingConvention.class);
     }
 }

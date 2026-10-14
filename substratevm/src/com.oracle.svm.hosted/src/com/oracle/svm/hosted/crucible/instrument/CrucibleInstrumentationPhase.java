@@ -141,7 +141,7 @@ public final class CrucibleInstrumentationPhase extends BasePhase<HighTierContex
         if (method.getDeclaringClass().equals(context.getMetaAccess().lookupJavaType(CrucibleProfileRuntime.class))) {
             return true;
         }
-        return false;
+        return CrucibleProbePolicy.hasOwnCallingConvention(method);
     }
 
 

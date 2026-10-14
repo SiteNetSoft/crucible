@@ -74,7 +74,8 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
 
     @Override
     protected void run(StructuredGraph graph, HighTierContext context) {
-        boolean count = graph.method() != null && !SubstrateCompilationDirectives.isDeoptTarget(graph.method()) && !UninterruptibleAnnotationUtils.isUninterruptible(graph.method());
+        boolean count = graph.method() != null && !SubstrateCompilationDirectives.isDeoptTarget(graph.method()) && !UninterruptibleAnnotationUtils.isUninterruptible(graph.method()) &&
+                        !CrucibleProbePolicy.hasOwnCallingConvention(graph.method());
         for (CrucibleProbeNode probe : graph.getNodes(CrucibleProbeNode.TYPE).snapshot()) {
             NodeSourcePosition position = probe.getNodeSourcePosition();
             if (count && position != null) {
@@ -82,6 +83,8 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
                     countEntry(graph, probe, position);
                 } else if (probe.kind() == CrucibleProbeNode.Kind.BRANCH) {
                     countBranch(graph, probe, position);
+                } else if (receiverMayBeForwarded(position)) {
+                    /* Not recorded; the probe goes. */
                 } else {
                     boolean test = probe.kind() == CrucibleProbeNode.Kind.TESTED_VALUE;
                     int site = typeSiteAllocator.allocate(test ? ProfileKey.instanceOfForPosition(position) : ProfileKey.virtualInvokeForPosition(position, probe.target()));
@@ -95,6 +98,33 @@ public final class CrucibleProbePhase extends BasePhase<HighTierContext> {
             }
             graph.removeFixed(probe);
         }
+    }
+
+    /**
+     * Recording a receiver's type reads its hub, which an object the collector has moved no longer
+     * has: its header is the forwarding pointer. Code that runs during a collection, or where a
+     * collection may be under way, keeps its receiver types unrecorded: anything inlined from an
+     * uninterruptible method, and the collector, the heap, JFR and the VM operations themselves,
+     * whose receivers no application profile needs. The JFR writer, uninterruptible and called from
+     * the collector with a thread that had just been copied, crashed a recording of the native
+     * unit tests on exactly this. Branches there are still counted; a counter is an add.
+     */
+    static boolean receiverMayBeForwarded(NodeSourcePosition position) {
+        for (NodeSourcePosition frame = position; frame != null; frame = frame.getCaller()) {
+            ResolvedJavaMethod method = frame.getMethod();
+            if (method == null) {
+                continue;
+            }
+            if (UninterruptibleAnnotationUtils.isUninterruptible(method)) {
+                return true;
+            }
+            String owner = method.getDeclaringClass().toJavaName();
+            if (owner.startsWith("com.oracle.svm.core.genscavenge.") || owner.startsWith("com.oracle.svm.core.heap.") || owner.startsWith("com.oracle.svm.core.jfr.") ||
+                            owner.startsWith("com.oracle.svm.core.thread.VMOperation") || owner.startsWith("com.oracle.svm.core.thread.Safepoint")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Under the key the branch itself would have been counted under, had it come this far. */
