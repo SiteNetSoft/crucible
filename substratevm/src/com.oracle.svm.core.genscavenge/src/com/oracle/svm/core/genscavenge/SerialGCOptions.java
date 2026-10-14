@@ -62,6 +62,11 @@ public final class SerialGCOptions {
                     "19 a twentieth. A higher ratio trades memory for throughput. 0 for the policy's own value. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCTimeRatio = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Milliseconds between young collections that the young generation is grown to reach: 20 is the policy's own value, HotSpot's is 100. " +
+                    "A program that collects completely at intervals, as a benchmark harness does, keeps a young generation that holds what it allocates between those " +
+                    "collections only with a larger value. 0 for the policy's own value. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> SerialGCMinDistance = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Number of young collections an object survives before it is promoted to the old generation: 0 promotes straight from eden, which suits programs " +
                     "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -2, the default, starts at 1 and goes to 0 for as long as " +
                     "most of what survives one collection survives the next as well. -3 starts at 2 instead, comes down to 1 and to 0 as most of what reaches an age reaches the next, " +

@@ -192,6 +192,13 @@ benchmarks from level with Oracle's binary to 23% ahead of it and two from 32% a
 and 27%, the latter in less memory than Oracle's uses. It cost another four times its memory for
 little and made one slower, so measure it; the default is unchanged.
 
+If your program, like a benchmark harness, drops everything it allocated at intervals, try
+`-XX:SerialGCMinDistance=50` at run time. The adaptive policy grows the young generation only while
+young collections come closer than 20 ms apart (HotSpot uses 100), and this raises that to 50 ms, so
+the young generation can hold what the program allocates between those intervals. It brought
+rx-scrabble level with Oracle's binary and scala-stm-bench7 1% further ahead, but rx-scrabble then
+peaked at 153 MB and not 102, and scrabble at 722 MB and not 310, so measure it; the default is unchanged.
+
 An object that survives a young collection is copied to a survivor space and promoted at the next collection it survives.
 The community edition's policy copies it seven times first, and more on a program that allocates a lot.
 Where most of what survives one collection survives the next as well, and there is a lot of it, even the one copy is wasted, and the collector promotes straight from eden for as long as that lasts.

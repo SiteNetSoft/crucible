@@ -704,6 +704,12 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return 1.0 - (1.0 / (1.0 + gcCostRatio));
     }
 
+    /** {@link #MIN_GC_DISTANCE_SECOND} unless {@link SerialGCOptions#SerialGCMinDistance} says otherwise. */
+    private static double minGcDistanceSeconds() {
+        int requestedMillis = SerialGCOptions.SerialGCMinDistance.getValue();
+        return requestedMillis > 0 ? requestedMillis / 1000.0 : MIN_GC_DISTANCE_SECOND;
+    }
+
     /** {@link #GC_TIME_RATIO} unless {@link SerialGCOptions#SerialGCTimeRatio} says otherwise. */
     private static int gcTimeRatio() {
         int requested = SerialGCOptions.SerialGCTimeRatio.getValue();
@@ -713,7 +719,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
         // Guard against divide-by-zero; 0.001ms
         double gcDistance = Math.max(gcDistanceSecondsSeq.last(), 0.000001);
-        double minGcDistance = MIN_GC_DISTANCE_SECOND;
+        double minGcDistance = minGcDistanceSeconds();
 
         int gcTimeRatio = gcTimeRatio();
         double throughputGoal = calculateThroughputGoal(gcTimeRatio);
