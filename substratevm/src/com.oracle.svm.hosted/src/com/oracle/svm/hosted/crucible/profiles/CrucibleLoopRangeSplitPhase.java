@@ -42,6 +42,7 @@ import jdk.graal.compiler.nodes.ConstantNode;
 import jdk.graal.compiler.nodes.EndNode;
 import jdk.graal.compiler.nodes.FixedNode;
 import jdk.graal.compiler.nodes.FixedWithNextNode;
+import jdk.graal.compiler.nodes.FrameState;
 import jdk.graal.compiler.nodes.MergeNode;
 import jdk.graal.compiler.nodes.PiNode;
 import jdk.graal.compiler.nodes.ProfileData.BranchProbabilityData;
@@ -65,6 +66,7 @@ import jdk.graal.compiler.nodes.calc.SignExtendNode;
 import jdk.graal.compiler.nodes.java.ArrayLengthNode;
 import jdk.graal.compiler.nodes.loop.CountedLoopInfo;
 import jdk.graal.compiler.nodes.type.StampTool;
+import jdk.graal.compiler.nodes.util.GraphUtil;
 import jdk.graal.compiler.nodes.loop.InductionVariable;
 import jdk.graal.compiler.nodes.loop.Loop;
 import jdk.graal.compiler.nodes.loop.LoopsData;
@@ -494,8 +496,16 @@ public final class CrucibleLoopRangeSplitPhase extends BasePhase<CoreProviders> 
         merge.addForwardEnd(nullEnd);
         merge.addForwardEnd(notNullEnd);
         IfNode test = graph.add(new IfNode(graph.addOrUniqueWithInputs(IsNullNode.create(array)), isNull, notNull, BranchProbabilityData.injected(0.001)));
+        /*
+         * Before frame state assignment a merge needs the state it is reached in. Nothing inserted
+         * here has a side effect, so the last state before the insertion point is the one.
+         */
+        FrameState state = graph.getGuardsStage().areFrameStatesAtSideEffects() ? GraphUtil.findLastFrameState(before) : null;
         before.setNext(test);
         merge.setNext(entry);
+        if (state != null) {
+            merge.setStateAfter(state);
+        }
         return graph.addOrUnique(new ValuePhiNode(StampFactory.forKind(JavaKind.Int), merge, ConstantNode.forInt(0, graph), length));
     }
 

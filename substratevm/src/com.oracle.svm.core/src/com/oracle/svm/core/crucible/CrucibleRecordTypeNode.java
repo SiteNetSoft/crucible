@@ -25,12 +25,16 @@
 package com.oracle.svm.core.crucible;
 
 import jdk.graal.compiler.core.common.type.StampFactory;
+import jdk.graal.compiler.graph.Node.OptionalInput;
 import jdk.graal.compiler.graph.NodeClass;
+import jdk.graal.compiler.nodeinfo.InputType;
 import jdk.graal.compiler.nodeinfo.NodeCycles;
 import jdk.graal.compiler.nodeinfo.NodeInfo;
 import jdk.graal.compiler.nodeinfo.NodeSize;
 import jdk.graal.compiler.nodes.FixedWithNextNode;
 import jdk.graal.compiler.nodes.ValueNode;
+import jdk.graal.compiler.nodes.memory.MemoryAccess;
+import jdk.graal.compiler.nodes.memory.MemoryKill;
 import jdk.graal.compiler.nodes.memory.SingleMemoryKill;
 import jdk.graal.compiler.nodes.spi.Lowerable;
 import org.graalvm.word.LocationIdentity;
@@ -40,13 +44,19 @@ import org.graalvm.word.LocationIdentity;
  * {@link CrucibleRecordTypeSnippets} to an inline check for the type the site saw last time,
  * with a call into the runtime for everything else.
  */
-@NodeInfo(cycles = NodeCycles.CYCLES_8, size = NodeSize.SIZE_16)
-public final class CrucibleRecordTypeNode extends FixedWithNextNode implements Lowerable, SingleMemoryKill {
+@NodeInfo(allowedUsageTypes = InputType.Memory, cycles = NodeCycles.CYCLES_8, size = NodeSize.SIZE_16)
+public final class CrucibleRecordTypeNode extends FixedWithNextNode implements Lowerable, SingleMemoryKill, MemoryAccess {
 
     public static final NodeClass<CrucibleRecordTypeNode> TYPE = NodeClass.create(CrucibleRecordTypeNode.class);
 
     private final int site;
     @Input ValueNode receiver;
+    /**
+     * The snippet reads the counters before it writes them, so the node is an access of their
+     * location as well as a kill of it: the floating-read phase gives it the last kill, and the
+     * snippet's reads are rewired to that.
+     */
+    @OptionalInput(InputType.Memory) MemoryKill lastLocationAccess;
 
     public CrucibleRecordTypeNode(int site, ValueNode receiver) {
         super(TYPE, StampFactory.forVoid());
@@ -65,5 +75,21 @@ public final class CrucibleRecordTypeNode extends FixedWithNextNode implements L
     @Override
     public LocationIdentity getKilledLocationIdentity() {
         return CrucibleProfileRuntime.COUNTERS_LOCATION;
+    }
+
+    @Override
+    public LocationIdentity getLocationIdentity() {
+        return CrucibleProfileRuntime.COUNTERS_LOCATION;
+    }
+
+    @Override
+    public MemoryKill getLastLocationAccess() {
+        return lastLocationAccess;
+    }
+
+    @Override
+    public void setLastLocationAccess(MemoryKill lla) {
+        updateUsagesInterface(lastLocationAccess, lla);
+        lastLocationAccess = lla;
     }
 }

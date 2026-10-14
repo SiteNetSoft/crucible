@@ -36,6 +36,7 @@ import jdk.graal.compiler.core.common.GraalOptions;
 import jdk.graal.compiler.options.Option;
 import jdk.graal.compiler.options.OptionKey;
 import jdk.graal.compiler.options.OptionType;
+import jdk.graal.compiler.phases.common.priorityinline.PriorityInliningPhase;
 
 /** Build-time and run-time options of the CrucibleVM profiling pipeline. */
 public final class CrucibleOptions {
@@ -65,6 +66,15 @@ public final class CrucibleOptions {
             if (newValue != null && !newValue.isEmpty()) {
                 /* Profiles are keyed by node source position, so they must be tracked to apply. */
                 GraalOptions.TrackNodeSourcePosition.update(values, true);
+                /*
+                 * The inliner applies the profile of each calling context to the callee graph it
+                 * expands, and caches that graph for every other context unless the cache is off,
+                 * which the inliner asserts when it applies profiles while expanding. Given
+                 * explicitly, the option is left as given, for measuring the cache's effect.
+                 */
+                if (!values.containsKey(PriorityInliningPhase.Options.UseGraphCache)) {
+                    PriorityInliningPhase.Options.UseGraphCache.update(values, false);
+                }
                 /*
                  * Control flow duplication gives a value computed on a rarely taken path more than
                  * one use, and the schedule then computes it above the branch. With a profile, such

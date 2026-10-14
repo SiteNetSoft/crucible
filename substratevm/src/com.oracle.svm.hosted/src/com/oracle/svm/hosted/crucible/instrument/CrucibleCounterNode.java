@@ -36,6 +36,7 @@ import jdk.graal.compiler.core.common.memory.BarrierType;
 import jdk.graal.compiler.core.common.memory.MemoryOrderMode;
 import jdk.graal.compiler.core.common.type.StampFactory;
 import jdk.graal.compiler.graph.NodeClass;
+import jdk.graal.compiler.nodeinfo.InputType;
 import jdk.graal.compiler.nodeinfo.NodeCycles;
 import jdk.graal.compiler.nodeinfo.NodeInfo;
 import jdk.graal.compiler.nodeinfo.NodeSize;
@@ -67,7 +68,7 @@ import jdk.vm.ci.meta.JavaKind;
  * frame states have been assigned nothing asks for one. It kills only the counters' own location,
  * so the rest of the method's memory graph does not notice it.
  */
-@NodeInfo(cycles = NodeCycles.CYCLES_2, size = NodeSize.SIZE_2)
+@NodeInfo(allowedUsageTypes = InputType.Memory, cycles = NodeCycles.CYCLES_2, size = NodeSize.SIZE_2)
 public final class CrucibleCounterNode extends FixedWithNextNode implements Lowerable, SingleMemoryKill {
 
     public static final NodeClass<CrucibleCounterNode> TYPE = NodeClass.create(CrucibleCounterNode.class);

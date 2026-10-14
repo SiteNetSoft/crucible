@@ -27,7 +27,6 @@ package com.oracle.svm.core.crucible;
 import java.util.Map;
 
 import org.graalvm.nativeimage.CurrentIsolate;
-import org.graalvm.word.LocationIdentity;
 import org.graalvm.word.impl.ObjectAccess;
 import org.graalvm.word.impl.Word;
 
@@ -102,7 +101,13 @@ public final class CrucibleRecordTypeSnippets extends SubstrateTemplates impleme
 
     private CrucibleRecordTypeSnippets(OptionValues options, Providers providers, Map<Class<? extends Node>, NodeLoweringProvider<?>> lowerings) {
         super(options, providers);
-        this.recordType = snippet(providers, CrucibleRecordTypeSnippets.class, "recordTypeSnippet", LocationIdentity.any());
+        /*
+         * No private locations: the snippet writes the counters, which the node it replaces kills,
+         * and a probe that reads them after the node has to see the snippet's write. Declaring
+         * every location private emptied the snippet's memory map, and the builder's assertions
+         * (on under the native unit tests) refused the first such read.
+         */
+        this.recordType = snippet(providers, CrucibleRecordTypeSnippets.class, "recordTypeSnippet");
         lowerings.put(CrucibleRecordTypeNode.class, new RecordTypeLowering());
     }
 
