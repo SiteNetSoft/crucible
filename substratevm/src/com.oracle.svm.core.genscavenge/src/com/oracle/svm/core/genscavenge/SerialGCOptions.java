@@ -129,7 +129,7 @@ public final class SerialGCOptions {
     @Option(help = "Collect the young generation on several threads: the roots are scanned as before, and what they reach is scanned by worker threads. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> ParallelYoungCollection = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
-    @Option(help = "With ParallelYoungCollection, the number of worker threads; 0 for the number of processors, up to 8. Serial GC only.", type = OptionType.Expert)//
+    @Option(help = "With ParallelYoungCollection, the number of threads that scan, the one that runs the collection included; 0 for the number of processors, up to 9. Serial GC only.", type = OptionType.Expert)//
     public static final RuntimeOptionKey<Integer> ParallelYoungCollectionThreads = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "Ignore the maximum heap size while in VM-internal code. Serial GC only.", type = OptionType.Expert)//

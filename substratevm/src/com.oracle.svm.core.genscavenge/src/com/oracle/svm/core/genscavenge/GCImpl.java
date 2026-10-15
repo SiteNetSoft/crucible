@@ -1095,7 +1095,7 @@ public final class GCImpl implements GC {
             if (completeCollection) {
                 HeapImpl.getHeapImpl().getOldGeneration().scanGreyObjects(true);
             } else if (parallel) {
-                parallelGC.scanInParallel();
+                parallelGC.scanInParallel(prefetchingObjectVisitor);
             } else {
                 incrementalScanGreyObjectsLoop();
             }

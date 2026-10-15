@@ -221,11 +221,12 @@ public final class ParallelGC {
     }
 
     /**
-     * Scans everything the roots reached and everything that reaches, on the workers. The thread
-     * that runs the collection hands the unscanned rest of its chunks to them and waits.
+     * Scans everything the roots reached and everything that reaches, on the workers and on the
+     * thread that runs the collection, which first hands the unscanned rest of its chunks to the
+     * queue and then takes work like a worker until no thread has any left.
      */
     @Uninterruptible(reason = CORE_GC_CODE)
-    void scanInParallel() {
+    void scanInParallel(GreyToBlackObjectVisitor collectorVisitor) {
         Pointer own = stateOf(workers);
         mutex.lockNoTransitionUnspecifiedOwner();
         try {
@@ -236,17 +237,49 @@ public final class ParallelGC {
                     setScanStart(own, t, HeapChunk.getTopPointer(chunk));
                 }
             }
-            if (queueSize > 0) {
-                inParallelPhase = true;
-                workAvailable.broadcast();
-                while (inParallelPhase) {
-                    allIdle.blockNoTransitionUnspecifiedOwner();
-                }
+            if (queueSize == 0) {
+                return;
             }
+            inParallelPhase = true;
+            busy++;
+            workAvailable.broadcast();
         } finally {
             mutex.unlockNoTransitionUnspecifiedOwner();
         }
-        assert queueSize == 0;
+        while (true) {
+            Pointer entry;
+            mutex.lockNoTransitionUnspecifiedOwner();
+            try {
+                entry = pop();
+                while (entry.isNull() && !hasOwnWork(own)) {
+                    if (--busy == 0) {
+                        endPhase();
+                        return;
+                    }
+                    workAvailable.blockNoTransitionUnspecifiedOwner();
+                    if (!inParallelPhase) {
+                        return;
+                    }
+                    busy++;
+                    entry = pop();
+                }
+            } finally {
+                mutex.unlockNoTransitionUnspecifiedOwner();
+            }
+            if (entry.isNonNull()) {
+                scan(entry, collectorVisitor);
+            } else {
+                scanOwnChunks(own, collectorVisitor);
+            }
+        }
+    }
+
+    /** Ends a phase once no thread has work left: wakes whoever waits for its end. */
+    @Uninterruptible(reason = CORE_GC_CODE)
+    private void endPhase() {
+        inParallelPhase = false;
+        allIdle.broadcast();
+        workAvailable.broadcast();
     }
 
     /** Ends a collection: the chunks the threads allocated in stay where they are. */
@@ -367,10 +400,11 @@ public final class ParallelGC {
 
     @Uninterruptible(reason = CORE_GC_CODE)
     private void initialize() {
+        /* The thread that runs the collection scans too, so it counts as one of them. */
         int requested = SerialGCOptions.ParallelYoungCollectionThreads.getValue();
-        int count = requested > 0 ? requested : Jvm.JVM_ActiveProcessorCount();
+        int count = (requested > 0 ? requested : Jvm.JVM_ActiveProcessorCount()) - 1;
         int limit = MAX_WORKERS < workerVisitors.length ? MAX_WORKERS : workerVisitors.length;
-        workers = count < 1 ? 1 : (count > limit ? limit : count);
+        workers = count < 0 ? 0 : (count > limit ? limit : count);
 
         queueCapacity = 1024;
         queue = UntrackedNullableNativeMemory.malloc(Word.unsigned(queueCapacity).multiply(wordSize()));
@@ -394,9 +428,10 @@ public final class ParallelGC {
                 VMError.guarantee(thread.isNonNull(), "Could not start a thread of the parallel collector.");
                 threads.writeWord(i * wordSize(), thread);
             }
-            while (inParallelPhase) {
+            while (inParallelPhase && workers > 0) {
                 allIdle.blockNoTransitionUnspecifiedOwner();
             }
+            inParallelPhase = false;
         } finally {
             mutex.unlockNoTransitionUnspecifiedOwner();
         }
@@ -425,8 +460,7 @@ public final class ParallelGC {
                 entry = pop();
                 while (entry.isNull() && !hasOwnWork(state)) {
                     if (--busy == 0) {
-                        inParallelPhase = false;
-                        allIdle.broadcast();
+                        endPhase();
                     }
                     do {
                         workAvailable.blockNoTransitionUnspecifiedOwner();
