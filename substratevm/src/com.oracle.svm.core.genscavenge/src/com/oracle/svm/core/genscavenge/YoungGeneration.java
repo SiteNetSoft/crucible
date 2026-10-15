@@ -249,7 +249,7 @@ public final class YoungGeneration extends Generation {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     @Override
-    protected Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace) {
+    protected Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace, Pointer workerState) {
         assert originalSpace.isFromSpace();
         assert ObjectHeaderImpl.isAlignedObject(original);
         assert originalSpace.getAge() < maxSurvivorSpaces;
@@ -259,15 +259,16 @@ public final class YoungGeneration extends Generation {
         // survivor space. If it does not, we return null here to tell the caller.
         int age = originalSpace.getNextAgeForPromotion();
         Space toSpace = getSurvivorToSpaceAt(age - 1);
-        return ObjectPromoter.copyAlignedObject(original, originalSpace, toSpace);
+        return ObjectPromoter.copyAlignedObject(original, originalSpace, toSpace, workerState);
     }
 
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     @Override
-    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace) {
+    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace, Pointer workerState) {
         assert originalSpace.isFromSpace();
         assert originalSpace.getAge() < maxSurvivorSpaces;
+        assert workerState.isNull() : "a collection on several threads promotes unaligned chunks itself";
         if (!unalignedChunkFitsInSurvivors(originalChunk)) {
             return null;
         }
@@ -309,7 +310,7 @@ public final class YoungGeneration extends Generation {
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)
-    private boolean unalignedChunkFitsInSurvivors(UnalignedHeapChunk.UnalignedHeader chunk) {
+    boolean unalignedChunkFitsInSurvivors(UnalignedHeapChunk.UnalignedHeader chunk) {
         UnsignedWord size = HeapChunk.getSize(chunk);
         UnsignedWord sum = survivorsToSpacesAccounting.getChunkBytes().add(size);
         return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity());

@@ -368,6 +368,31 @@ public class LayoutEncoding {
         return getSizeFromObjectInline(obj, withOptionalIdHashField);
     }
 
+    /**
+     * The size of an object that other collector threads may be forwarding at the same time, from
+     * its header and the eight bytes at the hub offset as read once: forwarding overwrites those
+     * eight bytes, which may include the array length.
+     */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    public static UnsignedWord getSizeFromHeaderInGC(Object obj, Word header, long eightHeaderBytes, int hubOffset, boolean addOptionalIdHashField) {
+        ObjectHeader oh = Heap.getHeap().getObjectHeader();
+        DynamicHub hub = oh.dynamicHubFromObjectHeader(header);
+        int encoding = hub.getLayoutEncoding();
+        boolean withOptionalIdHashField = addOptionalIdHashField || (ObjectLayout.singleton().isIdentityHashFieldOptional() && oh.hasOptionalIdentityHashField(header));
+        if (isArrayLike(encoding)) {
+            int lengthOffset = ObjectLayout.singleton().getArrayLengthOffset();
+            int length;
+            if (lengthOffset >= hubOffset && lengthOffset + Integer.BYTES <= hubOffset + Long.BYTES) {
+                length = (int) (eightHeaderBytes >>> ((lengthOffset - hubOffset) * Byte.SIZE));
+            } else {
+                length = ArrayLengthNode.arrayLength(obj);
+            }
+            return getArraySize(encoding, length, withOptionalIdHashField);
+        }
+        return getPureInstanceSize(hub, withOptionalIdHashField);
+    }
+
     @AlwaysInline("Actual inlining decided by callers.")
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     private static UnsignedWord getSizeFromObjectInline(Object obj, boolean withOptionalIdHashField) {

@@ -57,6 +57,11 @@ public final class GreyToBlackObjectVisitor implements UninterruptibleObjectVisi
     }
 
     @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    GreyToBlackObjRefVisitor getObjRefVisitor() {
+        return objRefVisitor;
+    }
+
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
     boolean isPrefetching() {
         return prefetching;
     }

@@ -30,12 +30,14 @@ import static jdk.graal.compiler.nodes.extended.BranchProbabilityNode.VERY_SLOW_
 import static jdk.graal.compiler.nodes.extended.BranchProbabilityNode.probability;
 
 import com.oracle.svm.core.config.ObjectLayout;
+import org.graalvm.word.LocationIdentity;
 import org.graalvm.word.Pointer;
 import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.impl.ObjectAccess;
 import org.graalvm.word.impl.Word;
 
 import com.oracle.svm.shared.AlwaysInline;
+import com.oracle.svm.shared.NeverInline;
 import com.oracle.svm.guest.staging.core.UnmanagedMemoryUtil;
 import com.oracle.svm.core.genscavenge.remset.RememberedSet;
 import com.oracle.svm.core.heap.Heap;
@@ -51,8 +53,42 @@ public class ObjectPromoter {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     static Object copyAlignedObject(Object original, Space originalSpace, Space targetSpace) {
-        assert ObjectHeaderImpl.isAlignedObject(original);
+        return copyAlignedObject(original, originalSpace, targetSpace, Word.nullPointer());
+    }
+
+    /**
+     * Promote an aligned Object to the target Space, in a collection on several threads into the
+     * chunks of the thread whose state is {@code workerState} (see {@link ParallelGC}).
+     */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    static Object copyAlignedObject(Object original, Space originalSpace, Space targetSpace, Pointer workerState) {
         assert originalSpace.isFromSpace() || (originalSpace == targetSpace && targetSpace.isCompactingOldSpace());
+        if (workerState.isNonNull()) {
+            return copyAlignedObjectParallel(original, targetSpace, workerState);
+        }
+        if (ParallelGC.isEnabled()) {
+            return copyAlignedObjectOutOfLine(original, targetSpace);
+        }
+        return copyAndForward(original, targetSpace);
+    }
+
+    /**
+     * The serial copy, kept out of the code that also copies in parallel: inlined there, the
+     * compiler schedules its reads of the original's header and hub before the branch that chooses
+     * between the two, where for a worker the original may already be forwarded and its header
+     * no longer leads to a hub.
+     */
+    @NeverInline("Keep the serial copy's reads out of the parallel copy's code.")
+    @Uninterruptible(reason = CORE_GC_CODE)
+    private static Object copyAlignedObjectOutOfLine(Object original, Space targetSpace) {
+        return copyAndForward(original, targetSpace);
+    }
+
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    private static Object copyAndForward(Object original, Space targetSpace) {
+        assert ObjectHeaderImpl.isAlignedObject(original);
 
         Object copy = copyAlignedObject(original, targetSpace);
         if (copy != null) {
@@ -120,6 +156,83 @@ public class ObjectPromoter {
         return copy;
     }
 
+    /**
+     * Copies an object that other threads may be copying too. The eight bytes at the hub offset
+     * are read once and all that is needed is taken from them, as another thread forwarding the
+     * object overwrites them; the copy gets them before the forwarding pointer is installed, so
+     * that a thread that finds the copy through it sees a valid header. The thread that fails to
+     * install it gives its memory back.
+     */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    private static Object copyAlignedObjectParallel(Object original, Space targetSpace, Pointer workerState) {
+        assert VMOperation.isGCInProgress();
+        Pointer originalMemory = Word.objectToUntrackedPointer(original);
+        int hubOffset = ObjectHeaderImpl.hubOffset();
+        /* A volatile read, so that the eight bytes are read once and all that follows agrees. */
+        long eightHeaderBytes = originalMemory.readWordVolatile(hubOffset, LocationIdentity.ANY_LOCATION).rawValue();
+        Word header = ObjectHeaderImpl.headerFromEightBytes(eightHeaderBytes);
+        ObjectHeaderImpl ohi = ObjectHeaderImpl.getObjectHeaderImpl();
+        if (ObjectHeaderImpl.isForwardedHeader(header)) {
+            return ohi.getForwardedObject(originalMemory, header);
+        }
+        assert ObjectHeaderImpl.isAlignedHeader(header) && !ObjectHeaderImpl.isMarkedHeader(header);
+
+        UnsignedWord originalSize = LayoutEncoding.getSizeFromHeaderInGC(original, header, eightHeaderBytes, hubOffset, false);
+        UnsignedWord copySize = originalSize;
+        boolean addIdentityHashField = false;
+        if (ObjectLayout.singleton().isIdentityHashFieldOptional() && probability(SLOW_PATH_PROBABILITY, ObjectHeaderImpl.hasIdentityHashFromAddressInline(header))) {
+            addIdentityHashField = true;
+            copySize = LayoutEncoding.getSizeFromHeaderInGC(original, header, eightHeaderBytes, hubOffset, true);
+        }
+
+        Pointer copyMemory = allocateMemoryParallel(copySize, targetSpace, workerState);
+        if (probability(VERY_SLOW_PATH_PROBABILITY, copyMemory.isNull())) {
+            return null;
+        }
+        /*
+         * Build the whole copy before publishing it, so that no thread can find a copy that is not
+         * finished. Another thread forwarding the original meanwhile changes only the eight bytes
+         * at the hub offset, which the copy then gets from the snapshot.
+         */
+        UnmanagedMemoryUtil.copyLongsForward(originalMemory, copyMemory, originalSize);
+        copyMemory.writeLong(hubOffset, eightHeaderBytes);
+        Object copy = copyMemory.toObjectNonNull();
+        if (probability(SLOW_PATH_PROBABILITY, addIdentityHashField)) {
+            int value = IdentityHashCodeSupport.computeHashCodeFromAddress(original);
+            int offset = LayoutEncoding.getIdentityHashOffset(copy);
+            ObjectAccess.writeInt(copy, offset, value, IdentityHashCodeSupport.IDENTITY_HASHCODE_LOCATION);
+            ohi.setIdentityHashInField(copy);
+        }
+        if (targetSpace.isOldSpace()) {
+            ObjectHeaderImpl.setRememberedSetBit(copy);
+        }
+        Object forwarded = ohi.installForwardingPointerParallel(original, eightHeaderBytes, originalSize, copy);
+        if (forwarded != copy) {
+            ParallelGC.retractAllocation(workerState, targetSpace, copyMemory, copySize);
+            return forwarded;
+        }
+        if (targetSpace.isOldSpace()) {
+            /* The chunk is this thread's own, so its first object table needs no synchronization. */
+            AlignedHeapChunk.AlignedHeader copyChunk = AlignedHeapChunk.getEnclosingChunk(copy);
+            RememberedSet.get().enableRememberedSetForObject(copyChunk, copy, copySize);
+        }
+        return copy;
+    }
+
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
+    private static Pointer allocateMemoryParallel(UnsignedWord objectSize, Space targetSpace, Pointer workerState) {
+        AlignedHeapChunk.AlignedHeader chunk = ParallelGC.getAllocationChunk(workerState, ParallelGC.targetIndex(targetSpace));
+        if (chunk.isNonNull()) {
+            Pointer result = AlignedHeapChunk.tryAllocateMemory(chunk, objectSize);
+            if (result.isNonNull()) {
+                return result;
+            }
+        }
+        return GCImpl.getGCImpl().getParallelGC().allocateInNewChunk(workerState, targetSpace, objectSize);
+    }
+
     @Uninterruptible(reason = CORE_GC_CODE)
     static void promoteAlignedChunkWithPinnedObjectsBeforeSweeping(AlignedHeapChunk.AlignedHeader chunk, Space originalSpace, Space targetSpace) {
         assert targetSpace != originalSpace && originalSpace.isFromSpace();
@@ -178,7 +291,7 @@ public class ObjectPromoter {
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)
-    private static AlignedHeapChunk.AlignedHeader requestAlignedHeapChunk(Space targetSpace) {
+    static AlignedHeapChunk.AlignedHeader requestAlignedHeapChunk(Space targetSpace) {
         AlignedHeapChunk.AlignedHeader chunk;
         if (targetSpace.isYoungSpace()) {
             assert targetSpace.isSurvivorSpace();

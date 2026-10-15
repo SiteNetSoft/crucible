@@ -135,6 +135,10 @@ public final class GCImpl implements GC {
      */
     private final GreyToBlackObjRefVisitor prefetchingObjRefVisitor = scanPrefetchConfigured() ? new GreyToBlackObjRefVisitor(true) : greyToBlackObjRefVisitor;
     private final GreyToBlackObjectVisitor prefetchingObjectVisitor = scanPrefetchConfigured() ? new GreyToBlackObjectVisitor(prefetchingObjRefVisitor, true) : greyToBlackObjectVisitor;
+    /* The worker threads of a young collection on several threads, each with visitors of its own. */
+    private final ParallelGC parallelGC = ParallelGC.isEnabled() ? new ParallelGC(createWorkerVisitors()) : null;
+    /* Whether this collection runs on several threads. */
+    private boolean parallel;
     private final RuntimeCodeCacheWalker runtimeCodeCacheWalker = new RuntimeCodeCacheWalker(greyToBlackObjRefVisitor);
     private final RuntimeCodeCacheCleaner runtimeCodeCacheCleaner = new RuntimeCodeCacheCleaner();
     private final SweepAndPromotePinnedChunkVisitor pinnedChunkPromotionVisitor = new SweepAndPromotePinnedChunkVisitor();
@@ -751,6 +755,26 @@ public final class GCImpl implements GC {
             JfrGCEvents.emitGCPhasePauseEvent(getCollectionEpoch(), "Snapshot Heap", startTicks);
         }
 
+        parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen();
+        if (parallel) {
+            /* What the roots reach is copied into this thread's own chunks and scanned by the workers. */
+            setCollectorThreadState(parallelGC.beginCollection());
+        }
+        try {
+            scanFromRootsAfterSnapshot();
+        } finally {
+            if (parallel) {
+                setCollectorThreadState(Word.nullPointer());
+                parallelGC.endCollection();
+                parallel = false;
+            }
+        }
+    }
+
+    @Uninterruptible(reason = Uninterruptible.CORE_GC_CODE)
+    private void scanFromRootsAfterSnapshot() {
+        long startTicks;
+
         startTicks = JfrGCEvents.startGCPhasePause();
         try {
             markAndScanPinnedObjects();
@@ -1070,6 +1094,8 @@ public final class GCImpl implements GC {
         try {
             if (completeCollection) {
                 HeapImpl.getHeapImpl().getOldGeneration().scanGreyObjects(true);
+            } else if (parallel) {
+                parallelGC.scanInParallel();
             } else {
                 incrementalScanGreyObjectsLoop();
             }
@@ -1094,10 +1120,14 @@ public final class GCImpl implements GC {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = Uninterruptible.CORE_GC_CODE, mayBeInlined = true)
     @SuppressWarnings("static-method")
-    Object promoteObject(Object original, UnsignedWord header) {
+    Object promoteObject(Object original, UnsignedWord header, Pointer workerState) {
         HeapImpl heap = HeapImpl.getHeapImpl();
         boolean isAligned = ObjectHeaderImpl.isAlignedHeader(header);
         Header<?> originalChunk = getChunk(original, isAligned);
+        if (!isAligned && workerState.isNonNull()) {
+            /* Another thread may be moving the chunk, which has no space while it is moved. */
+            return parallelGC.promoteUnalignedObject(original, (UnalignedHeader) originalChunk, completeCollection, policy.getTenuringAge());
+        }
         Space originalSpace = HeapChunk.getSpace(originalChunk);
         if (originalSpace.isToSpace()) {
             assert !SerialGCOptions.useCompactingOldGen() || !completeCollection || originalSpace.isMetaspace();
@@ -1107,9 +1137,9 @@ public final class GCImpl implements GC {
         Object result = null;
         if (!completeCollection && originalSpace.getNextAgeForPromotion() < policy.getTenuringAge()) {
             if (isAligned) {
-                result = heap.getYoungGeneration().promoteAlignedObject(original, (AlignedHeader) originalChunk, originalSpace);
+                result = heap.getYoungGeneration().promoteAlignedObject(original, (AlignedHeader) originalChunk, originalSpace, workerState);
             } else {
-                result = heap.getYoungGeneration().promoteUnalignedObject(original, (UnalignedHeader) originalChunk, originalSpace);
+                result = heap.getYoungGeneration().promoteUnalignedObject(original, (UnalignedHeader) originalChunk, originalSpace, workerState);
             }
             if (result == null) {
                 accounting.onSurvivorOverflowed();
@@ -1117,9 +1147,9 @@ public final class GCImpl implements GC {
         }
         if (result == null) { // complete collection, tenuring age reached, or survivor space full
             if (isAligned) {
-                result = heap.getOldGeneration().promoteAlignedObject(original, (AlignedHeader) originalChunk, originalSpace);
+                result = heap.getOldGeneration().promoteAlignedObject(original, (AlignedHeader) originalChunk, originalSpace, workerState);
             } else {
-                result = heap.getOldGeneration().promoteUnalignedObject(original, (UnalignedHeader) originalChunk, originalSpace);
+                result = heap.getOldGeneration().promoteUnalignedObject(original, (UnalignedHeader) originalChunk, originalSpace, workerState);
             }
             assert result != null : "promotion failure in old generation must have been handled";
         }
@@ -1267,6 +1297,27 @@ public final class GCImpl implements GC {
     @Fold
     GreyToBlackObjRefVisitor getGreyToBlackObjRefVisitor() {
         return greyToBlackObjRefVisitor;
+    }
+
+    @Uninterruptible(reason = Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    ParallelGC getParallelGC() {
+        return parallelGC;
+    }
+
+    @Platforms(Platform.HOSTED_ONLY.class)
+    private static GreyToBlackObjectVisitor[] createWorkerVisitors() {
+        GreyToBlackObjectVisitor[] visitors = new GreyToBlackObjectVisitor[ParallelGC.MAX_WORKERS];
+        for (int i = 0; i < visitors.length; i++) {
+            visitors[i] = new GreyToBlackObjectVisitor(new GreyToBlackObjRefVisitor(scanPrefetchConfigured()), scanPrefetchConfigured());
+        }
+        return visitors;
+    }
+
+    /** Sets the state of the thread the collector's own visitors copy for, or null. */
+    @Uninterruptible(reason = Uninterruptible.CORE_GC_CODE)
+    private void setCollectorThreadState(Pointer state) {
+        greyToBlackObjRefVisitor.setWorkerState(state);
+        prefetchingObjRefVisitor.setWorkerState(state);
     }
 
     /*

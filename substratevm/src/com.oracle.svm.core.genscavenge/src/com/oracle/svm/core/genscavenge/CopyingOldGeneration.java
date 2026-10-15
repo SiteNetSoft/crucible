@@ -81,16 +81,17 @@ final class CopyingOldGeneration extends OldGeneration {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     @Override
-    public Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace) {
+    public Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace, Pointer workerState) {
         assert originalSpace.isFromSpace();
-        return ObjectPromoter.copyAlignedObject(original, originalSpace, getToSpace());
+        return ObjectPromoter.copyAlignedObject(original, originalSpace, getToSpace(), workerState);
     }
 
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     @Override
-    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace) {
+    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace, Pointer workerState) {
         assert originalSpace.isFromSpace();
+        assert workerState.isNull() : "a collection on several threads promotes unaligned chunks itself";
         ObjectPromoter.promoteUnalignedHeapChunk(originalChunk, originalSpace, getToSpace());
         return original;
     }

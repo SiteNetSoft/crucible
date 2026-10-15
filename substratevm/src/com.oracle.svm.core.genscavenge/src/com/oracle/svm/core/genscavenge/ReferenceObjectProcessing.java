@@ -147,6 +147,21 @@ final class ReferenceObjectProcessing {
         // lets add the reference to the list of remembered references. All remembered references
         // are revisited after the GC finished promoting all strongly reachable objects.
 
+        if (ParallelGC.isEnabled() && GCImpl.getGCImpl().getParallelGC().isActive()) {
+            /* Other threads of a parallel collection discover references too. */
+            GCImpl.getGCImpl().getParallelGC().getMutex().lockNoTransitionUnspecifiedOwner();
+            try {
+                remember(dr);
+            } finally {
+                GCImpl.getGCImpl().getParallelGC().getMutex().unlockNoTransitionUnspecifiedOwner();
+            }
+        } else {
+            remember(dr);
+        }
+    }
+
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    private static void remember(Reference<?> dr) {
         // null link means undiscovered, avoid for the last node with a cyclic reference
         Reference<?> next = (rememberedRefsList != null) ? rememberedRefsList : dr;
         ReferenceInternals.setNextDiscovered(dr, next);

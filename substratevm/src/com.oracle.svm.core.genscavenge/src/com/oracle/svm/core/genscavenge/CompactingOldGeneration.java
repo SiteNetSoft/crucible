@@ -220,7 +220,8 @@ final class CompactingOldGeneration extends OldGeneration {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CORE_GC_CODE, mayBeInlined = true)
     @Override
-    public Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace) {
+    public Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace, Pointer workerState) {
+        assert workerState.isNull() : "a collection on several threads copies into the copying old generation";
         if (!GCImpl.getGCImpl().isCompleteCollection()) {
             assert originalSpace.isFromSpace();
             return ObjectPromoter.copyAlignedObject(original, originalSpace, space);
@@ -251,7 +252,8 @@ final class CompactingOldGeneration extends OldGeneration {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     @Override
-    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace) {
+    protected Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace, Pointer workerState) {
+        assert workerState.isNull() : "a collection on several threads copies into the copying old generation";
         if (!GCImpl.getGCImpl().isCompleteCollection()) {
             assert originalSpace.isFromSpace();
             ObjectPromoter.promoteUnalignedHeapChunk(originalChunk, originalSpace, space);

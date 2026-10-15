@@ -199,6 +199,10 @@ the young generation can hold what the program allocates between those intervals
 rx-scrabble level with Oracle's binary and scala-stm-bench7 1% further ahead, but rx-scrabble then
 peaked at 153 MB and not 102, and scrabble at 722 MB and not 310, so measure it; the default is unchanged.
 
+The collector can scan the young generation on several threads: build with `-H:+ParallelYoungCollection`, and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time (the default is the number of processors, up to 8).
+Programs that spend much of their time in young collections on several threads of their own gain the most: with a profile, akka-uct runs 18% faster, scala-stm-bench7 20%, reactors 12% and scrabble 8 to 11%.
+It is new and off by default.
+
 An object that survives a young collection is copied to a survivor space and promoted at the next collection it survives.
 The community edition's policy copies it seven times first, and more on a program that allocates a lot.
 Where most of what survives one collection survives the next as well, and there is a lot of it, even the one copy is wasted, and the collector promotes straight from eden for as long as that lasts.

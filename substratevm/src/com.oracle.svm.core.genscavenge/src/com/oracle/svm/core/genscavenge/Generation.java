@@ -26,6 +26,7 @@ package com.oracle.svm.core.genscavenge;
 
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
+import org.graalvm.word.Pointer;
 
 import com.oracle.svm.shared.AlwaysInline;
 import com.oracle.svm.core.heap.ObjectVisitor;
@@ -58,13 +59,15 @@ abstract class Generation {
      * This turns an Object from white to grey: the object is in this Generation, but has not yet
      * had its interior pointers visited.
      *
+     * @param workerState in a collection on several threads, the state of the copying thread, with
+     *            the chunks it copies into (see {@link ParallelGC}); null otherwise
      * @return a reference to the promoted object, which is different to the original reference if
      *         promotion was done by copying, or {@code null} if there was insufficient capacity in
      *         this generation.
      */
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    protected abstract Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace);
+    protected abstract Object promoteAlignedObject(Object original, AlignedHeapChunk.AlignedHeader originalChunk, Space originalSpace, Pointer workerState);
 
     /**
      * Promote an Object to this Generation, typically by HeapChunk motion. If the object cannot be
@@ -73,13 +76,14 @@ abstract class Generation {
      * This turns an Object from white to grey: the object is in this Generation, but has not yet
      * had its interior pointers visited.
      *
+     * @param workerState as for {@link #promoteAlignedObject}
      * @return a reference to the promoted object, which is the same as the original if the object
      *         was promoted through HeapChunk motion, or {@code null} if there was insufficient
      *         capacity in this generation.
      */
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
-    protected abstract Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace);
+    protected abstract Object promoteUnalignedObject(Object original, UnalignedHeapChunk.UnalignedHeader originalChunk, Space originalSpace, Pointer workerState);
 
     /**
      * Promote an aligned heap chunk that contains pinned objects from its original space to the

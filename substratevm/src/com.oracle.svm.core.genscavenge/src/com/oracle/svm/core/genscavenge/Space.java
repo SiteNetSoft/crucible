@@ -218,7 +218,8 @@ public final class Space {
 
     @Uninterruptible(reason = CORE_GC_CODE)
     void appendAlignedHeapChunk(AlignedHeapChunk.AlignedHeader aChunk) {
-        assert VMOperation.isInProgressAtSafepoint();
+        /* The workers of a parallel collection append under its mutex; they have no thread locals to check. */
+        assert ParallelGC.isWorkerThread() || VMOperation.isInProgressAtSafepoint();
         appendAlignedHeapChunkUnsafe(aChunk);
     }
 
@@ -272,7 +273,7 @@ public final class Space {
          * This method is used both during a VM operation and while detaching a thread. So, it
          * cannot check more than that there is some mutual exclusion.
          */
-        VMError.guarantee(ThreadsLock.hasWriteAccess(), "Trying to append an unaligned chunk but no mutual exclusion.");
+        VMError.guarantee(ParallelGC.isWorkerThread() || ThreadsLock.hasWriteAccess(), "Trying to append an unaligned chunk but no mutual exclusion.");
 
         UnalignedHeapChunk.UnalignedHeader oldLast = getLastUnalignedHeapChunk();
         HeapChunk.setSpace(uChunk, this);

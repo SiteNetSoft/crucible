@@ -28,6 +28,7 @@ import static com.oracle.svm.shared.Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_
 
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
+import org.graalvm.word.LocationIdentity;
 import org.graalvm.word.Pointer;
 import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.WordBase;
@@ -480,6 +481,44 @@ public final class ObjectHeaderImpl extends ObjectHeader {
     @AlwaysInline("GC performance")
     @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
     private static UnsignedWord encodeForwardWord(Object original, Object copy) {
+        return encodeForwardWord(hasShift() ? LayoutEncoding.getSizeFromObjectInlineInGC(original) : Word.zero(), copy);
+    }
+
+    /**
+     * In an object that other collector threads may be forwarding at the same time, installs a
+     * forwarding pointer to a copy unless one of them has forwarded it first, and returns the copy
+     * that the object is forwarded to. {@code eightHeaderBytes} are the eight bytes at the hub
+     * offset as read before copying, from which {@code originalSize} was computed: the forwarding
+     * word overwrites all of them, which may include the array length, so nothing else about the
+     * object may be read once another thread can have forwarded it.
+     */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    Object installForwardingPointerParallel(Object original, long eightHeaderBytes, UnsignedWord originalSize, Object copy) {
+        UnsignedWord forwardWord = encodeForwardWord(originalSize, copy);
+        Pointer originalPtr = Word.objectToUntrackedPointer(original);
+        long witness = originalPtr.compareAndSwapLong(getHubOffset(), eightHeaderBytes, forwardWord.rawValue(), LocationIdentity.ANY_LOCATION);
+        if (witness != eightHeaderBytes) {
+            assert isForwardedHeader(Word.unsigned(witness));
+            return getForwardedObject(originalPtr, Word.unsigned(witness));
+        }
+        return copy;
+    }
+
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    static int hubOffset() {
+        return getHubOffset();
+    }
+
+    /** The header in the eight bytes at the hub offset, as {@link #readHeaderFromPointer} reads it. */
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    static Word headerFromEightBytes(long eightHeaderBytes) {
+        return getReferenceSize() == Integer.BYTES ? Word.unsigned(eightHeaderBytes & 0xFFFFFFFFL) : Word.unsigned(eightHeaderBytes);
+    }
+
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private static UnsignedWord encodeForwardWord(UnsignedWord originalSize, Object copy) {
         UnsignedWord result;
         UnsignedWord compressedCopy = ReferenceAccess.singleton().getCompressedRepresentation(copy);
         if (hasShift()) {
@@ -491,7 +530,6 @@ public final class ObjectHeaderImpl extends ObjectHeader {
              * original size before it is copied and forwarded in the header. This size is typically
              * needed for sweeping and compaction.
              */
-            UnsignedWord originalSize = LayoutEncoding.getSizeFromObjectInlineInGC(original);
             result = compressedCopy.shiftLeft(32);
             assert result.and(originalSize).equal(0);
             result = result.or(originalSize);

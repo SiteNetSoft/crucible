@@ -24,6 +24,7 @@
  */
 package com.oracle.svm.core.genscavenge;
 
+import static com.oracle.svm.shared.Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE;
 import static com.oracle.svm.shared.Uninterruptible.CORE_GC_CODE;
 
 import org.graalvm.nativeimage.Platform;
@@ -69,6 +70,12 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
     /** Whether this visitor prefetches; the collector has one that does and one that does not. */
     private final boolean prefetching;
 
+    /**
+     * In a collection on several threads, the state of the thread this visitor scans for, with the
+     * chunks it copies into (see {@link ParallelGC}); null otherwise.
+     */
+    private Pointer workerState = Word.nullPointer();
+
     @Platforms(Platform.HOSTED_ONLY.class)
     GreyToBlackObjRefVisitor() {
         this(false);
@@ -82,6 +89,11 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
         } else {
             counters = new NoopCounters();
         }
+    }
+
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    void setWorkerState(Pointer state) {
+        workerState = state;
     }
 
     @Override
@@ -231,7 +243,7 @@ public final class GreyToBlackObjRefVisitor implements UninterruptibleObjectRefe
 
             // Promote the Object if necessary, making it at least grey, and ...
             Object obj = p.toObjectNonNull();
-            Object copy = GCImpl.getGCImpl().promoteObject(obj, header);
+            Object copy = GCImpl.getGCImpl().promoteObject(obj, header, workerState);
             if (copy != obj) {
                 // ... update the reference to point to the copy, making the reference black.
                 counters.noteCopiedReferent();
