@@ -755,7 +755,8 @@ public final class GCImpl implements GC {
             JfrGCEvents.emitGCPhasePauseEvent(getCollectionEpoch(), "Snapshot Heap", startTicks);
         }
 
-        parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen();
+        /* A collection that copies little costs more on several threads than it saves. */
+        parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen() && lastCopiedBytes.aboveOrEqual(parallelMinCopied());
         if (parallel) {
             /* What the roots reach is copied into this thread's own chunks and scanned by the workers. */
             setCollectorThreadState(parallelGC.beginCollection());
@@ -1329,6 +1330,11 @@ public final class GCImpl implements GC {
     private UnsignedWord copyStartBytes = Word.zero();
     /* What the last young collection copied: a collection after one that copied enough starts prefetching. */
     private UnsignedWord lastCopiedBytes = Word.zero();
+
+    @Uninterruptible(reason = Uninterruptible.CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private static UnsignedWord parallelMinCopied() {
+        return Word.unsigned(SerialGCOptions.ParallelYoungCollectionMinCopiedKB.getValue()).multiply(1024);
+    }
 
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     private static UnsignedWord scanPrefetchMinCopied() {

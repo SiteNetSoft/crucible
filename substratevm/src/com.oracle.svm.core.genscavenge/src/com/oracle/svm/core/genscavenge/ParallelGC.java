@@ -142,6 +142,19 @@ public final class ParallelGC {
         return isEnabled() && CurrentIsolate.getCurrentThread().isNull() && GCImpl.getGCImpl().getParallelGC().isActive();
     }
 
+    /**
+     * What the survivor spaces may take beyond their capacity in a collection on several threads:
+     * a chunk for each thread, which holds one partly filled chunk per space that a serial
+     * collection would have filled.
+     */
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    static UnsignedWord survivorSlack() {
+        if (!isEnabled() || !GCImpl.getGCImpl().getParallelGC().isActive()) {
+            return Word.zero();
+        }
+        return HeapParameters.getAlignedHeapChunkSize().multiply(GCImpl.getGCImpl().getParallelGC().workers + 1);
+    }
+
     @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
     VMMutex getMutex() {
         return mutex;

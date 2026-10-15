@@ -306,14 +306,14 @@ public final class YoungGeneration extends Generation {
     @Uninterruptible(reason = CORE_GC_CODE)
     private boolean alignedChunkFitsInSurvivors() {
         UnsignedWord sum = survivorsToSpacesAccounting.getChunkBytes().add(HeapParameters.getAlignedHeapChunkSize());
-        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity());
+        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity().add(ParallelGC.survivorSlack()));
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)
     boolean unalignedChunkFitsInSurvivors(UnalignedHeapChunk.UnalignedHeader chunk) {
         UnsignedWord size = HeapChunk.getSize(chunk);
         UnsignedWord sum = survivorsToSpacesAccounting.getChunkBytes().add(size);
-        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity());
+        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity().add(ParallelGC.survivorSlack()));
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)
