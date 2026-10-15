@@ -230,11 +230,19 @@ public final class ParallelGC {
         Pointer own = stateOf(workers);
         mutex.lockNoTransitionUnspecifiedOwner();
         try {
+            /*
+             * Hand the unscanned rest of this thread's chunks to the queue and stop allocating in
+             * them: a thread that scans a range of a chunk scans on to the chunk's top, and so would
+             * reach into copies this thread makes there while it scans too.
+             */
             for (int t = 0; t < targets(); t++) {
                 AlignedHeader chunk = getAllocationChunk(own, t);
-                if (chunk.isNonNull() && HeapChunk.getTopPointer(chunk).aboveThan(getScanStart(own, t))) {
-                    push(getScanStart(own, t));
-                    setScanStart(own, t, HeapChunk.getTopPointer(chunk));
+                if (chunk.isNonNull()) {
+                    if (HeapChunk.getTopPointer(chunk).aboveThan(getScanStart(own, t))) {
+                        push(getScanStart(own, t));
+                    }
+                    setAllocationChunk(own, t, Word.nullPointer());
+                    setScanStart(own, t, Word.nullPointer());
                 }
             }
             if (queueSize == 0) {
