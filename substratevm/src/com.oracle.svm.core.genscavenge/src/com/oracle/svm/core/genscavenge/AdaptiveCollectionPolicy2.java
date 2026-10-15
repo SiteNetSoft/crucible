@@ -717,6 +717,20 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     }
 
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
+        UnsignedWord desired = computeDesiredEdenSize0(isSurvivorOverflowing, curEden);
+        if (SubstrateGCOptions.VerboseGC.getValue()) {
+            /* Which rule sized eden, and from what, in kilobytes, percent and milliseconds. */
+            Log.log().string("  Eden ").unsigned(curEden.unsignedDivide(1024)).string("K->").unsigned(desired.unsignedDivide(1024)).string("K by ").string(edenReason).string(
+                            ": mutator ").signed((long) (mutatorTimePercent() * 100)).string("% distance ").signed((long) (gcDistanceSecondsSeq.last() * 1000)).string(
+                                            "ms promoted ").signed((long) (promotedBytesEstimate() / 1024)).string("K").newline();
+        }
+        return desired;
+    }
+
+    /** The rule {@link #computeDesiredEdenSize0} last sized eden by, for {@link SubstrateGCOptions#VerboseGC}. */
+    private String edenReason = "";
+
+    private UnsignedWord computeDesiredEdenSize0(boolean isSurvivorOverflowing, UnsignedWord curEden) {
         // Guard against divide-by-zero; 0.001ms
         double gcDistance = Math.max(gcDistanceSecondsSeq.last(), 0.000001);
         double minGcDistance = minGcDistanceSeconds();
@@ -730,16 +744,19 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             if (gcDistance >= expectedGcDistance) {
                 // The latest sample already satisfies throughput goal; keep the current size
                 newEden = curEden;
+                edenReason = "throughput, met by the last";
             } else {
                 // Using the latest sample to limit the growth in order to avoid overshoot
                 newEden = UnsignedUtils.min(
                                 UnsignedUtils.fromDouble((expectedGcDistance / gcDistance) * UnsignedUtils.toDouble(curEden)),
                                 increaseEden(curEden));
+                edenReason = "throughput";
             }
             return newEden;
         }
 
         if (minorGcTimeEstimate() > gcPauseGoalSec) {
+            edenReason = "pause";
             return decreaseEdenForMinorPauseTime(curEden);
         }
 
@@ -747,6 +764,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             UnsignedWord newEden = UnsignedUtils.min(
                             UnsignedUtils.fromDouble((minGcDistance / gcDistance) * UnsignedUtils.toDouble(curEden)),
                             increaseEden(curEden));
+            edenReason = "distance";
             return newEden;
         }
 
@@ -768,10 +786,12 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             double predictedGcDistance = gcDistance * (1 - deltaFactor) - gcDistanceSecondsSeq.dsd();
 
             if (predictedGcDistance > gcDistanceTarget) {
+                edenReason = "footprint";
                 return curEden.subtract(delta);
             }
         }
 
+        edenReason = isSurvivorOverflowing || promotedBytesEstimate() >= 1024 ? "kept, promoting" : "kept";
         return curEden;
     }
 
