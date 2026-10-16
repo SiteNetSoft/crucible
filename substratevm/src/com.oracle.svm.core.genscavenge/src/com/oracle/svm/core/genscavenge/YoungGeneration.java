@@ -306,14 +306,32 @@ public final class YoungGeneration extends Generation {
     @Uninterruptible(reason = CORE_GC_CODE)
     private boolean alignedChunkFitsInSurvivors() {
         UnsignedWord sum = survivorsToSpacesAccounting.getChunkBytes().add(HeapParameters.getAlignedHeapChunkSize());
-        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity().add(ParallelGC.survivorSlack()));
+        return fitsInSurvivors(sum);
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)
     boolean unalignedChunkFitsInSurvivors(UnalignedHeapChunk.UnalignedHeader chunk) {
         UnsignedWord size = HeapChunk.getSize(chunk);
         UnsignedWord sum = survivorsToSpacesAccounting.getChunkBytes().add(size);
-        return sum.belowOrEqual(GCImpl.getPolicy().getSurvivorSpacesCapacity().add(ParallelGC.survivorSlack()));
+        return fitsInSurvivors(sum);
+    }
+
+    /**
+     * Whether the survivor spaces can grow to {@code sum} chunk bytes: up to their capacity, and
+     * in a parallel collection by a chunk per thread more, noted as an overflow for the tenuring
+     * choice, which a serial collection would have had.
+     */
+    @Uninterruptible(reason = CORE_GC_CODE)
+    private static boolean fitsInSurvivors(UnsignedWord sum) {
+        UnsignedWord capacity = GCImpl.getPolicy().getSurvivorSpacesCapacity();
+        if (sum.belowOrEqual(capacity)) {
+            return true;
+        }
+        if (sum.belowOrEqual(capacity.add(ParallelGC.survivorSlack()))) {
+            GCImpl.getAccounting().onSurvivorSlackUsed();
+            return true;
+        }
+        return false;
     }
 
     @Uninterruptible(reason = CORE_GC_CODE)

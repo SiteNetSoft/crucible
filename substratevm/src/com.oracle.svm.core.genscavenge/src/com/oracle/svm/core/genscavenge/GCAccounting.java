@@ -50,6 +50,7 @@ public final class GCAccounting {
     private UnsignedWord totalCollectedChunkBytes = Word.zero();
     private UnsignedWord totalAllocatedChunkBytes = Word.zero();
     private UnsignedWord lastIncrementalCollectionPromotedChunkBytes = Word.zero();
+    private boolean lastIncrementalCollectionUsedSurvivorSlack;
     /* With the parallel young collection, the old generation's object bytes before a young collection. */
     private UnsignedWord oldObjectBytesBeforeIncremental = Word.zero();
     private boolean lastIncrementalCollectionOverflowedSurvivors = false;
@@ -146,6 +147,7 @@ public final class GCAccounting {
         }
         if (!completeCollection) {
             lastIncrementalCollectionOverflowedSurvivors = false;
+            lastIncrementalCollectionUsedSurvivorSlack = false;
             if (ParallelGC.isEnabled()) {
                 oldObjectBytesBeforeIncremental = oldGen.computeObjectBytes();
             }
@@ -157,6 +159,18 @@ public final class GCAccounting {
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void onSurvivorOverflowed() {
         lastIncrementalCollectionOverflowedSurvivors = true;
+    }
+
+    /** A parallel collection filled the survivor spaces beyond their capacity, into its slack. */
+    @AlwaysInline("GC performance")
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    void onSurvivorSlackUsed() {
+        lastIncrementalCollectionUsedSurvivorSlack = true;
+    }
+
+    /** Whether the last young collection overflowed the survivor spaces or used their slack. */
+    boolean hasLastIncrementalCollectionExceededSurvivorCapacity() {
+        return lastIncrementalCollectionOverflowedSurvivors || lastIncrementalCollectionUsedSurvivorSlack;
     }
 
     void afterCollectOnce(boolean completeCollection) {

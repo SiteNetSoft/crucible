@@ -522,11 +522,13 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             UnsignedWord survivorFloor = Word.zero();
             if (SerialGCOptions.SerialGCTenuringThreshold.getValue() == CHOOSE_BETWEEN_ONE_AND_ZERO) {
                 UnsignedWord edenBefore = acc.getYoungChunkBytesBefore().subtract(survivorBytesBefore);
-                boolean probeNext = chooseBetweenOneAndZero(survivorOverflow, UnsignedUtils.toDouble(survivorBytesBefore), UnsignedUtils.toDouble(edenBefore),
+                /* The survivor slack of a parallel collection counts as an overflow here, as a serial collection would have had one. */
+                boolean beyondCapacity = acc.hasLastIncrementalCollectionExceededSurvivorCapacity();
+                boolean probeNext = chooseBetweenOneAndZero(beyondCapacity, UnsignedUtils.toDouble(survivorBytesBefore), UnsignedUtils.toDouble(edenBefore),
                                 UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
                 if (SubstrateGCOptions.VerboseGC.getValue()) {
                     /* What the choice between one and zero was made from, in kilobytes, and what it is now. */
-                    Log.log().string("  Tenuring one or zero: ").string(survivorOverflow ? "overflow " : "").string("survivors ").unsigned(survivorBytesBefore.unsignedDivide(1024)).string(
+                    Log.log().string("  Tenuring one or zero: ").string(beyondCapacity ? "overflow " : "").string("survivors ").unsigned(survivorBytesBefore.unsignedDivide(1024)).string(
                                     "K eden ").unsigned(edenBefore.unsignedDivide(1024)).string("K survived ").unsigned(survived.unsignedDivide(1024)).string("K promoted ").unsigned(
                                                     promoted.unsignedDivide(1024)).string("K; ").string(promoteAtOnce ? "zero" : "one").string(probing ? " probing" : "").newline();
                 }
