@@ -46,6 +46,7 @@ import com.oracle.svm.core.genscavenge.AlignedHeapChunk.AlignedHeader;
 import com.oracle.svm.core.genscavenge.UnalignedHeapChunk.UnalignedHeader;
 import com.oracle.svm.core.graal.nodes.WriteCurrentVMThreadNode;
 import com.oracle.svm.core.graal.snippets.CEntryPointSnippets;
+import com.oracle.svm.core.hub.LayoutEncoding;
 import com.oracle.svm.core.jdk.Jvm;
 import com.oracle.svm.core.locks.VMCondition;
 import com.oracle.svm.core.locks.VMMutex;
@@ -95,7 +96,8 @@ public final class ParallelGC {
     /* Layout of a thread's state, in words. */
     private static final int ISOLATE_SLOT = 0;
     private static final int SCANNED_CHUNK_SLOT = 1;
-    private static final int FIRST_TARGET_SLOT = 2;
+    private static final int POPPED_END_SLOT = 2;
+    private static final int FIRST_TARGET_SLOT = 3;
 
     /** The low bit of a queue entry that is an unaligned chunk rather than a position in an aligned one. */
     private static final int UNALIGNED_BIT = 0b01;
@@ -229,6 +231,14 @@ public final class ParallelGC {
         if (!initialized) {
             initialize();
         }
+        /* The chunks kept in the old generation were scanned to their top, by now perhaps by a serial collection. */
+        for (int i = 0; i <= workers; i++) {
+            Pointer state = stateOf(i);
+            AlignedHeader chunk = getAllocationChunk(state, 0);
+            if (chunk.isNonNull()) {
+                setScanStart(state, 0, HeapChunk.getTopPointer(chunk));
+            }
+        }
         active = true;
         return stateOf(workers);
     }
@@ -244,18 +254,14 @@ public final class ParallelGC {
         mutex.lockNoTransitionUnspecifiedOwner();
         try {
             /*
-             * Hand the unscanned rest of this thread's chunks to the queue and stop allocating in
-             * them: a thread that scans a range of a chunk scans on to the chunk's top, and so would
-             * reach into copies this thread makes there while it scans too.
+             * Hand the unscanned rest of this thread's chunks to the queue, up to their top now:
+             * this thread goes on copying into them while it scans too.
              */
             for (int t = 0; t < targets(); t++) {
                 AlignedHeader chunk = getAllocationChunk(own, t);
-                if (chunk.isNonNull()) {
-                    if (HeapChunk.getTopPointer(chunk).aboveThan(getScanStart(own, t))) {
-                        push(getScanStart(own, t));
-                    }
-                    setAllocationChunk(own, t, Word.nullPointer());
-                    setScanStart(own, t, Word.nullPointer());
+                if (chunk.isNonNull() && HeapChunk.getTopPointer(chunk).aboveThan(getScanStart(own, t))) {
+                    push(getScanStart(own, t), HeapChunk.getTopPointer(chunk));
+                    setScanStart(own, t, HeapChunk.getTopPointer(chunk));
                 }
             }
             if (queueSize == 0) {
@@ -271,7 +277,7 @@ public final class ParallelGC {
             Pointer entry;
             mutex.lockNoTransitionUnspecifiedOwner();
             try {
-                entry = pop();
+                entry = pop(own);
                 while (entry.isNull() && !hasOwnWork(own)) {
                     if (--busy == 0) {
                         endPhase();
@@ -282,13 +288,13 @@ public final class ParallelGC {
                         return;
                     }
                     busy++;
-                    entry = pop();
+                    entry = pop(own);
                 }
             } finally {
                 mutex.unlockNoTransitionUnspecifiedOwner();
             }
             if (entry.isNonNull()) {
-                scan(entry, collectorVisitor);
+                scan(entry, getPoppedEnd(own), collectorVisitor);
             } else {
                 scanOwnChunks(own, collectorVisitor);
             }
@@ -303,17 +309,35 @@ public final class ParallelGC {
         workAvailable.broadcast();
     }
 
-    /** Ends a collection: the chunks the threads allocated in stay where they are. */
+    /**
+     * Ends a collection. Each thread keeps its chunk in the old generation for the next one, as a
+     * serial collection keeps the old generation's last chunk: dropped after every collection,
+     * their unused rest adds up to a chunk per thread and collection, which fills the old
+     * generation early in a program that collects often. The survivor spaces are swapped, so
+     * their chunks are dropped.
+     */
     @Uninterruptible(reason = CORE_GC_CODE)
     void endCollection() {
         for (int i = 0; i <= workers; i++) {
             Pointer state = stateOf(i);
-            for (int t = 0; t < targets(); t++) {
+            for (int t = 1; t < targets(); t++) {
                 setAllocationChunk(state, t, Word.nullPointer());
                 setScanStart(state, t, Word.nullPointer());
             }
         }
         active = false;
+    }
+
+    /** Drops the chunks kept in the old generation, which a complete collection releases or moves. */
+    @Uninterruptible(reason = CORE_GC_CODE)
+    void forgetOldGenerationChunks() {
+        if (!initialized) {
+            return;
+        }
+        for (int i = 0; i <= workers; i++) {
+            setAllocationChunk(stateOf(i), 0, Word.nullPointer());
+            setScanStart(stateOf(i), 0, Word.nullPointer());
+        }
     }
 
     /* Allocation. */
@@ -331,7 +355,7 @@ public final class ParallelGC {
         try {
             AlignedHeader old = getAllocationChunk(state, target);
             if (old.isNonNull() && old.notEqual(getScannedChunk(state)) && HeapChunk.getTopPointer(old).aboveThan(getScanStart(state, target))) {
-                push(getScanStart(state, target));
+                push(getScanStart(state, target), HeapChunk.getTopPointer(old));
             }
             AlignedHeader chunk = ObjectPromoter.requestAlignedHeapChunk(targetSpace);
             setAllocationChunk(state, target, chunk);
@@ -382,7 +406,7 @@ public final class ParallelGC {
                 targetSpace = ((CopyingOldGeneration) heap.getOldGeneration()).getToSpace();
             }
             ObjectPromoter.promoteUnalignedHeapChunk(chunk, originalSpace, targetSpace);
-            push(HeapChunk.asPointer(chunk).or(UNALIGNED_BIT));
+            push(HeapChunk.asPointer(chunk).or(UNALIGNED_BIT), Word.nullPointer());
             return original;
         } finally {
             mutex.unlockNoTransitionUnspecifiedOwner();
@@ -391,30 +415,39 @@ public final class ParallelGC {
 
     /* The queue, guarded by the mutex. */
 
+    /** Queues the objects from {@code start} up to {@code end}, or an unaligned chunk with no end. */
     @Uninterruptible(reason = CORE_GC_CODE)
-    private void push(Pointer entry) {
-        assert entry.isNonNull();
+    private void push(Pointer start, Pointer end) {
+        assert start.isNonNull();
         if (queueSize == queueCapacity) {
             int capacity = queueCapacity * 2;
-            Pointer grown = UntrackedNullableNativeMemory.realloc(queue, Word.unsigned(capacity).multiply(wordSize()));
+            Pointer grown = UntrackedNullableNativeMemory.realloc(queue, Word.unsigned(capacity).multiply(2 * wordSize()));
             VMError.guarantee(grown.isNonNull(), "Out of native memory for the parallel collector's queue.");
             queue = grown;
             queueCapacity = capacity;
         }
-        queue.writeWord(queueSize * wordSize(), entry);
+        queue.writeWord(2 * queueSize * wordSize(), start);
+        queue.writeWord((2 * queueSize + 1) * wordSize(), end);
         queueSize++;
         if (inParallelPhase) {
             workAvailable.signal();
         }
     }
 
+    /** Takes an entry from the queue, with its end left in the thread's state, or returns null. */
     @Uninterruptible(reason = CORE_GC_CODE)
-    private Pointer pop() {
+    private Pointer pop(Pointer state) {
         if (queueSize == 0) {
             return Word.nullPointer();
         }
         queueSize--;
-        return queue.readWord(queueSize * wordSize());
+        state.writeWord(POPPED_END_SLOT * wordSize(), queue.readWord((2 * queueSize + 1) * wordSize()));
+        return queue.readWord(2 * queueSize * wordSize());
+    }
+
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private static Pointer getPoppedEnd(Pointer state) {
+        return state.readWord(POPPED_END_SLOT * wordSize());
     }
 
     /* The workers. */
@@ -428,7 +461,7 @@ public final class ParallelGC {
         workers = count < 0 ? 0 : (count > limit ? limit : count);
 
         queueCapacity = 1024;
-        queue = UntrackedNullableNativeMemory.malloc(Word.unsigned(queueCapacity).multiply(wordSize()));
+        queue = UntrackedNullableNativeMemory.malloc(Word.unsigned(queueCapacity).multiply(2 * wordSize()));
         states = UntrackedNullableNativeMemory.calloc(Word.unsigned(workers + 1).multiply(stateWords()).multiply(wordSize()));
         threads = UntrackedNullableNativeMemory.calloc(Word.unsigned(workers).multiply(wordSize()));
         VMError.guarantee(queue.isNonNull() && states.isNonNull() && threads.isNonNull(), "Out of native memory for the parallel collector.");
@@ -478,7 +511,7 @@ public final class ParallelGC {
             Pointer entry;
             mutex.lockNoTransitionUnspecifiedOwner();
             try {
-                entry = pop();
+                entry = pop(state);
                 while (entry.isNull() && !hasOwnWork(state)) {
                     if (--busy == 0) {
                         endPhase();
@@ -487,13 +520,13 @@ public final class ParallelGC {
                         workAvailable.blockNoTransitionUnspecifiedOwner();
                     } while (!inParallelPhase);
                     busy++;
-                    entry = pop();
+                    entry = pop(state);
                 }
             } finally {
                 mutex.unlockNoTransitionUnspecifiedOwner();
             }
             if (entry.isNonNull()) {
-                scan(entry, visitor);
+                scan(entry, getPoppedEnd(state), visitor);
             } else {
                 scanOwnChunks(state, visitor);
             }
@@ -521,12 +554,23 @@ public final class ParallelGC {
         return false;
     }
 
+    /**
+     * Scans a queue entry: an unaligned chunk, or the objects of an aligned chunk from the entry up
+     * to its end, and not on to the chunk's top, as the thread that owns the chunk may still copy
+     * into it.
+     */
     @Uninterruptible(reason = CORE_GC_CODE)
-    private static void scan(Pointer entry, GreyToBlackObjectVisitor visitor) {
+    private static void scan(Pointer entry, Pointer end, GreyToBlackObjectVisitor visitor) {
         if (entry.and(UNALIGNED_BIT).notEqual(0)) {
             UnalignedHeapChunk.walkObjectsInline((UnalignedHeader) entry.and(Word.unsigned(UNALIGNED_BIT).not()), visitor);
-        } else {
-            AlignedHeapChunk.walkObjectsFromInline(AlignedHeapChunk.getEnclosingChunkFromObjectPointer(entry), entry, visitor);
+            return;
+        }
+        Pointer p = entry;
+        while (p.belowThan(end)) {
+            Object obj = p.toObjectNonNull();
+            Pointer next = p.add(LayoutEncoding.getSizeFromObjectInlineInGC(obj));
+            visitor.visitObject(obj);
+            p = next;
         }
     }
 

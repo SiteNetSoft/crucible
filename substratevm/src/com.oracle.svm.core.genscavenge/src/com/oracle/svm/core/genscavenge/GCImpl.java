@@ -386,6 +386,9 @@ public final class GCImpl implements GC {
         assert !followsIncremental || complete : "An incremental collection cannot be followed by another incremental collection";
         assert !completeCollection || complete : "After a complete collection, no further incremental collections may happen";
         completeCollection = complete;
+        if (complete && ParallelGC.isEnabled()) {
+            parallelGC.forgetOldGenerationChunks();
+        }
 
         accounting.beforeCollectOnce(completeCollection);
         policy.onCollectionBegin(completeCollection, beginNanoTime);
