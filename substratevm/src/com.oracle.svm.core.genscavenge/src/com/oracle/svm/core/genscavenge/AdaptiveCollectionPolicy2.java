@@ -133,6 +133,17 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     private boolean probing = false;
     private int samplesInFavor = 0;
     private int collectionsSinceProbe = 0;
+    /*
+     * Whether a complete collection has run since the last probe while promoting at once, with the
+     * parallel young collection. Promoted objects that die in the old generation keep what they
+     * point to in the young generation alive until a complete collection, so a probe sees more
+     * survive than the program keeps; right after a complete collection it sees what the program
+     * keeps. The parallel collection's survivor slack spares a program the overflow that keeps a
+     * serial collection from promoting at once in its first collections (fj-kmeans), and it then
+     * stays there; on the serial collector, probing after a complete collection costs
+     * scala-stm-bench7 15%, so it is not done there.
+     */
+    private boolean completeSinceProbe = false;
     private int probeInterval = PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL;
     private int overflowsInProbe = 0;
     private int probesAgainst = 0;
@@ -240,8 +251,9 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             if (promoted >= PROMOTE_AT_ONCE_MIN_SAMPLE_BYTES) {
                 collectionsSinceProbe++;
             }
-            if (collectionsSinceProbe >= probeInterval) {
+            if (collectionsSinceProbe >= probeInterval || completeSinceProbe) {
                 collectionsSinceProbe = 0;
+                completeSinceProbe = false;
                 overflowsInProbe = 0;
                 probing = true;
                 return true;
@@ -442,11 +454,20 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return false;
     }
 
+    /**
+     * What the survivor spaces hold: their chunk bytes, or with the parallel young collection
+     * their object bytes, as its threads leave chunks partly filled.
+     */
+    private static UnsignedWord survivorBytes() {
+        YoungGeneration young = HeapImpl.getHeapImpl().getYoungGeneration();
+        return ParallelGC.isEnabled() ? young.computeSurvivorObjectBytes() : young.getSurvivorChunkBytes();
+    }
+
     /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
     @Override
     public void onCollectionBegin(boolean completeCollection, long beginNanoTime) {
         tenuringThreshold = requestedTenuringThreshold(tenuringThreshold);
-        survivorBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
+        survivorBytesBefore = survivorBytes();
         if (HeapParameters.getMaxSurvivorSpaces() >= 2) {
             firstAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(0);
             secondAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(1);
@@ -479,6 +500,9 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             UnsignedWord oldUsed = UnsignedUtils.max(acc.getOldGenerationBeforeChunkBytes(), acc.getOldGenerationAfterChunkBytes());
             sampleOldGenUsedBytes(oldUsed);
             resizeAfterFullGC(oldLive);
+            if (promoteAtOnce && !probing && ParallelGC.isEnabled()) {
+                completeSinceProbe = true;
+            }
         } else {
             minorCollectionEnd(sizes.getEdenSize());
 
@@ -490,7 +514,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             oldSizeExceededInPreviousCollection = oldLive.aboveThan(sizes.getOldSize());
 
             boolean survivorOverflow = acc.hasLastIncrementalCollectionOverflowedSurvivors();
-            UnsignedWord survived = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
+            UnsignedWord survived = survivorBytes();
             UnsignedWord promoted = acc.getLastIncrementalCollectionPromotedChunkBytes();
             updateAverages(survivorOverflow, UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
             sampleOldGenUsedBytes(acc.getOldGenerationAfterChunkBytes());
@@ -500,6 +524,12 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
                 UnsignedWord edenBefore = acc.getYoungChunkBytesBefore().subtract(survivorBytesBefore);
                 boolean probeNext = chooseBetweenOneAndZero(survivorOverflow, UnsignedUtils.toDouble(survivorBytesBefore), UnsignedUtils.toDouble(edenBefore),
                                 UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
+                if (SubstrateGCOptions.VerboseGC.getValue()) {
+                    /* What the choice between one and zero was made from, in kilobytes, and what it is now. */
+                    Log.log().string("  Tenuring one or zero: ").string(survivorOverflow ? "overflow " : "").string("survivors ").unsigned(survivorBytesBefore.unsignedDivide(1024)).string(
+                                    "K eden ").unsigned(edenBefore.unsignedDivide(1024)).string("K survived ").unsigned(survived.unsignedDivide(1024)).string("K promoted ").unsigned(
+                                                    promoted.unsignedDivide(1024)).string("K; ").string(promoteAtOnce ? "zero" : "one").string(probing ? " probing" : "").newline();
+                }
                 if (probeNext) {
                     /* At zero the survivor space has shrunk; what was promoted is what it must hold. */
                     survivorFloor = UnsignedUtils.fromDouble(PROMOTE_AT_ONCE_PROBE_HEADROOM * promotedBytesEstimate());
