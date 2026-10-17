@@ -454,20 +454,11 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return false;
     }
 
-    /**
-     * What the survivor spaces hold: their chunk bytes, or with the parallel young collection
-     * their object bytes, as its threads leave chunks partly filled.
-     */
-    private static UnsignedWord survivorBytes() {
-        YoungGeneration young = HeapImpl.getHeapImpl().getYoungGeneration();
-        return ParallelGC.isEnabled() ? young.computeSurvivorObjectBytes() : young.getSurvivorChunkBytes();
-    }
-
     /** First part of PSScavenge::invoke and PSParallelCompact::invoke. */
     @Override
     public void onCollectionBegin(boolean completeCollection, long beginNanoTime) {
         tenuringThreshold = requestedTenuringThreshold(tenuringThreshold);
-        survivorBytesBefore = survivorBytes();
+        survivorBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
         if (HeapParameters.getMaxSurvivorSpaces() >= 2) {
             firstAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(0);
             secondAgeBytesBefore = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes(1);
@@ -514,7 +505,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             oldSizeExceededInPreviousCollection = oldLive.aboveThan(sizes.getOldSize());
 
             boolean survivorOverflow = acc.hasLastIncrementalCollectionOverflowedSurvivors();
-            UnsignedWord survived = survivorBytes();
+            UnsignedWord survived = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
             UnsignedWord promoted = acc.getLastIncrementalCollectionPromotedChunkBytes();
             updateAverages(survivorOverflow, UnsignedUtils.toDouble(survived), UnsignedUtils.toDouble(promoted));
             sampleOldGenUsedBytes(acc.getOldGenerationAfterChunkBytes());

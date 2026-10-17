@@ -51,8 +51,6 @@ public final class GCAccounting {
     private UnsignedWord totalAllocatedChunkBytes = Word.zero();
     private UnsignedWord lastIncrementalCollectionPromotedChunkBytes = Word.zero();
     private boolean lastIncrementalCollectionUsedSurvivorSlack;
-    /* With the parallel young collection, the old generation's object bytes before a young collection. */
-    private UnsignedWord oldObjectBytesBeforeIncremental = Word.zero();
     private boolean lastIncrementalCollectionOverflowedSurvivors = false;
 
     /* Before and after measures. */
@@ -118,7 +116,6 @@ public final class GCAccounting {
         return youngChunkBytesBefore;
     }
 
-    /** What the last young collection promoted: in object bytes with the parallel young collection. */
     UnsignedWord getLastIncrementalCollectionPromotedChunkBytes() {
         return lastIncrementalCollectionPromotedChunkBytes;
     }
@@ -148,9 +145,6 @@ public final class GCAccounting {
         if (!completeCollection) {
             lastIncrementalCollectionOverflowedSurvivors = false;
             lastIncrementalCollectionUsedSurvivorSlack = false;
-            if (ParallelGC.isEnabled()) {
-                oldObjectBytesBeforeIncremental = oldGen.computeObjectBytes();
-            }
         }
     }
 
@@ -212,18 +206,7 @@ public final class GCAccounting {
              * called for all collections, but may want to make decisions based on the aggregate
              * values.
              */
-            if (ParallelGC.isEnabled()) {
-                /*
-                 * Each thread of a parallel collection takes chunks of its own in the old
-                 * generation, so the chunk bytes grow by more than what was promoted, enough to
-                 * make the tenuring policy promote at once what a serial collection keeps.
-                 */
-                UnsignedWord oldObjectBytesAfter = oldGen.computeObjectBytes();
-                lastIncrementalCollectionPromotedChunkBytes = oldObjectBytesAfter.aboveThan(oldObjectBytesBeforeIncremental) ? oldObjectBytesAfter.subtract(oldObjectBytesBeforeIncremental)
-                                : Word.zero();
-            } else {
-                lastIncrementalCollectionPromotedChunkBytes = oldChunkBytesAfter.subtract(oldChunkBytesBefore);
-            }
+            lastIncrementalCollectionPromotedChunkBytes = oldChunkBytesAfter.subtract(oldChunkBytesBefore);
         }
     }
 
