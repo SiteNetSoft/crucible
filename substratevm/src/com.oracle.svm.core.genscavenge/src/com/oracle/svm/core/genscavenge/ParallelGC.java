@@ -44,8 +44,12 @@ import org.graalvm.word.impl.Word;
 import com.oracle.svm.core.SubstrateTarget;
 import com.oracle.svm.core.genscavenge.AlignedHeapChunk.AlignedHeader;
 import com.oracle.svm.core.genscavenge.UnalignedHeapChunk.UnalignedHeader;
+import com.oracle.svm.core.heap.ObjectReferenceVisitor;
+import com.oracle.svm.core.heap.ObjectVisitor;
+import com.oracle.svm.core.heap.ReferenceAccess;
 import com.oracle.svm.core.graal.nodes.WriteCurrentVMThreadNode;
 import com.oracle.svm.core.graal.snippets.CEntryPointSnippets;
+import com.oracle.svm.core.hub.InteriorObjRefWalker;
 import com.oracle.svm.core.hub.LayoutEncoding;
 import com.oracle.svm.core.jdk.Jvm;
 import com.oracle.svm.core.locks.VMCondition;
@@ -54,6 +58,7 @@ import com.oracle.svm.core.thread.PlatformThreads;
 import com.oracle.svm.guest.staging.c.function.CEntryPointOptions;
 import com.oracle.svm.guest.staging.core.memory.UntrackedNullableNativeMemory;
 import com.oracle.svm.guest.staging.core.thread.OSThreadHandle;
+import com.oracle.svm.guest.staging.log.Log;
 import com.oracle.svm.shared.Uninterruptible;
 import com.oracle.svm.shared.util.VMError;
 
@@ -116,6 +121,8 @@ public final class ParallelGC {
     private int workers;
     private Pointer states;
     private Pointer threads;
+    /** For {@link #checkCopies}: each thread's chunk in the old generation and its top as a collection begins. */
+    private Pointer keptChunks;
     private int busy;
     private volatile boolean inParallelPhase;
     private volatile boolean active;
@@ -238,6 +245,8 @@ public final class ParallelGC {
             if (chunk.isNonNull()) {
                 setScanStart(state, 0, HeapChunk.getTopPointer(chunk));
             }
+            keptChunks.writeWord(2 * i * wordSize(), chunk);
+            keptChunks.writeWord((2 * i + 1) * wordSize(), chunk.isNonNull() ? HeapChunk.getTopPointer(chunk) : Word.nullPointer());
         }
         active = true;
         return stateOf(workers);
@@ -464,7 +473,8 @@ public final class ParallelGC {
         queue = UntrackedNullableNativeMemory.malloc(Word.unsigned(queueCapacity).multiply(2 * wordSize()));
         states = UntrackedNullableNativeMemory.calloc(Word.unsigned(workers + 1).multiply(stateWords()).multiply(wordSize()));
         threads = UntrackedNullableNativeMemory.calloc(Word.unsigned(workers).multiply(wordSize()));
-        VMError.guarantee(queue.isNonNull() && states.isNonNull() && threads.isNonNull(), "Out of native memory for the parallel collector.");
+        keptChunks = UntrackedNullableNativeMemory.calloc(Word.unsigned(workers + 1).multiply(2 * wordSize()));
+        VMError.guarantee(queue.isNonNull() && states.isNonNull() && threads.isNonNull() && keptChunks.isNonNull(), "Out of native memory for the parallel collector.");
         for (int i = 0; i <= workers; i++) {
             stateOf(i).writeWord(ISOLATE_SLOT * wordSize(), CurrentIsolate.getIsolate());
         }
@@ -592,6 +602,76 @@ public final class ParallelGC {
             if (getAllocationChunk(state, t).equal(chunk)) {
                 setScanStart(state, t, HeapChunk.getTopPointer(chunk));
             }
+        }
+    }
+
+    /* A check, for debugging. */
+
+    private final CopyChecker copyChecker = new CopyChecker();
+
+    /**
+     * Fails if an object that this collection copied refers to an object left in a from-space of
+     * the young generation, which is released after the collection: the reference was not updated,
+     * as when a copy is never scanned. Called once references are processed and before the
+     * from-spaces are released. The copies are the survivor to-spaces, the old generation's
+     * to-space, and what was added to the chunks kept in the old generation.
+     */
+    void checkCopies() {
+        HeapImpl heap = HeapImpl.getHeapImpl();
+        YoungGeneration young = heap.getYoungGeneration();
+        for (int i = 0; i < young.getMaxSurvivorSpaces(); i++) {
+            young.getSurvivorToSpaceAt(i).walkObjects(copyChecker);
+        }
+        Space oldToSpace = ((CopyingOldGeneration) heap.getOldGeneration()).getToSpace();
+        oldToSpace.walkObjects(copyChecker);
+        for (int i = 0; i <= workers; i++) {
+            AlignedHeader chunk = (AlignedHeader) keptChunks.readWord(2 * i * wordSize());
+            if (chunk.isNonNull() && HeapChunk.getSpace(chunk) != oldToSpace) {
+                HeapChunk.walkObjectsFrom(chunk, keptChunks.readWord((2 * i + 1) * wordSize()), copyChecker);
+            }
+        }
+    }
+
+    private static final class CopyChecker implements ObjectVisitor, ObjectReferenceVisitor {
+        @Platforms(Platform.HOSTED_ONLY.class)
+        CopyChecker() {
+        }
+
+        @Override
+        public void visitObject(Object obj) {
+            InteriorObjRefWalker.walkObject(obj, this);
+        }
+
+        @Override
+        public void visitObjectReferences(Pointer firstObjRef, boolean compressed, int referenceSize, Object holderObject, int count) {
+            Pointer end = firstObjRef.add(Word.unsigned(count).multiply(referenceSize));
+            for (Pointer objRef = firstObjRef; objRef.belowThan(end); objRef = objRef.add(referenceSize)) {
+                Pointer p = ReferenceAccess.singleton().readObjectAsUntrackedPointer(objRef, compressed);
+                if (p.isNull() || HeapImpl.getHeapImpl().isInImageHeap(p)) {
+                    continue;
+                }
+                Word header = ObjectHeaderImpl.getObjectHeaderImpl().readHeaderFromPointer(p);
+                if (ObjectHeaderImpl.isMarkedHeader(header)) {
+                    continue;
+                }
+                boolean forwarded = ObjectHeaderImpl.isForwardedHeader(header);
+                Space space = null;
+                if (!forwarded) {
+                    space = ObjectHeaderImpl.isAlignedHeader(header) ? HeapChunk.getSpace(AlignedHeapChunk.getEnclosingChunkFromObjectPointer(p))
+                                    : HeapChunk.getSpace(UnalignedHeapChunk.getEnclosingChunkFromObjectPointer(p));
+                }
+                if (forwarded || (space != null && space.isYoungSpace() && space.isFromSpace())) {
+                    Log.log().string("[ParallelYoungCollectionCheck: the copy ").zhex(Word.objectToUntrackedPointer(holderObject)).string(" of ").string(holderObject.getClass().getName())
+                                    .string(" refers at offset ").unsigned(objRef.subtract(Word.objectToUntrackedPointer(holderObject))).string(" to ").zhex(p)
+                                    .string(forwarded ? ", which was forwarded" : ", which is in the from-space ").string(forwarded ? "" : space.getName())
+                                    .string(", header ").zhex(header).string("]").newline();
+                    throw VMError.shouldNotReachHere("ParallelYoungCollectionCheck failed");
+                }
+            }
+        }
+
+        @Override
+        public void visitDerivedReference(Pointer baseObjRef, Pointer derivedObjRef, boolean compressed, Object holderObject) {
         }
     }
 

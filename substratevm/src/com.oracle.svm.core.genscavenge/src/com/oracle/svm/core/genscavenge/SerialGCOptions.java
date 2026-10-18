@@ -135,6 +135,9 @@ public final class SerialGCOptions {
     @Option(help = "With ParallelYoungCollection, collect on several threads only after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
     public static final RuntimeOptionKey<Integer> ParallelYoungCollectionMinCopiedKB = new RuntimeOptionKey<>(2048, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "With ParallelYoungCollection, check after each collection on several threads that no object it copied still refers to the young generation's from-spaces. Serial GC only.", type = OptionType.Expert)//
+    public static final RuntimeOptionKey<Boolean> ParallelYoungCollectionCheck = new RuntimeOptionKey<>(false, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Ignore the maximum heap size while in VM-internal code. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> IgnoreMaxHeapSizeWhileInVMInternalCode = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 

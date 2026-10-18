@@ -139,6 +139,8 @@ public final class GCImpl implements GC {
     private final ParallelGC parallelGC = ParallelGC.isEnabled() ? new ParallelGC(createWorkerVisitors()) : null;
     /* Whether this collection runs on several threads. */
     private boolean parallel;
+    /* Whether the current collection scanned on several threads, for ParallelYoungCollectionCheck. */
+    private boolean collectedInParallel;
     private final RuntimeCodeCacheWalker runtimeCodeCacheWalker = new RuntimeCodeCacheWalker(greyToBlackObjRefVisitor);
     private final RuntimeCodeCacheCleaner runtimeCodeCacheCleaner = new RuntimeCodeCacheCleaner();
     private final SweepAndPromotePinnedChunkVisitor pinnedChunkPromotionVisitor = new SweepAndPromotePinnedChunkVisitor();
@@ -637,6 +639,10 @@ public final class GCImpl implements GC {
                 referenceObjectsTimer.stop();
             }
 
+            if (collectedInParallel && SerialGCOptions.ParallelYoungCollectionCheck.getValue()) {
+                parallelGC.checkCopies();
+            }
+
             if (!compacting) {
                 startTicks = JfrGCEvents.startGCPhasePause();
                 try {
@@ -760,6 +766,7 @@ public final class GCImpl implements GC {
 
         /* A collection that copies little costs more on several threads than it saves. */
         parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen() && lastCopiedBytes.aboveOrEqual(parallelMinCopied());
+        collectedInParallel = parallel;
         if (parallel) {
             /* What the roots reach is copied into this thread's own chunks and scanned by the workers. */
             setCollectorThreadState(parallelGC.beginCollection());
