@@ -199,6 +199,16 @@ the young generation can hold what the program allocates between those intervals
 rx-scrabble level with Oracle's binary and scala-stm-bench7 1% further ahead, but rx-scrabble then
 peaked at 153 MB and not 102, and scrabble at 722 MB and not 310, so measure it; the default is unchanged.
 
+If your service runs with `-Xms` set to its maximum heap, try `-XX:SerialGCOldGrowthFactor=2` at
+run time. The adaptive policy collects the old generation when it reaches its capacity, and `-Xms`
+sets that capacity to nearly the whole heap from the start, so a service under load keeps what it
+promoted until the heap is full: Spring PetClinic under load holds 311 MB where Oracle's binary holds
+200, with no complete collection in 90 s. This collects completely once the old generation holds
+twice what the last complete collection kept, and PetClinic then holds 240 to 280 MB and answers 1%
+more requests; Quarkus is unchanged. On the Renaissance benchmarks it is level with the default
+over all, reactors and scala-stm-bench7 3% faster and mnemonics 2% and par-mnemonics 4% slower, and
+those two peak at 155 and 203 MB and not 197 and 244, so measure it; the default is unchanged.
+
 The collector can scan the young generation on several threads: build with `-H:+ParallelYoungCollection`, and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the number of processors, up to 9).
 Programs that spend much of their time in young collections on several threads of their own gain the most: with a profile, akka-uct runs 18% faster, scala-stm-bench7 20%, reactors 12% and scrabble 8 to 11%.
 It is new and off by default.

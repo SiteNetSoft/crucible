@@ -67,6 +67,11 @@ public final class SerialGCOptions {
                     "collections only with a larger value. 0 for the policy's own value. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCMinDistance = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Collect completely once the old generation holds this many times what the last complete collection kept, 16 MB at the least. Promoted garbage is " +
+                    "otherwise reclaimed only when the old generation reaches its capacity, which with -Xms is nearly the whole heap. 0 waits for the capacity. " +
+                    "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> SerialGCOldGrowthFactor = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Number of young collections an object survives before it is promoted to the old generation: 0 promotes straight from eden, which suits programs " +
                     "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -2, the default, starts at 1 and goes to 0 for as long as " +
                     "most of what survives one collection survives the next as well. -3 starts at 2 instead, comes down to 1 and to 0 as most of what reaches an age reaches the next, " +

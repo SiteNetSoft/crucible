@@ -71,6 +71,27 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
 
     private boolean oldSizeExceededInPreviousCollection = false;
 
+    /** What the last complete collection left in the old generation; see {@link #oldGenerationGrewPastItsLive}. */
+    private UnsignedWord oldLiveAfterLastCompleteCollection = Word.zero();
+    /** The least the old generation holds before {@link SerialGCOptions#SerialGCOldGrowthFactor} asks for a complete collection. */
+    private static final long OLD_GROWTH_MIN_BYTES = 16L * 1024 * 1024;
+    /** When the last complete collection ended and how long it paused, for {@link #oldGenerationGrewPastItsLive}. */
+    private long lastCompleteCollectionEndNanos = 0;
+    private long lastCompleteCollectionPauseNanos = 0;
+    /**
+     * Time run since the last complete collection, as a multiple of its pause, before the growth
+     * rule may ask for another: bounds what the rule costs a program that promotes much to 2%.
+     */
+    private static final long OLD_GROWTH_RUN_TO_PAUSE_RATIO = 50;
+    /**
+     * The least the old generation holds before the growth rule asks for a complete collection:
+     * starts at {@link #OLD_GROWTH_MIN_BYTES} and is raised when a collection the rule asked for
+     * found the old generation mostly live, since the growth was then not garbage.
+     */
+    private UnsignedWord oldGrowthFloor = Word.unsigned(OLD_GROWTH_MIN_BYTES);
+    /** Whether the collection under way was asked for by the growth rule. */
+    private boolean oldGrowthCollectionRequested = false;
+
     /**
      * To facilitate faster growth at start up, supplement the normal growth percentage for the
      * young gen eden and the old gen space for promotion with this value, which decays with
@@ -194,6 +215,10 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             return true;
         }
 
+        if (followingIncrementalCollection && oldGenerationGrewPastItsLive()) {
+            return true;
+        }
+
         if (!collectYoungSeparately && followingIncrementalCollection) {
             // Don't override the earlier decision to not do a full GC below (and prolong the pause)
             return false;
@@ -215,6 +240,33 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
          * inflating minor GC pause times, and as a result, inaccurately resizing the young gen.
          */
         return promotionEstimate.aboveOrEqual(freeInOldGenWithExpansion);
+    }
+
+    /**
+     * Whether the old generation holds {@link SerialGCOptions#SerialGCOldGrowthFactor} times what the
+     * last complete collection kept. Without this rule, promoted garbage is reclaimed only when the
+     * old generation reaches its capacity, and -Xms sets that capacity to nearly the whole heap at
+     * the start: a service under load then grows to its maximum heap before it collects completely.
+     * A program that promotes much would meet the growth soon after every complete collection, so
+     * the rule waits until the program has run {@link #OLD_GROWTH_RUN_TO_PAUSE_RATIO} times the
+     * last complete collection's pause. A program whose old generation grows with live objects, as a
+     * benchmark iteration that builds a structure after the harness's System.gc(), would still meet
+     * the growth; a collection the rule asked for that reclaims less than half raises
+     * {@link #oldGrowthFloor}, so the rule asks later and later and then not at all.
+     */
+    private boolean oldGenerationGrewPastItsLive() {
+        oldGrowthCollectionRequested = false;
+        int factor = SerialGCOptions.SerialGCOldGrowthFactor.getValue();
+        if (factor <= 0) {
+            return false;
+        }
+        if (System.nanoTime() - lastCompleteCollectionEndNanos < OLD_GROWTH_RUN_TO_PAUSE_RATIO * lastCompleteCollectionPauseNanos) {
+            return false;
+        }
+        UnsignedWord oldUsed = HeapImpl.getHeapImpl().getOldGeneration().getChunkBytes();
+        UnsignedWord limit = UnsignedUtils.max(oldLiveAfterLastCompleteCollection.multiply(factor), oldGrowthFloor);
+        oldGrowthCollectionRequested = oldUsed.aboveOrEqual(limit);
+        return oldGrowthCollectionRequested;
     }
 
     /** The threshold {@link SerialGCOptions#SerialGCTenuringThreshold} asks for, else the policy's own. */
@@ -491,6 +543,18 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             UnsignedWord oldUsed = UnsignedUtils.max(acc.getOldGenerationBeforeChunkBytes(), acc.getOldGenerationAfterChunkBytes());
             sampleOldGenUsedBytes(oldUsed);
             resizeAfterFullGC(oldLive);
+            oldLiveAfterLastCompleteCollection = oldLive;
+            lastCompleteCollectionEndNanos = System.nanoTime();
+            lastCompleteCollectionPauseNanos = majorTimer.totalNanos();
+            if (oldGrowthCollectionRequested) {
+                /* The rule took growth for garbage: if less than half of the old generation went, ask later next time. */
+                UnsignedWord oldBefore = acc.getOldGenerationBeforeChunkBytes();
+                if (oldLive.multiply(2).aboveThan(oldBefore)) {
+                    int factor = Math.max(SerialGCOptions.SerialGCOldGrowthFactor.getValue(), 1);
+                    oldGrowthFloor = UnsignedUtils.max(oldGrowthFloor, oldBefore.multiply(factor));
+                }
+                oldGrowthCollectionRequested = false;
+            }
             if (promoteAtOnce && !probing && ParallelGC.isEnabled()) {
                 completeSinceProbe = true;
             }
