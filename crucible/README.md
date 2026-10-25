@@ -198,6 +198,14 @@ young collections come closer than 20 ms apart (HotSpot uses 100), and this rais
 the young generation can hold what the program allocates between those intervals. It brought
 rx-scrabble level with Oracle's binary and scala-stm-bench7 1% further ahead, but rx-scrabble then
 peaked at 153 MB and not 102, and scrabble at 722 MB and not 310, so measure it; the default is unchanged.
+Measured on 2026-10-25 over the fourteen, three rounds, against 20 ms: 30 ms runs 1% faster for 11% more
+memory in all, 50 ms 3.3% faster for a third more, 75 ms 3.9% for two thirds more, and 100 ms 4.3% for
+86% more. The gain is fewer young collections an iteration and flattens past 50 ms, where par-mnemonics
+runs 11% faster, reactors 6%, mnemonics and fj-kmeans 4%, and philosophers, future-genetic and scrabble
+peak at two to three times their memory, above Oracle's binary where they were below it. On the Quarkus
+service under load, 30 ms answers 3% more requests a second in 90 MB and not 86, 50 ms 8% more in 106 MB,
+75 ms 10% in 125 and 100 ms 11% in 145, where Oracle's binary answers 3% more than 20 ms in 140 to 170 MB;
+Spring PetClinic is unchanged at every value.
 
 The adaptive policy collected the old generation only when it reached its capacity, and `-Xms` sets
 that capacity to nearly the whole heap from the start, so a service under load kept what it promoted
