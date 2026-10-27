@@ -41,7 +41,9 @@ import org.graalvm.word.UnsignedWord;
 import org.graalvm.word.WordBase;
 import org.graalvm.word.impl.Word;
 
+import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.SubstrateTarget;
+import com.oracle.svm.core.container.Container;
 import com.oracle.svm.core.genscavenge.AlignedHeapChunk.AlignedHeader;
 import com.oracle.svm.core.genscavenge.UnalignedHeapChunk.UnalignedHeader;
 import com.oracle.svm.core.heap.ObjectReferenceVisitor;
@@ -459,13 +461,38 @@ public final class ParallelGC {
         return state.readWord(POPPED_END_SLOT * wordSize());
     }
 
+    /**
+     * Whether a collection on several threads has a worker to share the work with, starting the
+     * workers the first time. On one processor the serial collection is faster.
+     */
+    @Uninterruptible(reason = CORE_GC_CODE)
+    boolean hasWorkers() {
+        if (!initialized) {
+            initialize();
+        }
+        return workers > 0;
+    }
+
     /* The workers. */
+
+    /** The processors the image may use, as Runtime.availableProcessors counts them: the option, then the container's limit. */
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private static int activeProcessorCount() {
+        int option = SubstrateOptions.ActiveProcessorCount.getValue();
+        if (option > 0) {
+            return option;
+        }
+        if (Container.isSupported() && Container.singleton().isContainerized()) {
+            return Container.singleton().getActiveProcessorCount();
+        }
+        return Jvm.JVM_ActiveProcessorCount();
+    }
 
     @Uninterruptible(reason = CORE_GC_CODE)
     private void initialize() {
         /* The thread that runs the collection scans too, so it counts as one of them. */
         int requested = SerialGCOptions.ParallelYoungCollectionThreads.getValue();
-        int count = (requested > 0 ? requested : Jvm.JVM_ActiveProcessorCount()) - 1;
+        int count = (requested > 0 ? requested : activeProcessorCount()) - 1;
         int limit = MAX_WORKERS < workerVisitors.length ? MAX_WORKERS : workerVisitors.length;
         workers = count < 0 ? 0 : (count > limit ? limit : count);
 

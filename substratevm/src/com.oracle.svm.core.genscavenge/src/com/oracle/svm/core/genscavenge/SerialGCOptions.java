@@ -134,7 +134,7 @@ public final class SerialGCOptions {
     @Option(help = "Collect the young generation on several threads: the roots are scanned as before, and what they reach is scanned by worker threads. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Boolean> ParallelYoungCollection = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
 
-    @Option(help = "With ParallelYoungCollection, the number of threads that scan, the one that runs the collection included; 0 for the number of processors, up to 9. Serial GC only.", type = OptionType.Expert)//
+    @Option(help = "With ParallelYoungCollection, the threads that scan, the collecting one included; 0 for the usable processors (a container's limit), up to 9; with one, collections stay serial. Serial GC only.", type = OptionType.Expert)//
     public static final RuntimeOptionKey<Integer> ParallelYoungCollectionThreads = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "With ParallelYoungCollection, collect on several threads only after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//

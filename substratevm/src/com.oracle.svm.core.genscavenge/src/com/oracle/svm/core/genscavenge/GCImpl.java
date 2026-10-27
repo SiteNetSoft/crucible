@@ -765,7 +765,8 @@ public final class GCImpl implements GC {
         }
 
         /* A collection that copies little costs more on several threads than it saves. */
-        parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen() && lastCopiedBytes.aboveOrEqual(parallelMinCopied());
+        parallel = ParallelGC.isEnabled() && !completeCollection && !SerialGCOptions.useCompactingOldGen() && lastCopiedBytes.aboveOrEqual(parallelMinCopied()) &&
+                        parallelGC.hasWorkers();
         collectedInParallel = parallel;
         if (parallel) {
             /* What the roots reach is copied into this thread's own chunks and scanned by the workers. */
