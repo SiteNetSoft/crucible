@@ -162,7 +162,8 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
      * keeps. The parallel collection's survivor slack spares a program the overflow that keeps a
      * serial collection from promoting at once in its first collections (fj-kmeans), and it then
      * stays there; on the serial collector, probing after a complete collection costs
-     * scala-stm-bench7 15%, so it is not done there.
+     * scala-stm-bench7 15%, so it is not done there, nor in an image whose collections stay serial
+     * because it may use one processor only.
      */
     private boolean completeSinceProbe = false;
     private int probeInterval = PROMOTE_AT_ONCE_FIRST_PROBE_INTERVAL;
@@ -555,7 +556,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
                 }
                 oldGrowthCollectionRequested = false;
             }
-            if (promoteAtOnce && !probing && ParallelGC.isEnabled()) {
+            if (promoteAtOnce && !probing && ParallelGC.isEnabled() && GCImpl.getGCImpl().getParallelGC().collectsInParallel()) {
                 completeSinceProbe = true;
             }
         } else {

@@ -473,6 +473,12 @@ public final class ParallelGC {
         return workers > 0;
     }
 
+    /** Whether young collections run on several threads, without starting the workers. */
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    boolean collectsInParallel() {
+        return (initialized ? workers : workerCount()) > 0;
+    }
+
     /* The workers. */
 
     /** The processors the image may use, as Runtime.availableProcessors counts them: the option, then the container's limit. */
@@ -488,13 +494,18 @@ public final class ParallelGC {
         return Jvm.JVM_ActiveProcessorCount();
     }
 
-    @Uninterruptible(reason = CORE_GC_CODE)
-    private void initialize() {
-        /* The thread that runs the collection scans too, so it counts as one of them. */
+    @Uninterruptible(reason = CALLED_FROM_UNINTERRUPTIBLE_CODE, mayBeInlined = true)
+    private int workerCount() {
         int requested = SerialGCOptions.ParallelYoungCollectionThreads.getValue();
         int count = (requested > 0 ? requested : activeProcessorCount()) - 1;
         int limit = MAX_WORKERS < workerVisitors.length ? MAX_WORKERS : workerVisitors.length;
-        workers = count < 0 ? 0 : (count > limit ? limit : count);
+        return count < 0 ? 0 : (count > limit ? limit : count);
+    }
+
+    @Uninterruptible(reason = CORE_GC_CODE)
+    private void initialize() {
+        /* The thread that runs the collection scans too, so it counts as one of them. */
+        workers = workerCount();
 
         queueCapacity = 1024;
         queue = UntrackedNullableNativeMemory.malloc(Word.unsigned(queueCapacity).multiply(2 * wordSize()));
