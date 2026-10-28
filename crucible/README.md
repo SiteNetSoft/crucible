@@ -220,7 +220,7 @@ in either setting; the mode goes with the eden size the policy chooses, and a co
 show a 10% difference that is only which mode each run landed in.
 `-XX:SerialGCOldGrowthFactor=<n>` sets the multiple at run time, and 0 waits for the capacity as before.
 
-The collector can scan the young generation on several threads: build with `-H:+ParallelYoungCollection`, and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the number of processors, up to 9).
+The collector can scan the young generation on several threads: build with `-H:+ParallelYoungCollection`, and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the processors the program may use, which in a container is its limit, up to 9; with one processor, collections stay serial).
 Programs that spend much of their time in young collections on several threads of their own gain the most: with a profile, akka-uct runs 18% faster, scala-stm-bench7 20%, reactors 12% and scrabble 8 to 11%.
 It is new and off by default.
 
