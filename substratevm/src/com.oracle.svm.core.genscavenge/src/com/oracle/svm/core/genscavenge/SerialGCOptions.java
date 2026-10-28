@@ -131,8 +131,8 @@ public final class SerialGCOptions {
     @Option(help = "Prefetch while scanning copied objects only in a collection after a young collection that copied at least this many kilobytes; 0 always. Serial GC only.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> GreyScanPrefetchMinCopiedKB = new HostedOptionKey<>(1024, SerialGCOptions::validateSerialHostedOption);
 
-    @Option(help = "Collect the young generation on several threads: the roots are scanned as before, and what they reach is scanned by worker threads. Serial GC only.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Boolean> ParallelYoungCollection = new HostedOptionKey<>(false, SerialGCOptions::validateSerialHostedOption);
+    @Option(help = "Collect the young generation on several threads (on by default): the roots are scanned as before, and what they reach is scanned by worker threads. Serial GC only.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Boolean> ParallelYoungCollection = new HostedOptionKey<>(true, SerialGCOptions::validateSerialHostedOption);
 
     @Option(help = "With ParallelYoungCollection, the threads that scan, the collecting one included; 0 for the usable processors (a container's limit), up to 9; with one, collections stay serial. Serial GC only.", type = OptionType.Expert)//
     public static final RuntimeOptionKey<Integer> ParallelYoungCollectionThreads = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);

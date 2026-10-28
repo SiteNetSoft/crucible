@@ -138,7 +138,7 @@ public final class ParallelGC {
     /** Whether the image can collect its young generation on several threads. */
     @Fold
     static boolean isEnabled() {
-        return SerialGCOptions.ParallelYoungCollection.getValue();
+        return SerialGCOptions.ParallelYoungCollection.getValue() && SubstrateOptions.useSerialGC();
     }
 
     /** Whether a collection on several threads is in progress. */

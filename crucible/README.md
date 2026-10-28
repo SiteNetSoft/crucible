@@ -220,9 +220,9 @@ in either setting; the mode goes with the eden size the policy chooses, and a co
 show a 10% difference that is only which mode each run landed in.
 `-XX:SerialGCOldGrowthFactor=<n>` sets the multiple at run time, and 0 waits for the capacity as before.
 
-The collector can scan the young generation on several threads: build with `-H:+ParallelYoungCollection`, and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the processors the program may use, which in a container is its limit, up to 9; with one processor, collections stay serial).
-Programs that spend much of their time in young collections on several threads of their own gain the most: with a profile, akka-uct runs 18% faster, scala-stm-bench7 20%, reactors 12% and scrabble 8 to 11%.
-It is new and off by default.
+The collector scans the young generation on several threads (build with `-H:-ParallelYoungCollection` to keep it on one), and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the processors the program may use, which in a container is its limit, up to 9; with one processor, collections stay serial).
+Programs that spend much of their time in young collections on several threads of their own gain the most: on eight processors, with a profile, akka-uct runs 15% faster than on one thread and peaks at 1.2 GB and not 1.9, scala-stm-bench7 and reactors 12% faster, and scrabble 7%.
+The fourteen Renaissance benchmarks run 3.6% faster on eight processors (geometric mean; scala-kmeans, the one that loses most, 1.6% slower) and level on two, and the Quarkus and Spring services answer as many requests in the same memory.
 
 An object that survives a young collection is copied to a survivor space and promoted at the next collection it survives.
 The community edition's policy copies it seven times first, and more on a program that allocates a lot.
