@@ -208,6 +208,20 @@ service under load, 30 ms answers 3% more requests a second in 90 MB and not 86,
 75 ms 10% in 125 and 100 ms 11% in 145, where Oracle's binary answers 3% more than 20 ms in 140 to 170 MB;
 Spring PetClinic is unchanged at every value.
 
+The policy shrinks the young generation for memory only while next to nothing is promoted, so it keeps
+the size it starts at: a quarter of `-Xms` when that is given, and a small one otherwise. On Spring
+PetClinic under load with `-Xmx512m -Xms512m` it stays at 128 MB and the process holds 240 MB, where
+Oracle's binary holds 200; without `-Xms` it settles at 20 MB, 129 MB in all, and answers 8% fewer
+requests. `-XX:+SerialGCShrinkWhilePromoting` lets it shrink while objects are promoted too, as far as the
+time ratio and the minimum distance allow, so that with and without `-Xms` it ends at the same size.
+For a service with a capped heap, use it with `-XX:SerialGCTimeRatio=19`: measured on 2026-10-29, two
+rounds, `-Xmx512m`, Spring PetClinic answers 5,490 to 5,520 requests a second in 142 to 149 MB, with or
+without `-Xms` (Oracle's binary 4,460 in 198 to 204 MB, the default 5,690 to 5,800 in 237 to 242), and
+the Quarkus quickstart 15,760 to 15,940 in 113 to 118 MB (Oracle's 15,000 in 150 to 167, the default
+14,450 to 14,640 in 86 to 88). Without a cap, ratio 19 grows the young generation far: over the fourteen,
+on eight processors, it runs 10% faster than the default and peaks at 2.2 times its memory, akka-uct at
+6.6 GB and scrabble at 1.3, with or without the shrinking, which changes nothing there. Both stay off by default.
+
 The adaptive policy collected the old generation only when it reached its capacity, and `-Xms` sets
 that capacity to nearly the whole heap from the start, so a service under load kept what it promoted
 until the heap was full: Spring PetClinic under load held 311 MB where Oracle's binary holds 200, with
