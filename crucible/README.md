@@ -220,7 +220,9 @@ without `-Xms` (Oracle's binary 4,460 in 198 to 204 MB, the default 5,690 to 5,8
 the Quarkus quickstart 15,760 to 15,940 in 113 to 118 MB (Oracle's 15,000 in 150 to 167, the default
 14,450 to 14,640 in 86 to 88). Without a cap, ratio 19 grows the young generation far: over the fourteen,
 on eight processors, it runs 10% faster than the default and peaks at 2.2 times its memory, akka-uct at
-6.6 GB and scrabble at 1.3, with or without the shrinking, which changes nothing there. Both stay off by default.
+6.6 GB and scrabble at 1.3, with or without the shrinking, which changes nothing there. Under `-Xmx1g`
+the two together run the fourteen 0.6% faster than the default under the same cap, for 36% more memory, about
+Oracle's: the gain is a service's, under load, and both stay off by default.
 
 The adaptive policy collected the old generation only when it reached its capacity, and `-Xms` sets
 that capacity to nearly the whole heap from the start, so a service under load kept what it promoted
