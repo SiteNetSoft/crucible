@@ -67,6 +67,11 @@ public final class SerialGCOptions {
                     "collections only with a larger value. 0 for the policy's own value. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCMinDistance = new RuntimeOptionKey<>(0, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Shrink the young generation for footprint while objects are promoted too, as long as collections stay as far apart as the time ratio and the " +
+                    "minimum distance ask. Otherwise it shrinks only while next to nothing is promoted, so a young generation sized by -Xms keeps that size. " +
+                    "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Boolean> SerialGCShrinkWhilePromoting = new RuntimeOptionKey<>(false, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Collect completely once the old generation holds this many times what the last complete collection kept, 16 MB at the least. Promoted garbage is " +
                     "otherwise reclaimed only when the old generation reaches its capacity, which with -Xms is nearly the whole heap. 0 waits for the capacity. " +
                     "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//

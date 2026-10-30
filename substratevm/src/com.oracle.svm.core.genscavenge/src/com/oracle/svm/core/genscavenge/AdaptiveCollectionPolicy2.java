@@ -856,8 +856,9 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             return newEden;
         }
 
-        // If no overflowing and promotion is small
-        if (!isSurvivorOverflowing && promotedBytesEstimate() < 1024) {
+        // If no overflowing and promotion is small, or asked to shrink while promoting
+        boolean whilePromoting = SerialGCOptions.SerialGCShrinkWhilePromoting.getValue();
+        if (!isSurvivorOverflowing && (whilePromoting || promotedBytesEstimate() < 1024)) {
             UnsignedWord delta = UnsignedUtils.min(
                             edenIncrement(curEden).unsignedDivide(ADAPTIVE_SIZE_DECREMENT_SCALE_FACTOR),
                             curEden.unsignedDivide(2));
@@ -867,9 +868,11 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             // Limit GC frequency so that promoted rate is < 1MB/s
             // promotedBytesEstimate() / (gcDistance + gcTimeLowerEstimate) < 1M/s
             // ==> promotedBytesEstimate() / 1M - gcTimeLowerEstimate < gcDistance
+            // While promoting on purpose, the promotion rate is not a reason to keep eden large
+            double promotionTarget = whilePromoting ? 0 : promotedBytesEstimate() / (1024 * 1024) - gcTimeLowerEstimate;
             double gcDistanceTarget = Math.max(Math.max(
                             minorGcTimeConservativeEstimate() * gcTimeRatio,
-                            promotedBytesEstimate() / (1024 * 1024) - gcTimeLowerEstimate),
+                            promotionTarget),
                             minGcDistance);
             double predictedGcDistance = gcDistance * (1 - deltaFactor) - gcDistanceSecondsSeq.dsd();
 
