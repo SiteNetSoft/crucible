@@ -156,6 +156,59 @@ To convert a profile recorded with Oracle GraalVM's `--pgo-instrument`, run:
 python3 crucible/samples/iprof-to-crucible.py default.iprof crucible-profile.json
 ```
 
+## Building Without a Profile
+
+Without a profile, the build gives the branches of the Java class library the probabilities recorded for them in other programs.
+The recorded probabilities come with the builder, so you do not need to provide anything.
+To leave the class library's branches to the compiler's own estimates, pass `-H:-CrucibleLibraryProfile` to `native-image`.
+
+## Tuning Memory and Garbage Collection
+
+CrucibleVM uses the serial garbage collector of GraalVM Community Native Image, with changes that make it collect the young generation on several threads and size the heap differently.
+The defaults suit most programs.
+The options in this section trade memory for speed, or speed for memory, and each one is worth measuring with your own workload before you keep it.
+
+### Collecting the Young Generation on Several Threads
+
+The young generation is collected on several threads by default.
+The number of threads is the number of processors the executable may use, up to 9; in a container, that is the container's processor limit.
+With one processor, collections run on one thread.
+
+To set the number of threads at run time, including the thread that runs the collection, pass:
+
+```shell
+./app -XX:ParallelYoungCollectionThreads=4
+```
+
+To build an executable that always collects on one thread, pass `-H:-ParallelYoungCollection` to `native-image`.
+
+### Capping the Memory of a Service
+
+By default, the young generation shrinks only while next to nothing is promoted to the old generation.
+A service started with `-Xms` therefore keeps the young generation it starts with, a quarter of `-Xms`, even when it needs less.
+
+For a service with a capped heap, the recommended options are:
+
+```shell
+./app -Xmx512m -XX:+SerialGCShrinkWhilePromoting -XX:SerialGCTimeRatio=19
+```
+
+`-XX:+SerialGCShrinkWhilePromoting` lets the young generation shrink while objects are promoted, so that it ends at the same size with or without `-Xms`.
+`-XX:SerialGCTimeRatio=19` grows the young generation until collection takes at most a twentieth of the time.
+Measured on Spring PetClinic under load with `-Xmx512m`, the two together hold 142 to 149 MB instead of 237 to 242 MB, for 3% fewer requests a second.
+
+Use these options only together with `-Xmx`.
+Without a cap, a time ratio of 19 lets the young generation grow far, and benchmarks then peak at about twice their memory.
+
+### Other Run-Time Options
+
+All of the following options apply at run time:
+
+- `-XX:SerialGCTimeRatio=<n>`: the ratio of time spent running to time spent collecting that the young generation is grown to reach. A higher ratio trades memory for speed. 0, the default, uses the policy's own value, which accepts half the time in collection.
+- `-XX:SerialGCMinDistance=<ms>`: the time between young collections that the young generation is grown to reach. 0, the default, uses 20 ms. A larger value makes collections rarer for more memory; for example, 50 ms made a set of fourteen Renaissance benchmarks 3% faster for a third more memory.
+- `-XX:SerialGCOldGrowthFactor=<n>`: collect the whole heap once the old generation holds this many times what the last complete collection kept, 16 MB at the least. The default is 2; 0 waits until the old generation reaches its capacity, which with `-Xms` is nearly the whole heap.
+- `-XX:SerialGCTenuringThreshold=<n>`: how many young collections an object survives before it is promoted. The default, -2, starts at 1 and goes to 0 while most of what survives one collection also survives the next. -3 starts at 2 instead, which suits programs whose objects survive two collections and not a third.
+
 ## Related Documentation
 
 - [Profile-Guided Optimization](PGO.md)
