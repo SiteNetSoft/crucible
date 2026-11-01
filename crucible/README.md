@@ -182,8 +182,10 @@ The application needs, from either builder, `--add-exports` of the six `jdk.comp
 
 Closure Compiler v20261028, Google's JavaScript optimizer, compiles three.js 0.187.0's core and module builds with `SIMPLE` optimizations in 1.73 s from CrucibleVM's profile-guided binary against 1.67 s from Oracle's, 4% behind, and 1.67 s against 1.64 s on one processor; without a profile CrucibleVM is 8% ahead, 2.00 s against 2.17 s (medians of seven, 2026-11-01, every binary giving the JVM's output; the JVM takes 4.7 s).
 A binary rebuilt from the same profile is identical, so the gap is not build variation.
-Most of it is the collector: in this 1.7 s run CrucibleVM's young generation stays at about 53 MB while Oracle's grows to 85 to 95 MB, so CrucibleVM collects 13 times where Oracle collects 8, with 270 ms of pauses against 214.
-The policy grows the young generation only while collections are under 20 ms apart or take more than half the time, and here they are 150 ms apart and take a sixth of it: the default trades this speed for memory, and the binary peaks at 142 MB against Oracle's 167. `-XX:SerialGCTimeRatio=19` gets it to 1.72 s in 179 MB; `-XX:SerialGCMinDistance` and a fixed `-Xmn` do not help. The rest is a profile from counts alone, because a training run this short takes too few samples.
+The gap is the collector, not the code: with a young generation of 2 GB, so that neither binary collects, they take 1.889 s and 1.883 s.
+In the default run CrucibleVM's young generation stays at the size it starts with, about 53 MB, while Oracle's grows to 85 to 95 MB, so CrucibleVM makes 12 young collections where Oracle makes 5, with 265 ms of pauses against 214.
+The policy grows the young generation only while collections are under 20 ms apart or take more than half the time, and here they are 150 ms apart and take a sixth of it, so the starting size decides: the default starting heap of 128 MB gives a young generation of 64 MB.
+With `-Xms192m` CrucibleVM takes 1.66 s against Oracle's 1.67 s and peaks at 148 MB against 167. `-Xmn` sets only the most the young generation may grow to, so `-Xmn128m` changes nothing here.
 Without a profile CrucibleVM's binary peaks at 159 MB against Oracle's 190.
 The tool ships no native-image metadata; it comes from a run under the tracing agent.
 
