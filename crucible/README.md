@@ -180,6 +180,17 @@ Half of the lead on eight processors is the parallel young collection: on one co
 The images are 28.2 and 40.3 MB against Oracle's 27.5 and 33.8.
 The application needs, from either builder, `--add-exports` of the six `jdk.compiler` packages its manifest names, `-H:IncludeResourceBundles=com.sun.tools.javac.resources.compiler,com.sun.tools.javac.resources.javac`, and `-Djava.home=<a JDK>` when it runs, because javac looks for its own installation when it starts.
 
+Closure Compiler v20261028, Google's JavaScript optimizer, compiles three.js 0.187.0's core and module builds with `SIMPLE` optimizations in 1.73 s from CrucibleVM's profile-guided binary against 1.67 s from Oracle's, 4% behind, and 1.67 s against 1.64 s on one processor; without a profile CrucibleVM is 8% ahead, 2.00 s against 2.17 s (medians of seven, 2026-11-01, every binary giving the JVM's output; the JVM takes 4.7 s).
+A binary rebuilt from the same profile is identical, so the gap is not build variation.
+Most of it is the collector: in this 1.7 s run CrucibleVM's young generation stays at about 53 MB while Oracle's grows to 85 to 95 MB, so CrucibleVM collects 13 times where Oracle collects 8, with 270 ms of pauses against 214.
+The policy grows the young generation only while collections are under 20 ms apart or take more than half the time, and here they are 150 ms apart and take a sixth of it: the default trades this speed for memory, and the binary peaks at 142 MB against Oracle's 167. `-XX:SerialGCTimeRatio=19` gets it to 1.72 s in 179 MB; `-XX:SerialGCMinDistance` and a fixed `-Xmn` do not help. The rest is a profile from counts alone, because a training run this short takes too few samples.
+Without a profile CrucibleVM's binary peaks at 159 MB against Oracle's 190.
+The tool ships no native-image metadata; it comes from a run under the tracing agent.
+
+The Helidon SE 4.5.6 quickstart, a JSON greeting service built with Helidon's own native build, answers 142,800 requests a second on `/greet/Joe` from CrucibleVM's profile-guided binary, against 97,100 from Oracle's binary without a profile, 106,700 from CrucibleVM's without one, and 129,500 from the JVM (three rounds of 30 s, 100 connections, the service on four processors and the load on four others, 2026-11-01).
+CrucibleVM's binaries peak at 88 and 95 MB against Oracle's 114 to 121.
+Oracle's profile-guided binary could not be built: its builder crashed in both attempts while building the instrumented image (the HotSpot running the builder fails in JFR's class retransformation).
+
 The rest of this section is from GraalVM 25.3, over twelve benchmarks.
 With the heap of each capped at the memory Oracle's binary used on it, the geometric mean was 0.958.
 On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
