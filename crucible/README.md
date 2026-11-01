@@ -173,6 +173,13 @@ akka-uct's memory buys it a little: on 2026-10-10, with `-Xmx700m`, it ran as fa
 akka-uct can hang, one dispatcher thread spinning and the others parked, about once in two thousand runs. That is akka's own bug ([akka/akka-core#33019](https://github.com/akka/akka-core/issues/33019): a mailbox is submitted to the fork-join pool again while another worker is still taking it), and the benchmark hangs the same way on HotSpot.
 To hold a service's memory down, give it an `-Xmx` of about three times what it keeps alive.
 
+google-java-format 2.0.0, which parses with javac and formats in a thread pool, formats the 946 sources of java.base's `java.util`, `java.lang`, and `java.time` in 3.0 to 3.1 s from CrucibleVM's profile-guided binary against 4.7 s from Oracle's, and in 3.8 s against 6.1 to 6.2 s without a profile (eight processors, medians of five in each of two sessions, 2026-10-31; the JVM takes 10.1 to 10.3 s).
+Both were recorded on the Swing and AWT sources, and every binary gives the JVM's output.
+On one processor the times are 10.6 to 11.3 s against 11.3 to 13.1 s with a profile and 13.7 to 14.3 s against 16.0 to 16.9 s without, in 410 to 500 MB where Oracle's binaries peak at 280 to 350; on eight both peak at about 650 MB.
+Half of the lead on eight processors is the parallel young collection: on one collection thread the profile-guided binary takes 3.9 s, in 1.3 to 1.5 GB.
+The images are 28.2 and 40.3 MB against Oracle's 27.5 and 33.8.
+The application needs, from either builder, `--add-exports` of the six `jdk.compiler` packages its manifest names, `-H:IncludeResourceBundles=com.sun.tools.javac.resources.compiler,com.sun.tools.javac.resources.javac`, and `-Djava.home=<a JDK>` when it runs, because javac looks for its own installation when it starts.
+
 The rest of this section is from GraalVM 25.3, over twelve benchmarks.
 With the heap of each capped at the memory Oracle's binary used on it, the geometric mean was 0.958.
 On rx-scrabble what is left is the compiled program: Oracle's builder compiles the loop every pipeline goes through once for each of them. On scrabble and scala-stm-bench7 it is the collector.
