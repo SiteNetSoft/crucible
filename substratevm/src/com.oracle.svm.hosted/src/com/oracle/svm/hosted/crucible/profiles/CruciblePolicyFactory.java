@@ -335,6 +335,15 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
             return false;
         }
         /*
+         * How often the runtime starts a thread, takes a lock or reaches a safepoint depends on how
+         * the program uses threads, not on how long it ran. Starting and ending threads is entered
+         * a few dozen times in a recording, and compiling it cold cost 5% of a benchmark that starts
+         * a thread for every philosopher in every iteration.
+         */
+        if (calls > CrucibleOptions.CrucibleColdMaximumCallsInRuntime.getValue() && hosted.getDeclaringClass().toJavaName().startsWith("com.oracle.svm.")) {
+            return false;
+        }
+        /*
          * A method entered once an iteration that only calls the code doing the work records next
          * to no work of its own, yet the samples are under it all the time, and what it inlines is
          * the work.

@@ -164,13 +164,16 @@ public final class CrucibleOptions {
     public static final HostedOptionKey<Double> CrucibleHotContextShare = new HostedOptionKey<>(0.01);
 
     @Option(help = "A method entered at most this often, doing next to none of the recorded work, and under too few of the sampled stacks to have its calls resolved context by context, is compiled as cold.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Integer> CrucibleColdMaximumCalls = new HostedOptionKey<>(3);
+    public static final HostedOptionKey<Integer> CrucibleColdMaximumCalls = new HostedOptionKey<>(100);
+
+    @Option(help = "In the runtime itself, which starts threads and takes locks as often as the program asks, a method entered more often than this is not cold.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleColdMaximumCallsInRuntime = new HostedOptionKey<>(3);
 
     @Option(help = "Share of the recorded work below which a method entered only a few times counts as cold.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleColdMaximumWorkShare = new HostedOptionKey<>(0.00001);
 
-    @Option(help = "Largest callee, in bytes of bytecode, that a cold method still inlines.", type = OptionType.Expert)//
-    public static final HostedOptionKey<Integer> CrucibleColdInlineMaximumBytecodes = new HostedOptionKey<>(12);
+    @Option(help = "Largest callee, in bytes of bytecode, that a cold method still inlines; 0 inlines only what must be.", type = OptionType.Expert)//
+    public static final HostedOptionKey<Integer> CrucibleColdInlineMaximumBytecodes = new HostedOptionKey<>(0);
 
     @Option(help = "Below -O3, compile the methods the run spent its time in with the inliner settings of -O3.", type = OptionType.User)//
     public static final HostedOptionKey<Boolean> CrucibleHotMethodsAtFullSettings = new HostedOptionKey<>(true);

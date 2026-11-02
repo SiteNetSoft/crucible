@@ -130,7 +130,7 @@ converted profile drives the build as well as one of our own.
 | Receiver types | counted at every virtual call in every place its method is inlined, including the places where the compiler could work the receiver out and the call is no longer virtual, so that what is recorded for a call is everything that came through it; the inliner tests for the common receivers first and inlines their methods |
 | Call counts | of every method, inlined or not |
 | The collector | its branches are counted as the program's are, so a program that spends its time collecting gets a collector laid out for what its heap looks like |
-| Cold code | a method the run never reached does not look into its callees, which roughly halves the machine code of an image |
+| Cold code | a method the run never reached, or entered at most 100 times while doing next to none of the work, inlines nothing and is compiled for size, which roughly halves the machine code of an image |
 | `System.arraycopy` | not profile work, but found by it: the community edition copied arrays with a scalar loop and a write barrier per reference, three to eight times slower than Oracle's. Copies go to the C library's `memmove` now, references are card-marked once per copy, and a copy between arrays of a known type is checked inline; level with Oracle on primitive copies and ahead on reference copies |
 | Code layout | the code section is ordered by how often each method ran |
 | Hot methods below `-O3` | are compiled the way `-O3` would compile them: its inliner settings, partial unrolling and loop vectorization, which the default level otherwise holds back for every method alike. On the samples a profiled `-O2` image runs as fast as a profiled `-O3` one and stays the size of an `-O2` one |
@@ -318,6 +318,9 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `CrucibleLoopRangeSplit` | on | split hot loops around checks that never fail |
 | `CrucibleColdCodeSize` | on | keep cold methods from inlining |
 | `CrucibleColdOptimizeForSize` | on | compile cold methods with the settings of `-Os`: the image of a Quarkus service 11% smaller, of Spring PetClinic 12%, of a Renaissance benchmark or a sample 7 to 10%, at the same speed on all nineteen |
+| `CrucibleColdMaximumCalls` | 100 | a method entered at most this often, with next to none of the recorded work and not under the sampled stacks where the work runs, counts as cold; was 3. With the next two options, the code section of the fourteen Renaissance benchmarks is 12% smaller at the same speed, and a Quarkus or Spring service uses 4 to 9 MB less memory after it starts, about 1 ms later |
+| `CrucibleColdMaximumCallsInRuntime` | 3 | in the runtime itself (`com.oracle.svm.*`), a method entered more often than this is not cold however few calls that is. Starting and ending a thread is entered once a thread, and compiling it cold cost philosophers 5%, which starts a thread for every philosopher in every iteration |
+| `CrucibleColdInlineMaximumBytecodes` | 0 | largest callee a cold method still inlines; was 12. With the two options above, the code section of a Quarkus service is 18% smaller than before and 5% smaller than Oracle's, of a Spring service 18% and 9% |
 | `CrucibleCodeLayout` | on | order the code section by call count |
 | `CrucibleHotMethodsAtFullSettings` | on | below `-O3`, compile hot methods as `-O3` would |
 | `CrucibleMinimumReceiverShare` | 0.01 | least share of a call site's calls for a receiver type to get its own test and inlined body |
