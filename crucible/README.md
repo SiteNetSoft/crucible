@@ -185,7 +185,9 @@ A binary rebuilt from the same profile is identical, so the gap is not build var
 The gap is the collector, not the code: with a young generation of 2 GB, so that neither binary collects, they take 1.889 s and 1.883 s.
 In the default run CrucibleVM's young generation stays at the size it starts with, about 53 MB, while Oracle's grows to 85 to 95 MB, so CrucibleVM makes 12 young collections where Oracle makes 5, with 265 ms of pauses against 214.
 The policy grows the young generation only while collections are under 20 ms apart or take more than half the time, and here they are 150 ms apart and take a sixth of it, so the starting size decides: the default starting heap of 128 MB gives a young generation of 64 MB.
-With `-Xms192m` CrucibleVM takes 1.66 s against Oracle's 1.67 s and peaks at 148 MB against 167. `-Xmn` sets only the most the young generation may grow to, so `-Xmn128m` changes nothing here.
+With `-Xms192m` CrucibleVM takes 1.66 s against Oracle's 1.67 s and peaks at 148 MB against 167.
+It is not the default because longer runs gain nothing from it: on the fourteen Renaissance benchmarks it changes the time by less than 1% and raises peak memory by 15% (geometric means, three rounds, 2026-11-01).
+For a short batch program that allocates a lot, try `-Xms192m`. `-Xmn` sets only the most the young generation may grow to, so `-Xmn128m` changes nothing here.
 Without a profile CrucibleVM's binary peaks at 159 MB against Oracle's 190.
 The tool ships no native-image metadata; it comes from a run under the tracing agent.
 
