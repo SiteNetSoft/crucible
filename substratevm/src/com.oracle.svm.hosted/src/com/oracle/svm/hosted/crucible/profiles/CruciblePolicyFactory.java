@@ -331,7 +331,16 @@ public final class CruciblePolicyFactory extends SubstratePolicyFactory {
              */
             return !UninterruptibleAnnotationUtils.isUninterruptible(hosted) && !profiles.ranAnywhere(hosted);
         }
-        return calls <= CrucibleOptions.CrucibleColdMaximumCalls.getValue() && profiles.workShare(hosted) < CrucibleOptions.CrucibleColdMaximumWorkShare.getValue();
+        if (calls > CrucibleOptions.CrucibleColdMaximumCalls.getValue() || profiles.workShare(hosted) >= CrucibleOptions.CrucibleColdMaximumWorkShare.getValue()) {
+            return false;
+        }
+        /*
+         * A method entered once an iteration that only calls the code doing the work records next
+         * to no work of its own, yet the samples are under it all the time, and what it inlines is
+         * the work.
+         */
+        CrucibleCallTree tree = CrucibleProfileFeature.callTree(null);
+        return tree == null || !tree.isSampled() || tree.inclusiveShare(hosted) < CrucibleOptions.CrucibleHotContextShare.getValue();
     }
 
     @Override

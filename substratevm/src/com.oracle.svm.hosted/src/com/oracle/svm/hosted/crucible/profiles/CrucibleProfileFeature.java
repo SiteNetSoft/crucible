@@ -43,6 +43,7 @@ import com.oracle.svm.shared.option.HostedOptionValues;
 import com.oracle.svm.shared.util.ClassUtil;
 import com.oracle.svm.shared.util.LogUtils;
 import com.oracle.svm.core.graal.GraalConfiguration;
+import com.oracle.svm.hosted.FeatureImpl;
 import com.oracle.svm.hosted.HostedConfiguration;
 import com.oracle.svm.hosted.cai.PrefixTree;
 import com.oracle.svm.hosted.code.CodeSectionLayouter;
@@ -267,6 +268,15 @@ public final class CrucibleProfileFeature implements InternalFeature {
             }
         }
         hostedSuites.add(suites);
+    }
+
+    /**
+     * Built before the first method is compiled, because which methods are cold depends on the
+     * samples, and every compilation has to see the same answer.
+     */
+    @Override
+    public void beforeCompilation(BeforeCompilationAccess access) {
+        callTree(((FeatureImpl.BeforeCompilationAccessImpl) access).getUniverse());
     }
 
     @Override

@@ -163,7 +163,7 @@ public final class CrucibleOptions {
     @Option(help = "Share of the sampled time a method and what it calls need for its calls to be resolved context by context.", type = OptionType.Expert)//
     public static final HostedOptionKey<Double> CrucibleHotContextShare = new HostedOptionKey<>(0.01);
 
-    @Option(help = "A method entered at most this often, and doing next to none of the recorded work, is compiled as cold.", type = OptionType.Expert)//
+    @Option(help = "A method entered at most this often, doing next to none of the recorded work, and under too few of the sampled stacks to have its calls resolved context by context, is compiled as cold.", type = OptionType.Expert)//
     public static final HostedOptionKey<Integer> CrucibleColdMaximumCalls = new HostedOptionKey<>(3);
 
     @Option(help = "Share of the recorded work below which a method entered only a few times counts as cold.", type = OptionType.Expert)//
