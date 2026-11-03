@@ -230,6 +230,7 @@ peak at two to three times their memory, above Oracle's binary where they were b
 service under load, 30 ms answers 3% more requests a second in 90 MB and not 86, 50 ms 8% more in 106 MB,
 75 ms 10% in 125 and 100 ms 11% in 145, where Oracle's binary answers 3% more than 20 ms in 140 to 170 MB;
 Spring PetClinic is unchanged at every value.
+On the tree of 2026-11-02, with the parallel young collection, four rounds on 2026-11-03: 30 ms runs 1.0% faster for 13% more memory, and 50 ms 2.5% faster for 49% more; at 50 ms mnemonics and par-mnemonics run 9% faster, fj-kmeans, finagle-chirper and reactors 4%, and scala-stm-bench7 3% and akka-uct 2% slower, while scrabble peaks at 740 MB and reactors at 1,223.
 
 The policy shrinks the young generation for memory only while next to nothing is promoted, so it keeps
 the size it starts at: a quarter of `-Xms` when that is given, and a small one otherwise. On Spring
