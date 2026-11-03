@@ -17,23 +17,25 @@ Absolute time of the profile-guided binary from each compiler, milliseconds; for
 | BranchBench | 547 | **461** | ahead by 16% |
 | JsonBench | 1545 | **1410** | ahead by 9% |
 | BenchPGO | 372 | **294** | ahead by 21%; 278 with a recording one count short, item W |
-| Renaissance par-mnemonics | 1832 | **1347** | ahead by 26% |
-| Renaissance akka-uct | 13950 | **10942** | ahead by 22%; with the heap capped at the 768 MB Oracle's binary uses, by 8% (13,445 against 14,575) |
-| Renaissance scala-doku | 1246 | **1058** | ahead by 15% |
-| Renaissance philosophers | 1713 | **1613** | ahead by 6%; by 7 to 16% in other rounds |
-| Renaissance mnemonics | 1824 | **1592** | ahead by 13%; a run settles at about 1600 ms or about 1705 and can change within the run, at any tenuring threshold |
-| Renaissance scrabble | **251.3** | 277.0 | behind by 10%: the collector sizes the heap where it collects badly, and it is level with the heap capped at 192 or 256 MB, 10% behind at 384 MB, item Z |
-| Renaissance future-genetic | 943 | 929 | level by the median; one iteration in four or five is 20 to 25% slower, item P |
-| Renaissance reactors | 10135 | **9766** | ahead by 4%; each binary is ahead in some rounds, by up to 12% |
-| Renaissance scala-kmeans | 171.2 | 171.0 | level |
-| Renaissance fj-kmeans | **3065** | 3146 | behind by 3%; 3% is the identity hash code layout, item T |
-| Renaissance rx-scrabble | **63.7** | 67.8 | behind by 6%: Oracle's builder compiles the loop that drives every pipeline, `ObservableFromIterable$FromIterableDisposable.run`, five times, once for each pipeline, and each copy inlines its own; this tree's once, item S |
-| Renaissance scala-stm-bench7 | **892** | 958 | behind by 7%, young collections, which promote more slowly than Oracle's |
+| Renaissance par-mnemonics | 1866 | **1283** | ahead by 31% |
+| Renaissance akka-uct | 13511 | **8855** | ahead by 34%, in 1.2 GB of memory where Oracle's binary uses 0.94; with the heap capped at Oracle's memory it stays about 20% ahead (2026-10-25) |
+| Renaissance scala-doku | 1243 | **950** | ahead by 24% |
+| Renaissance philosophers | 1854 | **1723** | ahead by 7% |
+| Renaissance mnemonics | 1806 | **1581** | ahead by 12%, in 150 MB where Oracle's binary uses 490 to 536 |
+| Renaissance scrabble | 264.7 | **160.8** | ahead by 39%, in 306 to 348 MB where Oracle's binary uses 194 to 198; on 2026-09-30, before the collector prefetched in its scan and collected the young generation on several threads, it was 10% behind, item Z |
+| Renaissance future-genetic | 964 | **860** | ahead by 11% |
+| Renaissance reactors | 9828 | **7979** | ahead by 19% |
+| Renaissance scala-kmeans | 171.8 | **161.8** | ahead by 6% |
+| Renaissance fj-kmeans | 2852 | **2397** | ahead by 16%, in 190 MB where Oracle's binary uses 574 to 783 |
+| Renaissance rx-scrabble | **63.5** | 65.4 | behind by 3%: Oracle's builder compiles the loop that drives every pipeline, `ObservableFromIterable$FromIterableDisposable.run`, five times, once for each pipeline, and each copy inlines its own; this tree's once, item S |
+| Renaissance scala-stm-bench7 | 917 | **770** | ahead by 16% |
+| Renaissance finagle-chirper | 1905 | **1792** | ahead by 6% |
+| Renaissance finagle-http | 2272 | **2144** | ahead by 6% |
 
-Ahead on thirteen of the nineteen, level on two, behind on four.
-Over the twelve Renaissance benchmarks the geometric mean of the ratios is 0.943, that is 5.7% ahead, with a spread from 26% ahead to 10% behind.
+Ahead on twenty of the twenty-one, behind on one.
+Over the fourteen Renaissance benchmarks the geometric mean of the ratios is 0.831, that is 17% ahead, with a spread from 39% ahead to 3% behind; the two sessions it is pooled from give 0.832 and 0.829.
 
-The Renaissance rows are from 2026-09-30, the tree with the copying old generation as the default (item V), cold code compiled for size (item K), and the method-handle adapters (item Y): one machine with six processors, `-O3`, three rounds of each benchmark, Oracle's binary in the same run, from recordings made with probes on the branches (item W), with the tenuring threshold that chooses between one and zero (item M3).
+The Renaissance rows are from 2026-11-02 and 2026-11-03, the tree of 2026-11-02 with its defaults: a machine with six cores, each binary given eight processors, `-O3`, two sessions of three rounds, the median of the six, Oracle's binary in the same runs. On 2026-09-30, with the copying old generation as the default (item V), cold code compiled for size (item K), and the method-handle adapters (item Y), three rounds on one machine with six processors, the geometric mean over twelve was 0.943, ahead on six, level on two, behind on scrabble, fj-kmeans, rx-scrabble and scala-stm-bench7; the paragraphs that follow are from that day.
 The binaries run with the heap each collector chooses. With the compacting old generation the geometric mean was 0.937 to 0.943 as well, but in much more memory on three of them: akka-uct four times Oracle's, scrabble three and a half, scala-stm-bench7 one and a half.
 With the heap of each capped at the memory Oracle's binary uses on it, the geometric mean is 0.980 copying and 1.015 compacting, and 0.963 copying with scala-stm-bench7 given the 448 MB where it reaches Oracle's memory without falling off a cliff.
 Measured again on 2026-10-01 on the tree as it is, scala-stm-bench7 at 448 MB, two rounds: 0.958, and 0.945 with the sampled recipe of item S; still behind at that memory are scala-kmeans by 5 to 6%, its heap kept well under the cap (item Z), scala-stm-bench7 by 6 to 8%, fj-kmeans by 2 to 3%, and rx-scrabble by 1.6% with the recipe and 7% without.
