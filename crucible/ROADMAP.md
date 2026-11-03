@@ -10,8 +10,8 @@ Absolute time of the profile-guided binary from each compiler, milliseconds; for
 
 | Workload | Oracle GraalVM PGO | CrucibleVM PGO | |
 | --- | --- | --- | --- |
-| Quarkus REST/JSON quickstart, requests a second on `/fruits` | 90,364 | **93,401** | ahead by 3%, with two builds of each; the same startup and memory; the image 14% larger, 28% before cold code was compiled for size, item K |
-| Spring PetClinic, requests a second on `/` and on `/vets` | 5,883 and 36,936 | **6,347** and **44,188** | ahead by 8% on the page and by 20% on the JSON, item Y; 172 MB of memory where Oracle's binary has 390 |
+| Quarkus REST/JSON quickstart, requests a second on `/fruits` | 90,364 | **93,401** | ahead by 3%, with two builds of each; the same startup and memory; the image 63.0 MB where Oracle's is 64.2, since cold code is compiled for size and inlines nothing, item K |
+| Spring PetClinic, requests a second on `/` and on `/vets` | 5,883 and 36,936 | **6,347** and **44,188** | ahead by 8% on the page and by 20% on the JSON, item Y; 172 MB of memory where Oracle's binary has 390; the image 113.1 MB where Oracle's is 121.6, item K |
 | GameOfLife | 3188 | **2959** | ahead by 7%; 2918 with the compacting old generation, item V; by 15% with `-XX:SerialGCTenuringThreshold=-3` (2715), item M3 |
 | ArrayBench | 372 | **326** | ahead by 12% |
 | BranchBench | 547 | **461** | ahead by 16% |
