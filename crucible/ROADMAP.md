@@ -12,11 +12,11 @@ Absolute time of the profile-guided binary from each compiler, milliseconds; for
 | --- | --- | --- | --- |
 | Quarkus REST/JSON quickstart, requests a second on `/fruits` | 90,364 | **93,401** | ahead by 3%, with two builds of each; the same startup and memory; the image 63.0 MB where Oracle's is 64.2, since cold code is compiled for size and inlines nothing, item K |
 | Spring PetClinic, requests a second on `/` and on `/vets` | 5,883 and 36,936 | **6,347** and **44,188** | ahead by 8% on the page and by 20% on the JSON, item Y; 172 MB of memory where Oracle's binary has 390; the image 113.1 MB where Oracle's is 121.6, item K |
-| GameOfLife | 3188 | **2959** | ahead by 7%; 2918 with the compacting old generation, item V; by 15% with `-XX:SerialGCTenuringThreshold=-3` (2715), item M3 |
-| ArrayBench | 372 | **326** | ahead by 12% |
-| BranchBench | 547 | **461** | ahead by 16% |
-| JsonBench | 1545 | **1410** | ahead by 9% |
-| BenchPGO | 372 | **294** | ahead by 21%; 278 with a recording one count short, item W |
+| GameOfLife | 3193 | **3010** | ahead by 6%; on 2026-09-29 by 15% with `-XX:SerialGCTenuringThreshold=-3` (2715 against 3188), item M3 |
+| ArrayBench | 377 | **309** | ahead by 18% |
+| BranchBench | 546 | **541** | ahead by 1%; by 16% on 2026-09-29, before control flow duplication, which costs it 17% |
+| JsonBench | 1540 | **1390** | ahead by 10% |
+| BenchPGO | 371 | **323** | ahead by 13%; by 21% on 2026-09-29, before control flow duplication, which costs it 9% |
 | Renaissance par-mnemonics | 1866 | **1283** | ahead by 31% |
 | Renaissance akka-uct | 13511 | **8855** | ahead by 34%, in 1.2 GB of memory where Oracle's binary uses 0.94; with the heap capped at Oracle's memory it stays about 20% ahead (2026-10-25) |
 | Renaissance scala-doku | 1243 | **950** | ahead by 24% |
@@ -42,9 +42,9 @@ Measured again on 2026-10-01 on the tree as it is, scala-stm-bench7 at 448 MB, t
 Over a whole Renaissance run CrucibleVM's binary takes longer than its iterations say: on scrabble the twenty iterations add up to 5.1 s against Oracle's 5.3, and the run to 8.4 s against 6.7. The difference is outside the iterations, much of it the complete collection the harness asks for before each one, 99 ms in ours against 69 in Oracle's.
 Until that day the geometric mean was 0.998, with mnemonics, scrabble, and future-genetic behind by 5 to 13%.
 The two services are from 2026-09-29, the same machine: each built by its framework's own native build (for Quarkus its argument file, for PetClinic the command Spring's Maven plugin runs), recorded under the load it is timed with, the service on four processors and the load (oha, 16 connections, 20 s of warm-up and 30 s measured a page) on four others, three rounds, and a second profile-guided build of each compiler's image. Without a profile Oracle's compiler is ahead by 11% on Quarkus and by 12 to 22% on PetClinic; CrucibleVM's profile is worth 65 to 82% there, Oracle's 35 to 53%. PetClinic's owner pages answer 500 in Spring's own native image of it as well, so its two other pages are the ones timed.
-The rows of the five samples are from 2026-09-29, the same machine: both compilers' images built from scratch, eleven runs each, interleaved, and every image printing what Oracle's control prints.
+The rows of the five samples are from 2026-11-03, the machine of the Renaissance rows: Oracle's images as built on 2026-09-29, this tree's built on 2026-11-02 with its defaults, eleven runs each, interleaved, and every image printing what Oracle's control prints.
 Oracle's image depends on how long a run it was recorded on, in both directions: BenchPGO runs 786 ms from a recording of 3 million iterations and 372 from one of 300 million, ArrayBench 372 from a short recording and 1188 from a long one.
-Oracle's rows are the better of the two. CrucibleVM's images run within 1% of each other from either: BenchPGO 295 and 294, BranchBench 462 and 461, ArrayBench 321 and 321, JsonBench 1408 and 1422, GameOfLife 2918 and 2903.
+Oracle's rows are the better of the two. On 2026-09-29 CrucibleVM's images ran within 1% of each other from either: BenchPGO 295 and 294, BranchBench 462 and 461, ArrayBench 321 and 321, JsonBench 1408 and 1422, GameOfLife 2918 and 2903.
 Until that day these rows were from an older machine, and BenchPGO was 7% behind there.
 Earlier versions of this table had the Renaissance rows from an older and slower machine, and akka-uct and par-mnemonics from one with four processors, so the times here are not comparable with those.
 
