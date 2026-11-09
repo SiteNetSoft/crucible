@@ -1311,7 +1311,17 @@ public class CompileQueue {
     protected OptionValues getCustomizedOptions(@SuppressWarnings("unused") HostedMethod method, DebugContext debug) {
         OptionValues customizedOptions = debug.getOptions();
         if (omitPriorityInliningTuning()) {
-            return customizedOptions;
+            if (PriorityInliningPhase.Options.BaseTargetSpending.hasBeenSet(customizedOptions)) {
+                return customizedOptions;
+            }
+            /*
+             * The bar for inlining a call rises by one step for every BaseTargetSpending nodes a
+             * compilation has already inlined. At O3 with 180 instead of upstream's 120, the
+             * fourteen Renaissance benchmarks run 0.7 to 0.9% faster without a profile in two
+             * sessions (philosophers and mnemonics 3.6 to 7%), in 0.2 to 0.6% more code; 240 is no
+             * better. With a profile twelve of the fourteen images stay the same to the byte.
+             */
+            return new OptionValues(customizedOptions, PriorityInliningPhase.Options.BaseTargetSpending, 180);
         }
 
         /*
