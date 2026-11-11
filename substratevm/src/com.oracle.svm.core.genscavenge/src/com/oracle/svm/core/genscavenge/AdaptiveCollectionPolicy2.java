@@ -804,8 +804,22 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return requested > 0 ? requested : GC_TIME_RATIO;
     }
 
+    /**
+     * {@link SerialGCOptions#SerialGCEdenLimit} unless the young generation's size is set. With
+     * the time ratio at 19 and no limit, akka-uct's eden grows to gigabytes and scrabble's to 1.5
+     * GB; at 256 MB the fourteen Renaissance benchmarks run 2 to 3% faster than at ratio 1 in 6%
+     * more memory summed.
+     */
+    private static UnsignedWord edenLimit() {
+        int limitMegabytes = SerialGCOptions.SerialGCEdenLimit.getValue();
+        if (limitMegabytes <= 0 || getMaxNewSizeOptionValue() > 0L || SerialAndEpsilonGCOptions.MaximumYoungGenerationSizePercent.hasBeenSet()) {
+            return UnsignedUtils.MAX_VALUE;
+        }
+        return Word.unsigned(limitMegabytes * 1024L * 1024L);
+    }
+
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
-        UnsignedWord desired = computeDesiredEdenSize0(isSurvivorOverflowing, curEden);
+        UnsignedWord desired = UnsignedUtils.min(computeDesiredEdenSize0(isSurvivorOverflowing, curEden), edenLimit());
         if (SubstrateGCOptions.VerboseGC.getValue()) {
             /* Which rule sized eden, and from what, in kilobytes, percent and milliseconds. */
             Log.log().string("  Eden ").unsigned(curEden.unsignedDivide(1024)).string("K->").unsigned(desired.unsignedDivide(1024)).string("K by ").string(edenReason).string(
