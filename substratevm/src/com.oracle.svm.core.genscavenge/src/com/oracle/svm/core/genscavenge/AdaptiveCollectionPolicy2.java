@@ -805,21 +805,22 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     }
 
     /**
-     * {@link SerialGCOptions#SerialGCEdenLimit} unless the young generation's size is set. With
-     * the time ratio at 19 and no limit, akka-uct's eden grows to gigabytes and scrabble's to 1.5
-     * GB; at 256 MB the fourteen Renaissance benchmarks run 2 to 3% faster than at ratio 1 in 6%
-     * more memory summed.
+     * {@link SerialGCOptions#SerialGCYoungLimit} unless the young generation's size is set. With
+     * the time ratio at 19 and no limit, akka-uct's young generation grows to gigabytes and
+     * scrabble's to 1.5 GB. A limit on eden alone lets the survivor spaces grow past it.
      */
-    private static UnsignedWord edenLimit() {
-        int limitMegabytes = SerialGCOptions.SerialGCEdenLimit.getValue();
+    @Override
+    protected UnsignedWord getYoungSizeLimit(UnsignedWord maxHeap) {
+        UnsignedWord limit = super.getYoungSizeLimit(maxHeap);
+        int limitMegabytes = SerialGCOptions.SerialGCYoungLimit.getValue();
         if (limitMegabytes <= 0 || getMaxNewSizeOptionValue() > 0L || SerialAndEpsilonGCOptions.MaximumYoungGenerationSizePercent.hasBeenSet()) {
-            return UnsignedUtils.MAX_VALUE;
+            return limit;
         }
-        return Word.unsigned(limitMegabytes * 1024L * 1024L);
+        return UnsignedUtils.min(limit, Word.unsigned(limitMegabytes * 1024L * 1024L));
     }
 
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
-        UnsignedWord desired = UnsignedUtils.min(computeDesiredEdenSize0(isSurvivorOverflowing, curEden), edenLimit());
+        UnsignedWord desired = computeDesiredEdenSize0(isSurvivorOverflowing, curEden);
         if (SubstrateGCOptions.VerboseGC.getValue()) {
             /* Which rule sized eden, and from what, in kilobytes, percent and milliseconds. */
             Log.log().string("  Eden ").unsigned(curEden.unsignedDivide(1024)).string("K->").unsigned(desired.unsignedDivide(1024)).string("K by ").string(edenReason).string(

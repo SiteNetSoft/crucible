@@ -32,6 +32,7 @@ import org.graalvm.nativeimage.Platforms;
 
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.core.genscavenge.compacting.ObjectMoveInfo;
+import com.oracle.svm.guest.staging.option.NotifyGCRuntimeOptionKey;
 import com.oracle.svm.guest.staging.option.RuntimeOptionKey;
 import com.oracle.svm.guest.staging.option.RuntimeOptionValidationSupport;
 import com.oracle.svm.guest.staging.option.RuntimeOptionValidationSupport.RuntimeOptionValidation;
@@ -59,13 +60,14 @@ public final class SerialGCOptions {
     public static final RuntimeOptionKey<Integer> PercentTimeInIncrementalCollection = new RuntimeOptionKey<>(50, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "Ratio of time spent running to time spent collecting that the young generation is grown to reach: 1 accepts half the time in collection, " +
-                    "19 a twentieth. A higher ratio trades memory for throughput; SerialGCEdenLimit bounds the memory. 0 for the policy's own value, 1. " +
+                    "19 a twentieth. A higher ratio trades memory for throughput; SerialGCYoungLimit bounds the memory. 0 for the policy's own value, 1. " +
                     "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCTimeRatio = new RuntimeOptionKey<>(19, SerialGCOptions::validateSerialRuntimeOption);
 
-    @Option(help = "Megabytes that eden grows to at most when neither -Xmn nor MaximumYoungGenerationSizePercent is set. Without it eden grows toward a third of " +
-                    "the maximum heap whenever collections take more time than SerialGCTimeRatio allows. 0 for no limit. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
-    public static final RuntimeOptionKey<Integer> SerialGCEdenLimit = new RuntimeOptionKey<>(256, SerialGCOptions::validateSerialRuntimeOption);
+    @Option(help = "Megabytes that the young generation grows to at most when neither -Xmn nor MaximumYoungGenerationSizePercent is set. Without it the young " +
+                    "generation grows toward a third of the maximum heap whenever collections take more time than SerialGCTimeRatio allows. 0 for no limit. " +
+                    "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Integer> SerialGCYoungLimit = new NotifyGCRuntimeOptionKey<>(256, SerialGCOptions::validateSerialRuntimeOption);
 
     @Option(help = "Milliseconds between young collections that the young generation is grown to reach: 20 is the policy's own value, HotSpot's is 100. " +
                     "A program that collects completely at intervals, as a benchmark harness does, keeps a young generation that holds what it allocates between those " +
