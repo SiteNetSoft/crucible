@@ -89,15 +89,19 @@ public final class CrucibleOptions {
     };
 
     /**
-     * Builds at -O3 when a profile is given and no optimization level is: a profile is given for
-     * speed, and much of what it is worth is lost below -O3. Whether a level was given cannot be
-     * read from the option values, where the builder puts the default before it parses anything,
-     * so it is read from the arguments, in either spelling and from wherever they came.
+     * Builds at -O3 when no optimization level is given. With a profile, much of what it is worth is
+     * lost below -O3. Without one, the default level keeps a slower inliner (the expansion inertia
+     * 800/40 against 550/14) that costs the fourteen Renaissance benchmarks 2.5% and future-genetic
+     * 10% against the -O3 image, and what it holds back besides buys nothing: the default level with
+     * the -O3 inertia is slower than -O3 and 5% larger, on Quarkus and Spring as on the benchmarks.
+     * The -O3 image is 8% larger than the default level's and builds 25% longer; -O2 is still a
+     * choice. Whether a level was given cannot be read from the option values, where the builder puts
+     * the default before it parses anything, so it is read from the arguments, in either spelling and
+     * from wherever they came.
      */
-    public static void raiseLevelForProfile(EconomicMap<OptionKey<?>, Object> values, List<String> arguments) {
+    public static void raiseLevel(EconomicMap<OptionKey<?>, Object> values, List<String> arguments) {
         if (!(values.get(CrucibleProfile) instanceof String profile) || profile.isEmpty()) {
             trackPositionsForLibraryProfile(values);
-            return;
         }
         String option = "-H:" + SubstrateOptions.Optimize.getName();
         for (String argument : arguments) {

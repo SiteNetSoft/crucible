@@ -519,7 +519,7 @@ public final class NativeImageClassLoaderSupport {
         // options
         SubstrateOptions.Optimize.update(optionParser.getHostedValues(), SubstrateOptions.Optimize.getDefaultValue());
         remainingArguments = Collections.unmodifiableList((optionParser.parse()));
-        CrucibleOptions.raiseLevelForProfile(optionParser.getHostedValues(), arguments);
+        CrucibleOptions.raiseLevel(optionParser.getHostedValues(), arguments);
 
         /*
          * The image layer support needs to be configured early to correctly set the
