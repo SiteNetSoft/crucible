@@ -109,8 +109,17 @@ public class SubstrateInliningProvider extends DefaultInliningProvider {
         if (MaxPolymorphicDispatches.hasBeenSet(options)) {
             return MaxPolymorphicDispatches.getValue(options);
         }
-        // Default for SVM
-        return 3;
+        /*
+         * Eight. Without a profile the fourteen Renaissance benchmarks run 1% faster than with
+         * five, in 0.4% more code: par-mnemonics, scala-kmeans and akka-uct 3% faster and nothing
+         * slower, because their hot work reaches the compiler through stream pipelines whose sinks
+         * have many receiver types (2026-11-12, with BaseTargetSpending at 180). Twelve gives the
+         * same mean unevenly, philosophers 6% faster and reactors 4% slower. Five ran 2% faster
+         * than three and 1.5% faster than four, and six was slower than five on the tree of
+         * 2026-11-08, where every receiver type of a call got an equal share of a smaller budget.
+         * With a profile, the hot methods keep three from the hot-method settings.
+         */
+        return 8;
     }
 
     @Override
