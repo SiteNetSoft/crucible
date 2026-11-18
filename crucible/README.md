@@ -138,8 +138,8 @@ converted profile drives the build as well as one of our own.
 
 ## How it compares
 
-An image built with a profile is built at `-O3` unless you ask for another level, as Oracle's `native-image` does when it is given a profile.
-Give `-O2` with the profile if you want the smaller image, which is 4 to 8% smaller.
+An image is built at `-O3` unless you ask for another level, with a profile as Oracle's `native-image` does when it is given one, and without a profile too: the default level's inliner holds back the one setting that matters there, and holding back the rest costs size without buying speed, so the default level with that setting restored is slower and 5% larger than `-O3` (the fourteen Renaissance benchmarks, Quarkus and Spring, 2026-11-15).
+Give `-O2` if you want the smaller image, which is 4 to 8% smaller with a profile and 8% without, and the build a quarter shorter.
 On the samples a profile-guided image at `-O2` runs as fast as one at `-O3`; on most of the Renaissance benchmarks it is 10 to 45% slower.
 
 CrucibleVM is now based on GraalVM 25.4.4.1.1. With its defaults, over fourteen Renaissance benchmarks against Oracle's profile-guided binary, it comes to 0.913 of Oracle's time from a counted profile and 0.890 from one with sampled stacks (one session of five rounds, 2026-10-08), behind on two: rx-scrabble by 4 to 8% and scala-stm-bench7 by 2%. Control flow duplication stays on with a profile, with the pass that moves what it puts on every path back onto the paths that use it, and the collector prefetches what the objects it copies point to once a collection copies more than fits in the caches (scrabble 20% faster). Spring PetClinic's `/` and `/vets` serve about 10% and 25% more requests a second than Oracle's binary, Quarkus about 7%.
