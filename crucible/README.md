@@ -209,12 +209,23 @@ programs that allocate most the difference is allocation and garbage collection 
 optimizer. The details, and everything that was tried and did not work, are in `docs/issues/` and
 `crucible/ROADMAP.md`.
 
-If your program spends its time collecting, try `-XX:SerialGCTimeRatio=6` at run time (4 to 9 is
-the useful range). The serial collector's default policy accepts half of the time going to
-collection before it grows the young generation; this asks for a seventh. It took two Renaissance
-benchmarks from level with Oracle's binary to 23% ahead of it and two from 32% and 62% behind to 5%
-and 27%, the latter in less memory than Oracle's uses. It cost another four times its memory for
-little and made one slower, so measure it; the default is unchanged.
+The serial collector's own policy accepts half of the time going to collection before it grows the
+young generation. CrucibleVM asks for a twentieth (`-XX:SerialGCTimeRatio=19`) and lets the young
+generation grow to 256 MB at most (`-XX:SerialGCYoungLimit=256`, in megabytes; 0 removes the limit,
+and `-Xmn` or `-XX:MaximumYoungGenerationSizePercent` replaces it). Without the limit, ratio 19 grows
+the young generation far: over the fourteen, on eight processors, it runs 10% faster than ratio 1 and
+peaks at 2.2 times the memory, akka-uct at 6.6 GB and scrabble at 1.3. With it, measured on 2026-11-11,
+three rounds, the fourteen run 2.6% faster than at ratio 1 for 2% more memory in all (1.21 times by
+geometric mean): scala-stm-bench7 18% faster in the same memory, par-mnemonics and fj-kmeans 7%,
+finagle-chirper 5%, and akka-uct 11% slower in 0.63 of its memory. With a profile they run 1.8% faster
+for 8% more memory in all, 0.821 of Oracle PGO's time in 0.88 of its memory. Under load the Quarkus
+application of Quarkus's Spring comparison answers 15,996 requests a second in 110 MB, where it answered
+14,501 in 81 and Oracle's binary answers 15,062 in 159, and its Spring Boot application 5,594 in 126 MB, where
+it answered 5,227 in 104 and Oracle's 4,469 in 197; the time to the first request and the memory after it do not change. On one collector
+thread the fourteen run 1.6% faster for 1.22 times the memory by geometric mean, akka-uct 13% slower in a
+third of its memory. `-XX:SerialGCTimeRatio=1 -XX:SerialGCYoungLimit=0` restores the policy's own
+behavior; a larger limit buys akka-uct back, 384 MB making it 2% faster than at ratio 1 for 23% more
+memory over the fourteen.
 
 If your program, like a benchmark harness, drops everything it allocated at intervals, try
 `-XX:SerialGCMinDistance=50` at run time. The adaptive policy grows the young generation only while
@@ -238,15 +249,15 @@ PetClinic under load with `-Xmx512m -Xms512m` it stays at 128 MB and the process
 Oracle's binary holds 200; without `-Xms` it settles at 20 MB, 129 MB in all, and answers 8% fewer
 requests. `-XX:+SerialGCShrinkWhilePromoting` lets it shrink while objects are promoted too, as far as the
 time ratio and the minimum distance allow, so that with and without `-Xms` it ends at the same size.
-For a service with a capped heap, use it with `-XX:SerialGCTimeRatio=19`: measured on 2026-10-29, two
+For a service with a capped heap, use it at the default time ratio of 19: measured on 2026-10-29, two
 rounds, `-Xmx512m`, Spring PetClinic answers 5,490 to 5,520 requests a second in 142 to 149 MB, with or
 without `-Xms` (Oracle's binary 4,460 in 198 to 204 MB, the default 5,690 to 5,800 in 237 to 242), and
 the Quarkus quickstart 15,760 to 15,940 in 113 to 118 MB (Oracle's 15,000 in 150 to 167, the default
-14,450 to 14,640 in 86 to 88). Without a cap, ratio 19 grows the young generation far: over the fourteen,
+14,450 to 14,640 in 86 to 88). Without a cap and without the young-generation limit, ratio 19 grows the young generation far: over the fourteen,
 on eight processors, it runs 10% faster than the default and peaks at 2.2 times its memory, akka-uct at
 6.6 GB and scrabble at 1.3, with or without the shrinking, which changes nothing there. Under `-Xmx1g`
 the two together run the fourteen 0.6% faster than the default under the same cap, for 36% more memory, about
-Oracle's: the gain is a service's, under load, and both stay off by default.
+Oracle's: the gain is a service's, under load, and the shrinking stays off by default.
 
 The adaptive policy collected the old generation only when it reached its capacity, and `-Xms` sets
 that capacity to nearly the whole heap from the start, so a service under load kept what it promoted

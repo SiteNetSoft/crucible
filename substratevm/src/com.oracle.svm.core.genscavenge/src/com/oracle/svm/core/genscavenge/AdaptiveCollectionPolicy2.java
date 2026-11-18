@@ -804,6 +804,21 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         return requested > 0 ? requested : GC_TIME_RATIO;
     }
 
+    /**
+     * {@link SerialGCOptions#SerialGCYoungLimit} unless the young generation's size is set. With
+     * the time ratio at 19 and no limit, akka-uct's young generation grows to gigabytes and
+     * scrabble's to 1.5 GB. A limit on eden alone lets the survivor spaces grow past it.
+     */
+    @Override
+    protected UnsignedWord getYoungSizeLimit(UnsignedWord maxHeap) {
+        UnsignedWord limit = super.getYoungSizeLimit(maxHeap);
+        int limitMegabytes = SerialGCOptions.SerialGCYoungLimit.getValue();
+        if (limitMegabytes <= 0 || getMaxNewSizeOptionValue() > 0L || SerialAndEpsilonGCOptions.MaximumYoungGenerationSizePercent.hasBeenSet()) {
+            return limit;
+        }
+        return UnsignedUtils.min(limit, Word.unsigned(limitMegabytes * 1024L * 1024L));
+    }
+
     private UnsignedWord computeDesiredEdenSize(boolean isSurvivorOverflowing, UnsignedWord curEden) {
         UnsignedWord desired = computeDesiredEdenSize0(isSurvivorOverflowing, curEden);
         if (SubstrateGCOptions.VerboseGC.getValue()) {
