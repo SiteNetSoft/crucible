@@ -219,9 +219,9 @@ three rounds, the fourteen run 2.6% faster than at ratio 1 for 2% more memory in
 geometric mean): scala-stm-bench7 18% faster in the same memory, par-mnemonics and fj-kmeans 7%,
 finagle-chirper 5%, and akka-uct 11% slower in 0.63 of its memory. With a profile they run 1.8% faster
 for 8% more memory in all, 0.821 of Oracle PGO's time in 0.88 of its memory. Under load the Quarkus
-quickstart answers 15,996 requests a second in 110 MB, where it answered 14,501 in 81 and Oracle's binary
-answers 15,062 in 159, and Spring PetClinic 5,594 in 126 MB, where it answered 5,227 in 104 and Oracle's
-4,469 in 197; the time to the first request and the memory after it do not change. On one collector
+application of Quarkus's Spring comparison answers 15,996 requests a second in 110 MB, where it answered
+14,501 in 81 and Oracle's binary answers 15,062 in 159, and its Spring Boot application 5,594 in 126 MB, where
+it answered 5,227 in 104 and Oracle's 4,469 in 197; the time to the first request and the memory after it do not change. On one collector
 thread the fourteen run 1.6% faster for 1.22 times the memory by geometric mean, akka-uct 13% slower in a
 third of its memory. `-XX:SerialGCTimeRatio=1 -XX:SerialGCYoungLimit=0` restores the policy's own
 behavior; a larger limit buys akka-uct back, 384 MB making it 2% faster than at ratio 1 for 23% more
