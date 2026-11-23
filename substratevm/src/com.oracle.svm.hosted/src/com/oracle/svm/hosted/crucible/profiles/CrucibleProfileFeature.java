@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.graalvm.collections.EconomicMap;
 import org.graalvm.nativeimage.ImageSingletons;
 
 import com.oracle.svm.core.crucible.CrucibleOptions;
@@ -59,6 +60,7 @@ import jdk.graal.compiler.duplication.phases.simulation.DuplicationPhase;
 import jdk.graal.compiler.loop.phases.LoopUnswitchingPhase;
 import jdk.graal.compiler.phases.common.IterativeConditionalEliminationPhase;
 import jdk.graal.compiler.nodes.loop.DefaultLoopPolicies;
+import jdk.graal.compiler.options.OptionKey;
 import jdk.graal.compiler.phases.common.CanonicalizerPhase;
 import jdk.graal.compiler.phases.tiers.Suites;
 import jdk.graal.compiler.phases.util.Providers;
@@ -118,6 +120,34 @@ public final class CrucibleProfileFeature implements InternalFeature {
                 /* Registered here for the same reason: the first hosted configuration wins. */
                 HostedConfiguration.setInstanceIfEmpty(new CrucibleHostedConfiguration());
             }
+        }
+    }
+
+    /**
+     * With a profile, the inliner runs its interprocedural escape analysis every round and forces
+     * it up to four times where inlining would otherwise stop, instead of every third round and
+     * twice. The profile makes the inliner expand deeper, and a callee it then leaves out as over
+     * budget can hide an allocation that is dead in the caller: in PMD, Saxon's error reporter
+     * builds a 24 KB logger that the next statement replaces, once per XPath evaluation, and the
+     * profiled image collected 142 times against the unprofiled image's 66 until the analysis saw
+     * it, which took it 3.3 s on eight processors against 5.0 (Oracle GraalVM's profiled image
+     * 4.5). The fourteen Renaissance benchmarks with a profile run in 0.989 of the time over two
+     * sessions, scrabble and scala-kmeans 12% faster, akka-uct 2 to 8%, finagle-chirper 4 to 6%
+     * slower and fj-kmeans 2%; Quarkus and Spring are level; images are 1 to 2% smaller and build
+     * in the same time. Without a profile the same settings cost the services 1 to 2% of their
+     * throughput and a seventh more build time, so they stay the tree's defaults there. Called
+     * where the option values are still being built, because the inliner reads these two options
+     * from the global hosted values, not from the per-method options a compilation is given.
+     */
+    public static void escapeAnalysisEveryRound(EconomicMap<OptionKey<?>, Object> values) {
+        if (!(values.get(CrucibleOptions.CrucibleProfile) instanceof String profile) || profile.isEmpty()) {
+            return;
+        }
+        if (!values.containsKey(SubstratePriorityInliningPhase.Options.IPEAFrequency)) {
+            SubstratePriorityInliningPhase.Options.IPEAFrequency.update(values, 1);
+        }
+        if (!values.containsKey(SubstratePriorityInliningPhase.Options.IPEAMaxForce)) {
+            SubstratePriorityInliningPhase.Options.IPEAMaxForce.update(values, 4);
         }
     }
 
