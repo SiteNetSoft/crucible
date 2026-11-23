@@ -326,6 +326,8 @@ All are `-H:` options and need `-H:+UnlockExperimentalVMOptions`.
 | `GreyScanPrefetchAhead` | 8 | while a collection visits the references of a copied object, prefetch what the reference this many slots on points to. Not a Crucible option |
 | `GreyScanPrefetchNextObject` | on | and prefetch the referents of the next copied object. Not a Crucible option |
 | `GreyScanPrefetchMinCopiedKB` | 1024 | prefetch only in a collection after a young collection that copied this much, or once it has itself; 0 always. Not a Crucible option |
+| `GreyScanPrefetchTrialChunks` | 8, at run time | a complete collection scans its first chunks of copied objects alternately without and with the prefetch, this many in all, and keeps the faster way; 0 prefetches as a young collection does. A tree copied in the order it was built scans 8% faster without the prefetch, a cross-linked graph 15% faster with it. Not a Crucible option |
+| `GreyScanPrefetchRetrialChunks` | 32, at run time | after the trial, scan this many chunks the way it chose and then try both again, since a graph's nodes are often reached through a list first and their cross-links later; 0 keeps the first choice. Not a Crucible option |
 | `GreyScanPrefetchQueue` | 0 | instead, visit each reference this many later with its referent prefetched; faster where collections copy a lot, slower elsewhere. Not a Crucible option |
 | `LargeArrayThreshold` | the most an aligned chunk takes | the size from which an array gets a chunk of its own; was 128 KB. Not a Crucible option |
 | `OptDuplication` | on | control flow duplication, new in GraalVM 25.4; with a profile it can put a value computed on a rarely taken path on every path, which `CrucibleSinkAfterDuplication` undoes. Not a Crucible option |
