@@ -72,6 +72,8 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     private boolean oldSizeExceededInPreviousCollection = false;
     /** Whether the last complete collection kept more than three quarters of what the old generation held. */
     private boolean lastCompleteCollectionKeptMost = false;
+    /** Whether the old generation was given capacity instead of a complete collection since the last one. */
+    private boolean expandedSinceLastCompleteCollection = false;
 
     /** What the last complete collection left in the old generation; see {@link #oldGenerationGrewPastItsLive}. */
     private UnsignedWord oldLiveAfterLastCompleteCollection = Word.zero();
@@ -263,7 +265,8 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         if (factor <= 0) {
             return false;
         }
-        if (System.nanoTime() - lastCompleteCollectionEndNanos < OLD_GROWTH_RUN_TO_PAUSE_RATIO * lastCompleteCollectionPauseNanos) {
+        /* After capacity was given instead of a complete collection, the doubling alone asks for the next one, however soon. */
+        if (!expandedSinceLastCompleteCollection && System.nanoTime() - lastCompleteCollectionEndNanos < OLD_GROWTH_RUN_TO_PAUSE_RATIO * lastCompleteCollectionPauseNanos) {
             return false;
         }
         UnsignedWord oldUsed = HeapImpl.getHeapImpl().getOldGeneration().getChunkBytes();
@@ -548,6 +551,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             resizeAfterFullGC(oldLive);
             oldLiveAfterLastCompleteCollection = oldLive;
             lastCompleteCollectionKeptMost = oldLive.multiply(4).aboveThan(acc.getOldGenerationBeforeChunkBytes().multiply(3));
+            expandedSinceLastCompleteCollection = false;
             lastCompleteCollectionEndNanos = System.nanoTime();
             lastCompleteCollectionPauseNanos = majorTimer.totalNanos();
             if (oldGrowthCollectionRequested) {
@@ -585,6 +589,7 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
                 if (desired.aboveThan(oldLive)) {
                     sizes.setOldSize(desired);
                     oldSizeExceededInPreviousCollection = false;
+                    expandedSinceLastCompleteCollection = true;
                 }
             }
 
