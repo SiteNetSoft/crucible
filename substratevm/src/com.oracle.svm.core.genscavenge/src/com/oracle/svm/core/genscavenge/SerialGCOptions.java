@@ -84,6 +84,11 @@ public final class SerialGCOptions {
                     "Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
     public static final RuntimeOptionKey<Integer> SerialGCOldGrowthFactor = new RuntimeOptionKey<>(2, SerialGCOptions::validateSerialRuntimeOption);
 
+    @Option(help = "Give the old generation the capacity its live data asks for, instead of collecting completely, when a young collection promoted beyond " +
+                    "that capacity and the last complete collection kept more than three quarters of the old generation; a program whose live data grows then " +
+                    "collects completely once instead of at every doubling. Serial GC with collection policy 'Adaptive2' only.", type = OptionType.User)//
+    public static final RuntimeOptionKey<Boolean> SerialGCExpandOldForLive = new RuntimeOptionKey<>(true, SerialGCOptions::validateSerialRuntimeOption);
+
     @Option(help = "Number of young collections an object survives before it is promoted to the old generation: 0 promotes straight from eden, which suits programs " +
                     "whose objects either die at once or live long, and costs programs whose objects live for a few collections. -2, the default, starts at 1 and goes to 0 for as long as " +
                     "most of what survives one collection survives the next as well. -3 starts at 2 instead, comes down to 1 and to 0 as most of what reaches an age reaches the next, " +
