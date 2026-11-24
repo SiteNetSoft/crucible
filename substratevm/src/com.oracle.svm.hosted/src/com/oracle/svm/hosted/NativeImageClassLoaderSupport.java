@@ -98,6 +98,7 @@ import com.oracle.svm.core.imagelayer.LayeredImageOptions;
 import com.oracle.svm.core.util.ClasspathUtils;
 import com.oracle.svm.core.util.InterruptImageBuilding;
 import com.oracle.svm.core.util.UserError;
+import com.oracle.svm.hosted.crucible.profiles.CrucibleProfileFeature;
 import com.oracle.svm.hosted.driver.IncludeOptionsSupport;
 import com.oracle.svm.hosted.driver.LayerOptionsSupport;
 import com.oracle.svm.hosted.image.PreserveOptionsSupport;
@@ -520,6 +521,7 @@ public final class NativeImageClassLoaderSupport {
         SubstrateOptions.Optimize.update(optionParser.getHostedValues(), SubstrateOptions.Optimize.getDefaultValue());
         remainingArguments = Collections.unmodifiableList((optionParser.parse()));
         CrucibleOptions.raiseLevel(optionParser.getHostedValues(), arguments);
+        CrucibleProfileFeature.escapeAnalysisEveryRound(optionParser.getHostedValues());
 
         /*
          * The image layer support needs to be configured early to correctly set the
