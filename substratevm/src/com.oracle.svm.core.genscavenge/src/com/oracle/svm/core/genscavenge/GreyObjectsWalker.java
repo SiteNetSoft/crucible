@@ -109,13 +109,16 @@ final class GreyObjectsWalker {
             AlignedHeapChunk.AlignedHeader lastChunk;
             do {
                 lastChunk = aChunk;
-                GCImpl.getGCImpl().updateScanPrefetch();
-                GreyToBlackObjectVisitor visitor = GCImpl.getGCImpl().getScanVisitor();
+                GCImpl gc = GCImpl.getGCImpl();
+                gc.updateScanPrefetch();
+                GreyToBlackObjectVisitor visitor = gc.getScanVisitor();
+                long beginNs = gc.scanChunkBegin();
                 if (visitor.isPrefetching()) {
-                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, GCImpl.getGCImpl().getPrefetchingObjectVisitor());
+                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, gc.getPrefetchingObjectVisitor());
                 } else {
-                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, GCImpl.getGCImpl().getGreyToBlackObjectVisitor());
+                    AlignedHeapChunk.walkObjectsFromInline(aChunk, aStart, gc.getGreyToBlackObjectVisitor());
                 }
+                gc.scanChunkEnd(beginNs, HeapChunk.getTopPointer(aChunk).subtract(aStart));
                 aChunk = HeapChunk.getNext(aChunk);
                 aStart = (aChunk.isNonNull() ? AlignedHeapChunk.getObjectsStart(aChunk) : Word.nullPointer());
             } while (aChunk.isNonNull());

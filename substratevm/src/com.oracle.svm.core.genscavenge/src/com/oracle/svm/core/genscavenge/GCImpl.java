@@ -396,8 +396,24 @@ public final class GCImpl implements GC {
         policy.onCollectionBegin(completeCollection, beginNanoTime);
 
         copyStartBytes = copiedToBytes();
-        scanPrefetch = lastCopiedBytes.aboveOrEqual(scanPrefetchMinCopied());
+        /*
+         * Whether the prefetch pays while a complete collection scans depends on the heap's shape:
+         * a tree copied in the order it was built scans 8 to 12% faster without it (Checkstyle,
+         * 530 MB), a cross-linked graph 11 to 18% faster with it (akka-uct, GcBench's dag mode).
+         * So a complete collection tries both on its first chunks and keeps the faster; see
+         * scanChunkEnd. A young collection prefetches once it has copied enough.
+         */
+        trialRemaining = complete && scanPrefetchConfigured() ? SerialGCOptions.GreyScanPrefetchTrialChunks.getValue() : 0;
+        trialDecided = false;
+        trialsWith = 0;
+        trialsWithout = 0;
+        trialNsOff = 0;
+        trialNsOn = 0;
+        trialBytesOff = 0;
+        trialBytesOn = 0;
+        scanPrefetch = trialRemaining > 0 ? (trialRemaining & 1) != 0 : lastCopiedBytes.aboveOrEqual(scanPrefetchMinCopied());
         doCollectCore();
+        printPrefetchTrial();
         if (complete) {
             lastWholeHeapExaminedNanos = System.nanoTime();
         } else {
@@ -1379,12 +1395,93 @@ public final class GCImpl implements GC {
         return heap.getOldGeneration().getChunkBytes().add(heap.getYoungGeneration().getSurvivorChunkBytes());
     }
 
-    /** Turns prefetching on once this collection has copied enough; called for each chunk scanned. */
+    /**
+     * Turns prefetching on once this collection has copied enough; called for each chunk scanned.
+     * During a complete collection's trial (see {@link #scanChunkEnd}) the chunks alternate.
+     */
     @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
     void updateScanPrefetch() {
-        if (scanPrefetchConfigured() && !scanPrefetch) {
+        if (!scanPrefetchConfigured()) {
+            return;
+        }
+        if (trialRemaining > 0) {
+            scanPrefetch = (trialRemaining & 1) != 0;
+        } else if (!scanPrefetch && !trialDecided) {
             UnsignedWord now = copiedToBytes();
             scanPrefetch = now.aboveThan(copyStartBytes) && now.subtract(copyStartBytes).aboveOrEqual(scanPrefetchMinCopied());
+        }
+    }
+
+    /*
+     * A complete collection's trial: its first GreyScanPrefetchTrialChunks chunks of copied objects
+     * are scanned alternately without and with the prefetch, timed, and the way that scanned its
+     * bytes faster is kept, and every GreyScanPrefetchRetrialChunks chunks the trial runs again,
+     * because what pays can change as the collection goes on: a graph's nodes are often reached
+     * first through a list, in the order they were made, and their cross-links only later. Chunks
+     * that scanned less than TRIAL_MIN_CHUNK_BYTES count towards the totals but not as a chunk.
+     */
+    private static final long TRIAL_MIN_CHUNK_BYTES = 256 * 1024;
+    private int trialRemaining;
+    private boolean trialDecided;
+    private int retrialCountdown;
+    private int trialsWith;
+    private int trialsWithout;
+    private long trialNsOff;
+    private long trialNsOn;
+    private long trialBytesOff;
+    private long trialBytesOn;
+
+    /** The time a chunk's scan starts, or 0 outside a trial. */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    long scanChunkBegin() {
+        return trialRemaining > 0 ? System.nanoTime() : 0;
+    }
+
+    /** Accounts a scanned chunk to the trial and decides once the trial's chunks are in. */
+    @Uninterruptible(reason = "Called from uninterruptible code.", mayBeInlined = true)
+    void scanChunkEnd(long beginNs, UnsignedWord scannedBytes) {
+        long bytes = scannedBytes.rawValue();
+        if (trialRemaining <= 0) {
+            if (trialDecided && bytes >= TRIAL_MIN_CHUNK_BYTES && retrialCountdown > 0 && --retrialCountdown == 0) {
+                trialRemaining = SerialGCOptions.GreyScanPrefetchTrialChunks.getValue();
+                trialNsOff = 0;
+                trialNsOn = 0;
+                trialBytesOff = 0;
+                trialBytesOn = 0;
+            }
+            return;
+        }
+        long ns = System.nanoTime() - beginNs;
+        if (scanPrefetch) {
+            trialNsOn += ns;
+            trialBytesOn += bytes;
+        } else {
+            trialNsOff += ns;
+            trialBytesOff += bytes;
+        }
+        if (bytes < TRIAL_MIN_CHUNK_BYTES) {
+            return;
+        }
+        trialRemaining--;
+        if (trialRemaining == 0) {
+            /* Nanoseconds per byte, compared without a division. */
+            scanPrefetch = trialNsOn * trialBytesOff < trialNsOff * trialBytesOn;
+            trialDecided = true;
+            retrialCountdown = SerialGCOptions.GreyScanPrefetchRetrialChunks.getValue();
+            if (scanPrefetch) {
+                trialsWith++;
+            } else {
+                trialsWithout++;
+            }
+        }
+    }
+
+    /** Prints the trial's outcome after the collection, under VerboseGC. */
+    private void printPrefetchTrial() {
+        if (trialDecided && SubstrateGCOptions.VerboseGC.getValue()) {
+            Log.log().string("[prefetch trial: last without ").signed(trialBytesOff > 0 ? trialNsOff * 1024 * 1024 / trialBytesOff : 0).string(" ns/MB, with ")
+                            .signed(trialBytesOn > 0 ? trialNsOn * 1024 * 1024 / trialBytesOn : 0).string(" ns/MB; kept with ").signed(trialsWith).string(" times, without ")
+                            .signed(trialsWithout).string("]").newline();
         }
     }
 
