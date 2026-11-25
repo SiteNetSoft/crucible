@@ -70,6 +70,10 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
     private final AdaptivePaddedAverage avgPromoted = new AdaptivePaddedAverage(ADAPTIVE_SIZE_POLICY_WEIGHT, PROMOTED_PADDING, true);
 
     private boolean oldSizeExceededInPreviousCollection = false;
+    /** Whether the last complete collection kept more than three quarters of what the old generation held. */
+    private boolean lastCompleteCollectionKeptMost = false;
+    /** Whether the old generation was given capacity instead of a complete collection since the last one. */
+    private boolean expandedSinceLastCompleteCollection = false;
 
     /** What the last complete collection left in the old generation; see {@link #oldGenerationGrewPastItsLive}. */
     private UnsignedWord oldLiveAfterLastCompleteCollection = Word.zero();
@@ -261,7 +265,8 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
         if (factor <= 0) {
             return false;
         }
-        if (System.nanoTime() - lastCompleteCollectionEndNanos < OLD_GROWTH_RUN_TO_PAUSE_RATIO * lastCompleteCollectionPauseNanos) {
+        /* After capacity was given instead of a complete collection, the doubling alone asks for the next one, however soon. */
+        if (!expandedSinceLastCompleteCollection && System.nanoTime() - lastCompleteCollectionEndNanos < OLD_GROWTH_RUN_TO_PAUSE_RATIO * lastCompleteCollectionPauseNanos) {
             return false;
         }
         UnsignedWord oldUsed = HeapImpl.getHeapImpl().getOldGeneration().getChunkBytes();
@@ -545,6 +550,8 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
             sampleOldGenUsedBytes(oldUsed);
             resizeAfterFullGC(oldLive);
             oldLiveAfterLastCompleteCollection = oldLive;
+            lastCompleteCollectionKeptMost = oldLive.multiply(4).aboveThan(acc.getOldGenerationBeforeChunkBytes().multiply(3));
+            expandedSinceLastCompleteCollection = false;
             lastCompleteCollectionEndNanos = System.nanoTime();
             lastCompleteCollectionPauseNanos = majorTimer.totalNanos();
             if (oldGrowthCollectionRequested) {
@@ -568,6 +575,23 @@ class AdaptiveCollectionPolicy2 extends AdaptiveCollectionPolicy2Base {
              * during a young collection however, and trigger a full collection straight after.
              */
             oldSizeExceededInPreviousCollection = oldLive.aboveThan(sizes.getOldSize());
+            if (oldSizeExceededInPreviousCollection && lastCompleteCollectionKeptMost && SerialGCOptions.SerialGCExpandOldForLive.getValue()) {
+                /*
+                 * The last complete collection kept more than three quarters of the old generation:
+                 * the program's live data is growing, and a complete collection now would copy it all
+                 * again to reclaim little. The old generation gets the capacity the live data asks
+                 * for instead, up to its maximum, and only the young generation is collected; when
+                 * the data stops growing, the growth rule or the maximum asks for the complete
+                 * collection. A program that built 600,000 records collected completely at every
+                 * doubling of them, six times in 3 of its 7 seconds, and once with this.
+                 */
+                UnsignedWord desired = UnsignedUtils.clamp(alignUp(calculateDesiredOldGenCapacity(oldLive)), minSpaceSize(), sizes.getMaxOldSize());
+                if (desired.aboveThan(oldLive)) {
+                    sizes.setOldSize(desired);
+                    oldSizeExceededInPreviousCollection = false;
+                    expandedSinceLastCompleteCollection = true;
+                }
+            }
 
             boolean survivorOverflow = acc.hasLastIncrementalCollectionOverflowedSurvivors();
             UnsignedWord survived = HeapImpl.getHeapImpl().getYoungGeneration().getSurvivorChunkBytes();
