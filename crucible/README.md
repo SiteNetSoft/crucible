@@ -274,6 +274,14 @@ about 165 and 203 MB and not 195 and 253. mnemonics runs in one of two modes, ab
 in either setting; the mode goes with the eden size the policy chooses, and a comparison of few runs can
 show a 10% difference that is only which mode each run landed in.
 `-XX:SerialGCOldGrowthFactor=<n>` sets the multiple at run time, and 0 waits for the capacity as before.
+When a young collection promotes beyond the old generation's capacity and the last complete collection
+kept more than three quarters of it, the live data is growing, and collecting the whole heap again
+reclaims little; since 2026-11-24 the collector grows the old generation to what that data asks for
+instead, and the next complete collection comes at the growth factor. A program whose live set grows to
+1.9 GB, Apache Avro encoding 600,000 records, collects completely twice instead of six times and runs 20%
+faster; Checkstyle runs 8% faster and PMD 3%. The fourteen Renaissance benchmarks and the two services are
+level in time; reactors peaks in 13% more memory and Spring Boot in 10 MB more.
+`-XX:-SerialGCExpandOldForLive` turns the rule off.
 
 The collector scans the young generation on several threads (build with `-H:-ParallelYoungCollection` to keep it on one), and `-XX:ParallelYoungCollectionThreads=<n>` sets how many at run time, the thread that runs the collection included (the default is the processors the program may use, which in a container is its limit, up to 9; with one processor, collections stay serial).
 Programs that spend much of their time in young collections on several threads of their own gain the most: on eight processors, with a profile, akka-uct runs 15% faster than on one thread and peaks at 1.2 GB and not 1.9, scala-stm-bench7 and reactors 12% faster, and scrabble 7%.
